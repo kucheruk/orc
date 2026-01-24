@@ -1,0 +1,3 @@
+.orc/
+!.orc/telegram.json.example
+orc_core/__pycache__/
