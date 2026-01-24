@@ -8,7 +8,7 @@ This project runs a Cursor Agent against a backlog and relies on Cursor hooks to
 
 - Python 3.8+
 - Cursor IDE installed
-- `ht` (headless terminal) installed (optional, but recommended)
+- `ht` (headless terminal) installed - **required** ([installation guide](https://github.com/andyk/ht))
 - A repository with a `BACKLOG.md` file containing tasks with IDs
 
 ### First Time Setup
@@ -111,14 +111,72 @@ If a task completes but no follow-up happens or the task file is not removed:
 
 ## Usage
 
+### Basic Usage
+
 Run:
 
-```
+```bash
 python3 orc.py --workspace /path/to/repo
 ```
 
 Or with absolute path:
 
-```
+```bash
 python3 /path/to/orc/orc.py --workspace /path/to/repo
+```
+
+### Command Line Options
+
+All available CLI options:
+
+#### Required Options
+- `--workspace PATH` - Path to the target repository (default: `.`)
+
+#### Backlog Options
+- `--backlog PATH` - Path to backlog file (default: `BACKLOG.md`)
+
+#### Agent Options
+- `--model MODEL` - Cursor agent model to use (default: `gpt-5.2-codex`)
+- `--prompt-template PATH` - Path to custom prompt template file (default: uses `prompts/default.txt`)
+- `--continue-template PATH` - Path to custom continue prompt file (default: uses `prompts/continue.txt`)
+
+#### Timing & Timeout Options
+- `--poll SECONDS` - Poll interval for task completion check (default: `1.0`)
+- `--stall-timeout SECONDS` - Seconds without output before considering agent stalled (default: `600.0` = 10 minutes)
+- `--task-ttl SECONDS` - Maximum seconds per task before aborting (default: `21600` = 6 hours)
+- `--report-interval SECONDS` - Seconds between stats reports (default: `15.0`)
+
+#### Restart & Recovery Options
+- `--max-restarts COUNT` - Maximum number of restarts for a task (default: `2`)
+- `--nudge-after COUNT` - Send continue prompt after N identical stats (default: `10`)
+- `--nudge-cooldown SECONDS` - Seconds between auto-nudges (default: `300.0` = 5 minutes)
+- `--nudge-text TEXT` - Text to send before Enter key (default: `continue`)
+
+#### HT (Headless Terminal) Options
+- `--ht-listen ADDRESS` - Optional ht listen address for debugging (e.g. `127.0.0.1:0`)
+
+#### Notification Options
+- `--summary-lines COUNT` - Number of lines to send to Telegram after completion (default: `25`)
+- `--telegram-test [MESSAGE]` - Send a test Telegram message and exit (default message: `"orc telegram test"`)
+
+#### Maintenance Options
+- `--reinit-hooks` - Recreate hooks on startup (useful for fixing broken hook configuration)
+
+### Examples
+
+```bash
+# Basic usage
+python3 orc.py --workspace /path/to/myproject
+
+# Use custom model and backlog file
+python3 orc.py --workspace /path/to/myproject --model gpt-4 --backlog TODO.md
+
+# Test Telegram notifications
+python3 orc.py --telegram-test "Hello from orc!"
+
+# Reinitialize hooks if they're broken
+python3 orc.py --workspace /path/to/myproject --reinit-hooks
+
+# Custom timeout settings for long-running tasks
+python3 orc.py --workspace /path/to/myproject --task-ttl 43200 --stall-timeout 1200
 ```
