@@ -1,182 +1,180 @@
-# orc.py Hook Workflow
+# ORC — оркестратор задач для Cursor Agent
 
-This project runs a Cursor Agent against a backlog and relies on Cursor hooks to mark tasks complete and trigger follow-up actions. The script itself launches the agent and then waits for hooks to finish the task.
+ORC нужен для репозитория с корректно оформленным `BACKLOG.md`: он последовательно запускает coding agent для каждой задачи, подставляя заранее заданные промпты. То есть это оркестратор, который ведёт агента по задачам одну за другой.
 
-## Quick Start
+Промпты спроектированы так, чтобы в начале агент читал информацию из доков, а по завершению — возвращал результаты обратно в документы. В итоге знания остаются консистентными по мере разработки, и каждый агент более‑менее в курсе контекста всей кодовой базы.
 
-### Prerequisites
+## Быстрый старт
+
+### Требования
 
 - Python 3.8+
-- Cursor IDE installed
-- `ht` (headless terminal) installed - **required** ([installation guide](https://github.com/andyk/ht))
-- A repository with a `BACKLOG.md` file containing tasks with IDs
+- Установлен Cursor IDE
+- Установлен `ht` (headless terminal) — **обязательно** ([инструкция](https://github.com/andyk/ht))
+- Репозиторий с `BACKLOG.md` и задачами с ID
 
-### First Time Setup
+### Первичная настройка
 
-1. **Clone or download this repository:**
+1. **Склонировать этот репозиторий:**
    ```bash
    git clone <repository-url>
    cd orc
    ```
 
-2. **Configure Telegram notifications (optional):**
+2. **Настроить Telegram‑уведомления (опционально):**
    ```bash
    mkdir -p .orc
    cp .orc/telegram.json.example .orc/telegram.json
-   # Edit .orc/telegram.json and add your bot token and chat ID
+   # Отредактируйте .orc/telegram.json и добавьте bot token и chat ID
    ```
-   
-   Or set environment variables:
+
+   Или через переменные окружения:
    ```bash
    export ORC_TELEGRAM_TOKEN="your_bot_token"
    export ORC_TELEGRAM_CHAT_ID="your_chat_id"
    ```
 
-3. **Prepare your target repository:**
-   - Create a `BACKLOG.md` file with tasks in format:
+3. **Подготовить целевой репозиторий:**
+   - Создайте `BACKLOG.md` в формате:
      ```
-     - [ ] TASK-01 First task description
-     - [ ] TASK-02 Second task description
+     - [ ] TASK-01 Описание первой задачи
+     - [ ] TASK-02 Описание второй задачи
      ```
-   - Each task must have a unique ID (uppercase letters, numbers, dashes, underscores)
+   - Каждый task ID должен быть уникальным (заглавные буквы, цифры, дефисы, подчёркивания)
 
-4. **Run the orchestrator:**
+4. **Запустить оркестратор:**
    ```bash
    python3 orc.py --workspace /path/to/your/repo
    ```
 
-   The orchestrator will:
-   - Parse `BACKLOG.md` and find the first open task
-   - Create necessary hook files in `.orc/` directory
-   - Launch the Cursor agent to work on the task
-   - Wait for completion and mark tasks as done automatically
+   ORC сделает следующее:
+   - Прочитает `BACKLOG.md` и найдёт первую невыполненную задачу
+   - Создаст нужные hook‑файлы в `.orc/`
+   - Запустит Cursor Agent для текущей задачи
+   - Дождётся завершения и автоматически отметит задачу как выполненную
 
-## Files created per repo
+## Файлы, которые создаются в репозитории
 
-When `orc.py` runs for a workspace, it creates these files inside that repository:
+Когда `orc.py` запускается для репозитория, он создаёт:
 
-- `.orc/orc-task.json` - task state used by hooks
-- `.orc/hooks/orc_before_submit.py` - hook for capturing `conversation_id`
-- `.orc/hooks/orc_stop.py` - hook for marking tasks done + followup
-- `.orc/hooks.json` - hook configuration for the repo
-- `.orc/orc-hook.log` - hook debug log
+- `.orc/orc-task.json` — состояние текущей задачи для хуков
+- `.orc/hooks/orc_before_submit.py` — hook для сохранения `conversation_id`
+- `.orc/hooks/orc_stop.py` — hook, который завершает задачу и отправляет follow‑up
+- `.orc/hooks.json` — конфигурация хуков репозитория
+- `.orc/orc-hook.log` — лог работы хуков
 
-If `.orc/orc-task.json` does not exist, the hooks do nothing and Cursor behaves normally.
+Если `.orc/orc-task.json` отсутствует, хуки ничего не делают.
 
-## orc.py algorithm (high level)
+## Алгоритм orc.py (в общих чертах)
 
-1. Parse `BACKLOG.md` and find the first open task with a task ID.
-2. If `.orc/orc-task.json` already exists:
-   - Read the task from that file.
-   - If the task is already marked `[x]` in `BACKLOG.md`, delete the task file and continue.
-   - Otherwise, launch the agent in "continue" mode for the stored task.
-3. If there is no active task file:
-   - Create `.orc/orc-task.json` with `task_id`, `task_text`, `backlog_path`, and `workspace_root`.
-   - Ensure hook scripts exist and that `.orc/hooks.json` includes them.
-   - Launch the agent with the default prompt for that task.
-4. Wait until `.orc/orc-task.json` is removed by the stop hook.
-5. Repeat from step 1.
+1. Разобрать `BACKLOG.md` и найти первую открытую задачу с ID.
+2. Если `.orc/orc-task.json` уже существует:
+   - Прочитать задачу из файла.
+   - Если задача уже отмечена `[x]` в `BACKLOG.md`, удалить файл задачи и продолжить.
+   - Иначе запустить агента в режиме “continue” для сохранённой задачи.
+3. Если активной задачи нет:
+   - Создать `.orc/orc-task.json` с `task_id`, `task_text`, `backlog_path`, `workspace_root`.
+   - Убедиться, что хуки созданы, а `.orc/hooks.json` содержит нужные записи.
+   - Запустить агента с дефолтным промптом для этой задачи.
+4. Подождать, пока stop‑hook удалит `.orc/orc-task.json`.
+5. Повторить цикл с шага 1.
 
-## Hook behavior
+## Поведение хуков
 
 ### beforeSubmitPrompt
 
-Reads JSON from stdin, and if `.orc/orc-task.json` exists in the repo:
+Читает JSON из stdin и, если в репозитории есть `.orc/orc-task.json`, то:
 
-- Captures `conversation_id` from the hook payload
-- Stores it in `.orc/orc-task.json` (if not already set)
-- Logs to `.orc/orc-hook.log`
+- забирает `conversation_id` из payload
+- сохраняет его в `.orc/orc-task.json` (если ещё не был сохранён)
+- пишет лог в `.orc/orc-hook.log`
 
 ### stop
 
-Reads JSON from stdin. If status is `completed`, and the task file exists:
+Читает JSON из stdin. Если `status = completed` и файл задачи существует, то:
 
-- Verifies the conversation id matches (if present)
-- Marks the matching ID line in `BACKLOG.md` as `[x]`
-- Deletes `.orc/orc-task.json`
-- Emits a follow-up JSON:
+- проверяет соответствие `conversation_id` (если он задан)
+- отмечает строку с task ID в `BACKLOG.md` как `[x]`
+- удаляет `.orc/orc-task.json`
+- пишет follow‑up JSON:
   ```
   {"followup_message":"commit+push with task ID and task description as commit message"}
   ```
-- Logs details and early exits to `.orc/orc-hook.log`
+- логирует детали в `.orc/orc-hook.log`
 
-## Troubleshooting
+## Диагностика проблем
 
-If a task completes but no follow-up happens or the task file is not removed:
+Если задача завершилась, но follow‑up не произошёл или файл задачи не удалён:
 
-1. Check `.orc/orc-hook.log` for hook activity and exit reasons.
-2. Confirm `.orc/orc-task.json` has the right `task_id` and `backlog_path`.
-3. Ensure the backlog line contains the same task ID in the `- [ ]` entry.
-4. Verify `.orc/hooks.json` references the repo hook scripts.
+1. Проверьте `.orc/orc-hook.log` — там причина выхода хуков.
+2. Убедитесь, что в `.orc/orc-task.json` корректные `task_id` и `backlog_path`.
+3. Проверьте, что строка в `BACKLOG.md` содержит тот же `task_id` в формате `- [ ]`.
+4. Убедитесь, что `.orc/hooks.json` ссылается на repo‑hooks.
 
-## Usage
+## Использование
 
-### Basic Usage
-
-Run:
+### Базовый запуск
 
 ```bash
 python3 orc.py --workspace /path/to/repo
 ```
 
-Or with absolute path:
+Или с абсолютным путём:
 
 ```bash
 python3 /path/to/orc/orc.py --workspace /path/to/repo
 ```
 
-### Command Line Options
+### Параметры командной строки
 
-All available CLI options:
+#### Обязательные параметры
+- `--workspace PATH` — путь к целевому репозиторию (по умолчанию: `.`)
 
-#### Required Options
-- `--workspace PATH` - Path to the target repository (default: `.`)
+#### Backlog
+- `--backlog PATH` — путь к файлу backlog (по умолчанию: `BACKLOG.md`)
 
-#### Backlog Options
-- `--backlog PATH` - Path to backlog file (default: `BACKLOG.md`)
+#### Агент
+- `--model MODEL` — модель Cursor agent (по умолчанию: `gpt-5.2-codex`)
+- `--prompt-template PATH` — путь к кастомному prompt‑шаблону (по умолчанию: `prompts/default.txt`)
+- `--continue-template PATH` — путь к prompt‑шаблону для continue (по умолчанию: `prompts/continue.txt`)
 
-#### Agent Options
-- `--model MODEL` - Cursor agent model to use (default: `gpt-5.2-codex`)
-- `--prompt-template PATH` - Path to custom prompt template file (default: uses `prompts/default.txt`)
-- `--continue-template PATH` - Path to custom continue prompt file (default: uses `prompts/continue.txt`)
+#### Тайминги и таймауты
+- `--poll SECONDS` — интервал проверки статуса (по умолчанию: `1.0`)
+- `--stall-timeout SECONDS` — сколько секунд без вывода считать за зависание (по умолчанию: `600.0` = 10 минут)
+- `--task-ttl SECONDS` — максимальная длительность задачи (по умолчанию: `21600` = 6 часов)
+- `--report-interval SECONDS` — интервал статистики (по умолчанию: `15.0`)
 
-#### Timing & Timeout Options
-- `--poll SECONDS` - Poll interval for task completion check (default: `1.0`)
-- `--stall-timeout SECONDS` - Seconds without output before considering agent stalled (default: `600.0` = 10 minutes)
-- `--task-ttl SECONDS` - Maximum seconds per task before aborting (default: `21600` = 6 hours)
-- `--report-interval SECONDS` - Seconds between stats reports (default: `15.0`)
+#### Рестарты и восстановление
+- `--max-restarts COUNT` — максимум рестартов (по умолчанию: `2`)
+- `--nudge-after COUNT` — отправлять continue после N одинаковых статистик (по умолчанию: `10`)
+- `--nudge-cooldown SECONDS` — интервал между auto‑nudge (по умолчанию: `300.0` = 5 минут)
+- `--nudge-text TEXT` — текст, отправляемый перед Enter (по умолчанию: `continue`)
 
-#### Restart & Recovery Options
-- `--max-restarts COUNT` - Maximum number of restarts for a task (default: `2`)
-- `--nudge-after COUNT` - Send continue prompt after N identical stats (default: `10`)
-- `--nudge-cooldown SECONDS` - Seconds between auto-nudges (default: `300.0` = 5 minutes)
-- `--nudge-text TEXT` - Text to send before Enter key (default: `continue`)
+#### HT (Headless Terminal)
+- `--ht-listen ADDRESS` — адрес для слушателя ht (например, `127.0.0.1:0`)
 
-#### HT (Headless Terminal) Options
-- `--ht-listen ADDRESS` - Optional ht listen address for debugging (e.g. `127.0.0.1:0`)
+#### Уведомления
+- `--summary-lines COUNT` — количество строк для Telegram‑сводки (по умолчанию: `25`)
+- `--telegram-test [MESSAGE]` — отправить тестовое сообщение и выйти (по умолчанию: `"orc telegram test"`)
 
-#### Notification Options
-- `--summary-lines COUNT` - Number of lines to send to Telegram after completion (default: `25`)
-- `--telegram-test [MESSAGE]` - Send a test Telegram message and exit (default message: `"orc telegram test"`)
+#### Обслуживание
+- `--reinit-hooks` — пересоздать хуки при старте (полезно при поломанных конфигурациях)
 
-#### Maintenance Options
-- `--reinit-hooks` - Recreate hooks on startup (useful for fixing broken hook configuration)
-
-### Examples
+### Примеры
 
 ```bash
-# Basic usage
+# Базовый запуск
 python3 orc.py --workspace /path/to/myproject
 
-# Use custom model and backlog file
+# Кастомная модель и другой backlog
 python3 orc.py --workspace /path/to/myproject --model gpt-4 --backlog TODO.md
 
-# Test Telegram notifications
+# Проверка Telegram
 python3 orc.py --telegram-test "Hello from orc!"
 
-# Reinitialize hooks if they're broken
+# Переинициализация хуков
 python3 orc.py --workspace /path/to/myproject --reinit-hooks
 
-# Custom timeout settings for long-running tasks
+# Длинные задачи
 python3 orc.py --workspace /path/to/myproject --task-ttl 43200 --stall-timeout 1200
 ```
