@@ -9,8 +9,11 @@ from pathlib import Path
 from typing import Dict
 
 ORC_ROOT = Path(__file__).resolve().parents[1]
-DEBUG_LOG_PATH = ORC_ROOT / ".orc" / "debug.log"
-DEBUG_RAW_LOG_PATH = ORC_ROOT / ".orc" / "debug-raw.log"
+ORC_LOG_DIR = ORC_ROOT / ".orc"
+ORC_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+DEBUG_LOG_PATH = ORC_LOG_DIR / "debug.log"
+DEBUG_RAW_LOG_PATH = ORC_LOG_DIR / "debug-raw.log"
 
 ORC_LOG_NAME = "orc.log"
 ORC_DATA_DIR = ".orc"

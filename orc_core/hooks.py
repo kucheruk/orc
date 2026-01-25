@@ -263,7 +263,9 @@ import orc_hook_lib as lib
 
 def main() -> int:
     script_repo = Path(__file__).resolve().parents[2]
-    log_path = script_repo / ".orc" / "orc-hook.log"
+    orc_dir = script_repo / ".orc"
+    cursor_dir = script_repo / ".cursor"
+    log_path = orc_dir / "orc-hook.log"
     try:
         raw = sys.stdin.read() or "{}"
         data = json.loads(raw)
@@ -276,7 +278,11 @@ def main() -> int:
         lib.log_event(log_path, "INFO", "beforeSubmitPrompt: workspace mismatch", roots=roots)
         return 0
 
-    task_file = script_repo / ".orc" / "orc-task.json"
+    task_file = orc_dir / "orc-task.json"
+    if not task_file.exists():
+        cursor_task_file = cursor_dir / "orc-task.json"
+        if cursor_task_file.exists():
+            task_file = cursor_task_file
     lib.log_event(log_path, "INFO", "beforeSubmitPrompt", conversation_id=data.get("conversation_id"))
     if not task_file.exists():
         lib.log_event(log_path, "INFO", "beforeSubmitPrompt: no task file")
@@ -327,7 +333,9 @@ import orc_hook_lib as lib
 
 def main() -> int:
     script_repo = Path(__file__).resolve().parents[2]
-    log_path = script_repo / ".orc" / "orc-hook.log"
+    orc_dir = script_repo / ".orc"
+    cursor_dir = script_repo / ".cursor"
+    log_path = orc_dir / "orc-hook.log"
     try:
         raw = sys.stdin.read() or "{}"
         data = json.loads(raw)
@@ -340,7 +348,11 @@ def main() -> int:
         lib.log_event(log_path, "INFO", "stop: workspace mismatch", roots=roots)
         return 0
 
-    task_file = script_repo / ".orc" / "orc-task.json"
+    task_file = orc_dir / "orc-task.json"
+    if not task_file.exists():
+        cursor_task_file = cursor_dir / "orc-task.json"
+        if cursor_task_file.exists():
+            task_file = cursor_task_file
     lib.log_event(
         log_path,
         "INFO",
@@ -392,8 +404,24 @@ def main() -> int:
             task_file.unlink()
         except Exception as exc:
             lib.log_event(log_path, "ERROR", "stop: failed to delete task file", error=str(exc))
+        other_task_file = cursor_dir / "orc-task.json" if task_file.parent.name != ".cursor" else orc_dir / "orc-task.json"
+        if other_task_file.exists():
+            try:
+                other_task_file.unlink()
+            except Exception as exc:
+                lib.log_event(log_path, "ERROR", "stop: failed to delete mirrored task file", error=str(exc))
         loop_count = int(data.get("loop_count") or 0)
         task_text = str(task.get("task_text") or "").strip()
+        task_notes_path = script_repo / "tasks" / f"{task_id}.md"
+        task_notes = ""
+        if task_notes_path.exists():
+            try:
+                task_notes = task_notes_path.read_text(encoding="utf-8").strip()
+            except Exception as exc:
+                lib.log_event(log_path, "ERROR", "stop: failed to read task notes", error=str(exc))
+                task_notes = ""
+        if task_notes:
+            task_text = task_notes
         total, done = (0, 0)
         try:
             total, done = lib.parse_backlog_counts(Path(backlog_path))
@@ -432,36 +460,62 @@ if __name__ == "__main__":
     before_path.chmod(0o755)
     stop_path.chmod(0o755)
     hook_lib_path.chmod(0o755)
+
+    cursor_dir = Path(workdir) / ".cursor"
+    if cursor_dir.exists():
+        cursor_hooks_dir = cursor_dir / "hooks"
+        cursor_hooks_dir.mkdir(parents=True, exist_ok=True)
+        cursor_before = cursor_hooks_dir / "orc_before_submit.py"
+        cursor_stop = cursor_hooks_dir / "orc_stop.py"
+        cursor_hook_lib = cursor_hooks_dir / "orc_hook_lib.py"
+        cursor_before.write_text(before_script, encoding="utf-8")
+        cursor_stop.write_text(stop_script, encoding="utf-8")
+        cursor_hook_lib.write_text(hook_lib_script, encoding="utf-8")
+        cursor_before.chmod(0o755)
+        cursor_stop.chmod(0o755)
+        cursor_hook_lib.chmod(0o755)
     return before_path, stop_path
 
 
 def ensure_repo_hooks_config(workdir: str, before_path: Path, stop_path: Path, log_path: Path) -> Path:
-    hooks_path = Path(workdir) / ".orc" / "hooks.json"
-    hooks_path.parent.mkdir(parents=True, exist_ok=True)
-    if hooks_path.exists():
-        try:
-            data = json.loads(hooks_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            log_event(log_path, "ERROR", "hooks.json: bad JSON", error=str(exc))
+    def _ensure_hooks_file(hooks_path: Path, before_cmd: str, stop_cmd: str, label: str) -> None:
+        hooks_path.parent.mkdir(parents=True, exist_ok=True)
+        if hooks_path.exists():
+            try:
+                data = json.loads(hooks_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                log_event(log_path, "ERROR", f"{label}: bad JSON", error=str(exc))
+                data = {}
+        else:
             data = {}
-    else:
-        data = {}
-    data.setdefault("version", 1)
-    hooks = data.setdefault("hooks", {})
-    before_list = hooks.setdefault("beforeSubmitPrompt", [])
-    stop_list = hooks.setdefault("stop", [])
+        data.setdefault("version", 1)
+        hooks = data.setdefault("hooks", {})
+        before_list = hooks.setdefault("beforeSubmitPrompt", [])
+        stop_list = hooks.setdefault("stop", [])
 
-    before_cmd = f"python3 {before_path}"
-    stop_cmd = f"python3 {stop_path}"
+        if not any(item.get("command") == before_cmd for item in before_list if isinstance(item, dict)):
+            before_list.append({"command": before_cmd})
+            log_event(log_path, "INFO", f"{label}: added beforeSubmitPrompt", command=before_cmd)
+        if not any(item.get("command") == stop_cmd for item in stop_list if isinstance(item, dict)):
+            stop_list.append({"command": stop_cmd})
+            log_event(log_path, "INFO", f"{label}: added stop", command=stop_cmd)
 
-    if not any(item.get("command") == before_cmd for item in before_list if isinstance(item, dict)):
-        before_list.append({"command": before_cmd})
-        log_event(log_path, "INFO", "hooks.json: added beforeSubmitPrompt", command=before_cmd)
-    if not any(item.get("command") == stop_cmd for item in stop_list if isinstance(item, dict)):
-        stop_list.append({"command": stop_cmd})
-        log_event(log_path, "INFO", "hooks.json: added stop", command=stop_cmd)
+        hooks_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    hooks_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    hooks_path = Path(workdir) / ".orc" / "hooks.json"
+    _ensure_hooks_file(hooks_path, f"python3 {before_path}", f"python3 {stop_path}", "hooks.json")
+
+    cursor_dir = Path(workdir) / ".cursor"
+    cursor_hooks_path = cursor_dir / "hooks.json"
+    if cursor_dir.exists() or cursor_hooks_path.exists():
+        cursor_before = cursor_dir / "hooks" / "orc_before_submit.py"
+        cursor_stop = cursor_dir / "hooks" / "orc_stop.py"
+        _ensure_hooks_file(
+            cursor_hooks_path,
+            f"python3 {cursor_before}",
+            f"python3 {cursor_stop}",
+            ".cursor/hooks.json",
+        )
     return hooks_path
 
 
@@ -480,6 +534,13 @@ def write_task_file(workdir: str, task: Task, backlog_path: Path, log_path: Path
     }
     task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     log_event(log_path, "INFO", "task file written", path=str(task_path), task_id=task.task_id)
+    cursor_task_path = Path(workdir) / ".cursor" / "orc-task.json"
+    if cursor_task_path.parent.exists():
+        try:
+            cursor_task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            log_event(log_path, "INFO", "task file mirrored", path=str(cursor_task_path), task_id=task.task_id)
+        except Exception as exc:
+            log_event(log_path, "ERROR", "failed to mirror task file", error=str(exc), path=str(cursor_task_path))
     return task_path
 
 
@@ -494,3 +555,10 @@ def update_task_restart_count(task_path: Path, log_path: Path, restart_count: in
         task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as exc:
         log_event(log_path, "ERROR", "failed to update task restart count", error=str(exc))
+        return
+    cursor_task_path = task_path.parents[1] / ".cursor" / task_path.name
+    if cursor_task_path.exists():
+        try:
+            cursor_task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as exc:
+            log_event(log_path, "ERROR", "failed to update mirrored task file", error=str(exc), path=str(cursor_task_path))
