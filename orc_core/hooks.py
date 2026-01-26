@@ -86,6 +86,34 @@ def git_has_changes(repo_root: Path, log_path: Optional[Path] = None) -> bool:
         return True
     return bool(result.stdout.strip())
 
+def git_has_recent_commit(repo_root: Path, since_iso: str, log_path: Optional[Path] = None) -> bool:
+    if not since_iso:
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "log", "--since", since_iso, "-n", "1", "--pretty=oneline"],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        if log_path:
+            log_event(log_path, "ERROR", "git log failed", error=str(exc))
+        return False
+    if result.returncode != 0:
+        if log_path:
+            log_event(
+                log_path,
+                "ERROR",
+                "git log non-zero",
+                returncode=result.returncode,
+                stderr=result.stderr[:500],
+            )
+        return False
+    return bool(result.stdout.strip())
+
 def extract_task_id(text: str):
     m = TASK_ID_RE.search(text)
     return m.group("id") if m else None
@@ -426,18 +454,22 @@ def main() -> int:
         lib.log_event(log_path, "WARN", "stop: status not completed but task already marked", task_id=task_id, status=status)
 
     if status == "completed" and not lib.git_has_changes(script_repo, log_path):
-        lib.log_event(log_path, "WARN", "stop: no git changes; retrying task", task_id=task_id)
-        try:
-            task_file.unlink()
-        except Exception as exc:
-            lib.log_event(log_path, "ERROR", "stop: failed to delete task file", error=str(exc))
-        other_task_file = cursor_dir / "orc-task.json" if task_file.parent.name != ".cursor" else orc_dir / "orc-task.json"
-        if other_task_file.exists():
+        created_at = str(task.get("created_at") or "").strip()
+        if lib.git_has_recent_commit(script_repo, created_at, log_path):
+            lib.log_event(log_path, "INFO", "stop: recent commit detected; proceeding", task_id=task_id)
+        else:
+            lib.log_event(log_path, "WARN", "stop: no git changes; retrying task", task_id=task_id)
             try:
-                other_task_file.unlink()
+                task_file.unlink()
             except Exception as exc:
-                lib.log_event(log_path, "ERROR", "stop: failed to delete mirrored task file", error=str(exc))
-        return 0
+                lib.log_event(log_path, "ERROR", "stop: failed to delete task file", error=str(exc))
+            other_task_file = cursor_dir / "orc-task.json" if task_file.parent.name != ".cursor" else orc_dir / "orc-task.json"
+            if other_task_file.exists():
+                try:
+                    other_task_file.unlink()
+                except Exception as exc:
+                    lib.log_event(log_path, "ERROR", "stop: failed to delete mirrored task file", error=str(exc))
+            return 0
 
     if lib.mark_task_done(Path(backlog_path), task_id):
         lib.log_event(log_path, "INFO", "stop: marked task", task_id=task_id)
