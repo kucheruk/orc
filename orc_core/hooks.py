@@ -22,6 +22,7 @@ def ensure_repo_hooks(workdir: str) -> Tuple[Path, Path]:
 import json
 import os
 import re
+import subprocess
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -58,6 +59,32 @@ def read_json(path: Path, default):
 def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def git_has_changes(repo_root: Path, log_path: Optional[Path] = None) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        if log_path:
+            log_event(log_path, "ERROR", "git status failed", error=str(exc))
+        return True
+    if result.returncode != 0:
+        if log_path:
+            log_event(
+                log_path,
+                "ERROR",
+                "git status non-zero",
+                returncode=result.returncode,
+                stderr=result.stderr[:500],
+            )
+        return True
+    return bool(result.stdout.strip())
 
 def extract_task_id(text: str):
     m = TASK_ID_RE.search(text)
@@ -397,6 +424,10 @@ def main() -> int:
             lib.log_event(log_path, "INFO", "stop: status not completed")
             return 0
         lib.log_event(log_path, "WARN", "stop: status not completed but task already marked", task_id=task_id, status=status)
+
+    if status == "completed" and not lib.git_has_changes(script_repo, log_path):
+        lib.log_event(log_path, "WARN", "stop: no git changes; refusing to mark done", task_id=task_id)
+        return 0
 
     if lib.mark_task_done(Path(backlog_path), task_id):
         lib.log_event(log_path, "INFO", "stop: marked task", task_id=task_id)
