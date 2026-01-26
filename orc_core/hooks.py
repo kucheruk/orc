@@ -426,7 +426,17 @@ def main() -> int:
         lib.log_event(log_path, "WARN", "stop: status not completed but task already marked", task_id=task_id, status=status)
 
     if status == "completed" and not lib.git_has_changes(script_repo, log_path):
-        lib.log_event(log_path, "WARN", "stop: no git changes; refusing to mark done", task_id=task_id)
+        lib.log_event(log_path, "WARN", "stop: no git changes; retrying task", task_id=task_id)
+        try:
+            task_file.unlink()
+        except Exception as exc:
+            lib.log_event(log_path, "ERROR", "stop: failed to delete task file", error=str(exc))
+        other_task_file = cursor_dir / "orc-task.json" if task_file.parent.name != ".cursor" else orc_dir / "orc-task.json"
+        if other_task_file.exists():
+            try:
+                other_task_file.unlink()
+            except Exception as exc:
+                lib.log_event(log_path, "ERROR", "stop: failed to delete mirrored task file", error=str(exc))
         return 0
 
     if lib.mark_task_done(Path(backlog_path), task_id):
