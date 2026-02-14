@@ -120,6 +120,45 @@ def _get_resume_id_from_agent_ls(workdir: str, log_path: Path) -> Optional[str]:
     return resume_id
 
 
+def _invoke_stop_hook_fallback(workdir: str, task_path: Path, log_path: Path) -> bool:
+    stop_hook = Path(workdir) / ".cursor" / "hooks" / "orc_stop.py"
+    if not stop_hook.exists():
+        log_event(log_path, "WARN", "fallback stop skipped: hook missing", hook=str(stop_hook))
+        return False
+    try:
+        payload = json.loads(task_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        log_event(log_path, "ERROR", "fallback stop: failed to read task file", error=str(exc))
+        return False
+    stdin_payload = {
+        "status": "completed",
+        "loop_count": 0,
+        "conversation_id": payload.get("conversation_id") or "",
+    }
+    try:
+        result = subprocess.run(
+            ["python3", str(stop_hook)],
+            cwd=workdir,
+            input=json.dumps(stdin_payload),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        log_event(log_path, "ERROR", "fallback stop: hook invocation failed", error=str(exc))
+        return False
+    log_event(
+        log_path,
+        "WARN" if result.returncode != 0 else "INFO",
+        "fallback stop invoked",
+        returncode=result.returncode,
+        stdout=(result.stdout or "")[:500],
+        stderr=(result.stderr or "")[:500],
+    )
+    return result.returncode == 0
+
+
 def wait_for_completion(
     task_path: Path,
     monitor,
@@ -139,6 +178,8 @@ def wait_for_completion(
     last_tokens_value: Optional[int] = None
     last_tokens_time = time.time()
     last_stuck_notice_time = 0.0
+    followup_seen_at: Optional[float] = None
+    fallback_invoked = False
     #region agent log
     debug_log(
         "H3",
@@ -179,6 +220,36 @@ def wait_for_completion(
         else:
             same_count = 0
             last_stats_key = stats_key
+        if monitor.ui_followup_prompt:
+            if followup_seen_at is None:
+                followup_seen_at = time.time()
+            # Cursor can stay on "Add a follow-up" despite task completion.
+            # If backlog already has [x], invoke stop-hook fallback to clear stale task file.
+            if not fallback_invoked and (time.time() - followup_seen_at) >= 20.0:
+                try:
+                    payload = json.loads(task_path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    log_event(log_path, "ERROR", "fallback stop: failed to parse task json", error=str(exc))
+                    payload = {}
+                backlog_path = payload.get("backlog_path")
+                current_task_id = payload.get("task_id")
+                if backlog_path and current_task_id and is_task_done(Path(backlog_path), str(current_task_id)):
+                    log_event(
+                        log_path,
+                        "WARN",
+                        "follow-up prompt stuck with done task; invoking fallback stop",
+                        task_id=current_task_id,
+                    )
+                    fallback_invoked = _invoke_stop_hook_fallback(monitor.workdir, task_path, log_path)
+                else:
+                    log_event(
+                        log_path,
+                        "INFO",
+                        "follow-up prompt visible but task not marked done yet",
+                        task_id=current_task_id,
+                    )
+        else:
+            followup_seen_at = None
         # Auto-continue removed (was unreliable and noisy).
         if monitor.proc.poll() is not None:
             log_event(log_path, "ERROR", "ht process exited while task still active", returncode=monitor.proc.returncode)
@@ -285,7 +356,7 @@ def main() -> int:
             log_event(orc_log_path, "ERROR", "prompt file missing", error=str(exc))
             return 2
 
-        task_path = Path(workdir) / ".orc" / TASK_FILE_NAME
+        task_path = Path(workdir) / ".cursor" / TASK_FILE_NAME
         run_root = Path(workdir) / ".orc" / "backlog-run"
         while True:
             tasks = parse_backlog(backlog_path)

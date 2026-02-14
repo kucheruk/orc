@@ -10,12 +10,14 @@ from .logging import log_event, now_iso
 
 
 def ensure_repo_hooks(workdir: str) -> Tuple[Path, Path]:
-    hooks_dir = Path(workdir) / ".orc" / "hooks"
-    hooks_dir.mkdir(parents=True, exist_ok=True)
+    cursor_dir = Path(workdir) / ".cursor"
+    cursor_dir.mkdir(parents=True, exist_ok=True)
+    cursor_hooks_dir = cursor_dir / "hooks"
+    cursor_hooks_dir.mkdir(parents=True, exist_ok=True)
 
-    before_path = hooks_dir / "orc_before_submit.py"
-    stop_path = hooks_dir / "orc_stop.py"
-    hook_lib_path = hooks_dir / "orc_hook_lib.py"
+    before_path = cursor_hooks_dir / "orc_before_submit.py"
+    stop_path = cursor_hooks_dir / "orc_stop.py"
+    hook_lib_path = cursor_hooks_dir / "orc_hook_lib.py"
 
     orc_root = Path(__file__).resolve().parents[1]
     hook_lib_script = """#!/usr/bin/env python3
@@ -319,7 +321,6 @@ import orc_hook_lib as lib
 def main() -> int:
     script_repo = Path(__file__).resolve().parents[2]
     orc_dir = script_repo / ".orc"
-    cursor_dir = script_repo / ".cursor"
     log_path = orc_dir / "orc-hook.log"
     try:
         raw = sys.stdin.read() or "{}"
@@ -333,11 +334,7 @@ def main() -> int:
         lib.log_event(log_path, "INFO", "beforeSubmitPrompt: workspace mismatch", roots=roots)
         return 0
 
-    task_file = orc_dir / "orc-task.json"
-    if not task_file.exists():
-        cursor_task_file = cursor_dir / "orc-task.json"
-        if cursor_task_file.exists():
-            task_file = cursor_task_file
+    task_file = script_repo / ".cursor" / "orc-task.json"
     lib.log_event(log_path, "INFO", "beforeSubmitPrompt", conversation_id=data.get("conversation_id"))
     if not task_file.exists():
         lib.log_event(log_path, "INFO", "beforeSubmitPrompt: no task file")
@@ -389,7 +386,6 @@ import orc_hook_lib as lib
 def main() -> int:
     script_repo = Path(__file__).resolve().parents[2]
     orc_dir = script_repo / ".orc"
-    cursor_dir = script_repo / ".cursor"
     log_path = orc_dir / "orc-hook.log"
     try:
         raw = sys.stdin.read() or "{}"
@@ -403,11 +399,7 @@ def main() -> int:
         lib.log_event(log_path, "INFO", "stop: workspace mismatch", roots=roots)
         return 0
 
-    task_file = orc_dir / "orc-task.json"
-    if not task_file.exists():
-        cursor_task_file = cursor_dir / "orc-task.json"
-        if cursor_task_file.exists():
-            task_file = cursor_task_file
+    task_file = script_repo / ".cursor" / "orc-task.json"
     lib.log_event(
         log_path,
         "INFO",
@@ -463,12 +455,6 @@ def main() -> int:
                 task_file.unlink()
             except Exception as exc:
                 lib.log_event(log_path, "ERROR", "stop: failed to delete task file", error=str(exc))
-            other_task_file = cursor_dir / "orc-task.json" if task_file.parent.name != ".cursor" else orc_dir / "orc-task.json"
-            if other_task_file.exists():
-                try:
-                    other_task_file.unlink()
-                except Exception as exc:
-                    lib.log_event(log_path, "ERROR", "stop: failed to delete mirrored task file", error=str(exc))
             return 0
 
     if lib.mark_task_done(Path(backlog_path), task_id):
@@ -477,12 +463,6 @@ def main() -> int:
             task_file.unlink()
         except Exception as exc:
             lib.log_event(log_path, "ERROR", "stop: failed to delete task file", error=str(exc))
-        other_task_file = cursor_dir / "orc-task.json" if task_file.parent.name != ".cursor" else orc_dir / "orc-task.json"
-        if other_task_file.exists():
-            try:
-                other_task_file.unlink()
-            except Exception as exc:
-                lib.log_event(log_path, "ERROR", "stop: failed to delete mirrored task file", error=str(exc))
         loop_count = int(data.get("loop_count") or 0)
         task_text = str(task.get("task_text") or "").strip()
         task_notes_path = script_repo / "tasks" / f"{task_id}.md"
@@ -533,20 +513,6 @@ if __name__ == "__main__":
     before_path.chmod(0o755)
     stop_path.chmod(0o755)
     hook_lib_path.chmod(0o755)
-
-    cursor_dir = Path(workdir) / ".cursor"
-    if cursor_dir.exists():
-        cursor_hooks_dir = cursor_dir / "hooks"
-        cursor_hooks_dir.mkdir(parents=True, exist_ok=True)
-        cursor_before = cursor_hooks_dir / "orc_before_submit.py"
-        cursor_stop = cursor_hooks_dir / "orc_stop.py"
-        cursor_hook_lib = cursor_hooks_dir / "orc_hook_lib.py"
-        cursor_before.write_text(before_script, encoding="utf-8")
-        cursor_stop.write_text(stop_script, encoding="utf-8")
-        cursor_hook_lib.write_text(hook_lib_script, encoding="utf-8")
-        cursor_before.chmod(0o755)
-        cursor_stop.chmod(0o755)
-        cursor_hook_lib.chmod(0o755)
     return before_path, stop_path
 
 
@@ -575,25 +541,20 @@ def ensure_repo_hooks_config(workdir: str, before_path: Path, stop_path: Path, l
 
         hooks_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    hooks_path = Path(workdir) / ".orc" / "hooks.json"
-    _ensure_hooks_file(hooks_path, f"python3 {before_path}", f"python3 {stop_path}", "hooks.json")
-
     cursor_dir = Path(workdir) / ".cursor"
+    cursor_dir.mkdir(parents=True, exist_ok=True)
     cursor_hooks_path = cursor_dir / "hooks.json"
-    if cursor_dir.exists() or cursor_hooks_path.exists():
-        cursor_before = cursor_dir / "hooks" / "orc_before_submit.py"
-        cursor_stop = cursor_dir / "hooks" / "orc_stop.py"
-        _ensure_hooks_file(
-            cursor_hooks_path,
-            f"python3 {cursor_before}",
-            f"python3 {cursor_stop}",
-            ".cursor/hooks.json",
-        )
-    return hooks_path
+    _ensure_hooks_file(
+        cursor_hooks_path,
+        f"python3 {before_path}",
+        f"python3 {stop_path}",
+        ".cursor/hooks.json",
+    )
+    return cursor_hooks_path
 
 
 def write_task_file(workdir: str, task: Task, backlog_path: Path, log_path: Path, restart_count: int = 0) -> Path:
-    task_path = Path(workdir) / ".orc" / "orc-task.json"
+    task_path = Path(workdir) / ".cursor" / "orc-task.json"
     task_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": 1,
@@ -607,13 +568,6 @@ def write_task_file(workdir: str, task: Task, backlog_path: Path, log_path: Path
     }
     task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     log_event(log_path, "INFO", "task file written", path=str(task_path), task_id=task.task_id)
-    cursor_task_path = Path(workdir) / ".cursor" / "orc-task.json"
-    if cursor_task_path.parent.exists():
-        try:
-            cursor_task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            log_event(log_path, "INFO", "task file mirrored", path=str(cursor_task_path), task_id=task.task_id)
-        except Exception as exc:
-            log_event(log_path, "ERROR", "failed to mirror task file", error=str(exc), path=str(cursor_task_path))
     return task_path
 
 
@@ -629,9 +583,3 @@ def update_task_restart_count(task_path: Path, log_path: Path, restart_count: in
     except Exception as exc:
         log_event(log_path, "ERROR", "failed to update task restart count", error=str(exc))
         return
-    cursor_task_path = task_path.parents[1] / ".cursor" / task_path.name
-    if cursor_task_path.exists():
-        try:
-            cursor_task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception as exc:
-            log_event(log_path, "ERROR", "failed to update mirrored task file", error=str(exc), path=str(cursor_task_path))

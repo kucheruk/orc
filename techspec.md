@@ -12,7 +12,7 @@ Provide a reliable, repo-local orchestrator that runs a Cursor Agent against a b
    - If the active task is already `[x]`, the orchestrator must delete the task file and continue.
 
 2. **Repo-local hooks only**
-   - Hooks must be configured in `<repo>/.orc/hooks.json`.
+   - Hooks must be configured in `<repo>/.cursor/hooks.json`.
    - No writes to `~/.cursor/hooks/hooks.json`.
 
 3. **Backlog by ID**
@@ -55,7 +55,7 @@ ID regex (normalized):
 
 ### Task File
 
-Path: `<repo>/.orc/orc-task.json`
+Path: `<repo>/.cursor/orc-task.json`
 
 Example:
 ```json
@@ -72,7 +72,7 @@ Example:
 
 ### Hook Configuration
 
-Path: `<repo>/.orc/hooks.json`
+Path: `<repo>/.cursor/hooks.json`
 
 Example:
 ```json
@@ -80,10 +80,10 @@ Example:
   "version": 1,
   "hooks": {
     "beforeSubmitPrompt": [
-      { "command": "python3 /path/to/repo/.orc/hooks/orc_before_submit.py" }
+      { "command": "python3 /path/to/repo/.cursor/hooks/orc_before_submit.py" }
     ],
     "stop": [
-      { "command": "python3 /path/to/repo/.orc/hooks/orc_stop.py" }
+      { "command": "python3 /path/to/repo/.cursor/hooks/orc_stop.py" }
     ]
   }
 }
@@ -121,16 +121,16 @@ Example:
 
 1. Parse backlog.
 2. Find first open task with ID.
-3. If `.orc/orc-task.json` exists:
+3. If `.cursor/orc-task.json` exists:
    - Load task.
    - If that task is already `[x]`, delete file.
    - Otherwise run continue prompt for that task.
 4. If no task file exists:
    - Create task file with ID and backlog path.
    - Ensure repo hook scripts exist.
-   - Ensure `<repo>/.orc/hooks.json` has the hook entries.
+   - Ensure `<repo>/.cursor/hooks.json` has the hook entries.
    - Launch agent with default prompt.
-5. Wait until `.orc/orc-task.json` disappears (hook removes it).
+5. Wait until `.cursor/orc-task.json` disappears (hook removes it).
 6. Repeat from step 1.
 
 ## Hook Behavior
@@ -150,7 +150,7 @@ Example:
 - If conversation ID mismatch: log but continue (no early exit).
 - If task ID found in backlog:
   - Ensure the line is `[x]` (no title edits).
-  - Delete `.orc/orc-task.json`.
+  - Delete `.cursor/orc-task.json`.
   - Emit followup JSON.
 - If task ID not found: log and exit.
 
@@ -277,8 +277,8 @@ sqlite3 state.vscdb "SELECT substr(value,1,800) FROM ItemTable WHERE key='aiServ
 ## Testing Checklist
 
 1. Run orchestrator on repo with open task.
-2. Verify `.orc/orc-task.json` created.
-3. Verify repo `.orc/hooks.json` created.
+2. Verify `.cursor/orc-task.json` created.
+3. Verify repo `.cursor/hooks.json` created.
 4. Agent completes task:
    - backlog line `[x]`
    - task file deleted
