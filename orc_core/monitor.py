@@ -616,6 +616,8 @@ class HtMonitor:
                 log_event(self.log_path, "ERROR", "ht stdout: bad json", error=str(exc), raw=raw[:500])
                 continue
             if event_type == "init":
+                # Treat init as activity to avoid false stalls early.
+                self.last_output_time = time.time()
                 pid = data.get("pid")
                 if isinstance(pid, int):
                     self.init_pid = pid
@@ -645,6 +647,9 @@ class HtMonitor:
                     )
                     #endregion
             elif event_type == "snapshot":
+                # Snapshots are a sign of liveness (and often carry token updates),
+                # so treat them as activity to avoid false "stall" detection.
+                self.last_output_time = time.time()
                 log_event(self.log_path, "INFO", "ht snapshot", cols=data.get("cols"), rows=data.get("rows"))
                 text = data.get("text") or ""
                 snapshot_lines = text.splitlines()
