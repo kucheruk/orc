@@ -315,21 +315,48 @@ def wait_for_process_exit(
     task_ttl: float,
     log_path: Path,
     label: str,
+    stop_on_followup_prompt: bool = False,
 ) -> str:
     """
     Wait for the ht/agent process to exit (used for non-task phases, e.g. commit).
     """
     start_time = time.time()
+    followup_seen_at: Optional[float] = None
+    followup_enter_sent = False
+    followup_ctrlc_sent = False
     #region agent log
     debug_log(
         "H3",
         "orc_core/supervisor.py:wait_for_process_exit:start",
         "wait process exit loop start",
-        {"stall_timeout": stall_timeout, "task_ttl": task_ttl, "poll": poll, "label": label},
+        {
+            "stall_timeout": stall_timeout,
+            "task_ttl": task_ttl,
+            "poll": poll,
+            "label": label,
+            "stop_on_followup_prompt": stop_on_followup_prompt,
+        },
     )
     #endregion
     while True:
         monitor.maybe_report()
+        if stop_on_followup_prompt and getattr(monitor, "ui_followup_prompt", False):
+            if followup_seen_at is None:
+                followup_seen_at = time.time()
+                log_event(log_path, "WARN", "follow-up prompt visible during phase", label=label)
+            seen_for = time.time() - followup_seen_at
+            # In Cursor this screen can be "sticky" even after work is complete. Nudge it.
+            if seen_for >= 10.0 and not followup_enter_sent:
+                followup_enter_sent = True
+                monitor.send_keys(["Enter"], label=f"{label}:followup:enter")
+            if seen_for >= 20.0 and not followup_ctrlc_sent:
+                followup_ctrlc_sent = True
+                monitor.send_keys(["C-C"], label=f"{label}:followup:ctrlc")
+            if seen_for >= 40.0:
+                log_event(log_path, "WARN", "follow-up prompt stuck; forcing phase end", label=label)
+                return "followup_stuck"
+        else:
+            followup_seen_at = None
         if monitor.proc.poll() is not None:
             log_event(
                 log_path,
@@ -415,12 +442,13 @@ def _run_commit_phase(
             task_ttl=task_ttl,
             log_path=log_path,
             label="commit_phase",
+            stop_on_followup_prompt=True,
         )
     finally:
         monitor.stop()
         kill_process_tree(monitor.init_pid or monitor.proc.pid, log_path, label="commit-phase")
 
-    if result != "completed":
+    if result not in {"completed", "followup_stuck"}:
         log_event(log_path, "ERROR", "commit phase failed", task_id=task_id, result=result)
         print(f"[orc] commit phase: failed ({result})", flush=True)
         return False
