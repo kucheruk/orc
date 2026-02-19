@@ -400,6 +400,75 @@ def _git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:
     return True, result.stdout or ""
 
 
+def _parse_git_porcelain(porcelain: str) -> tuple[list[str], list[str]]:
+    lines = [ln.rstrip("\n") for ln in (porcelain or "").splitlines() if ln.strip()]
+    tracked: list[str] = []
+    untracked: list[str] = []
+    for ln in lines:
+        if ln.startswith("?? "):
+            untracked.append(ln)
+        else:
+            tracked.append(ln)
+    return tracked, untracked
+
+
+def _git_run(workdir: str, log_path: Path, args: list[str], label: str) -> tuple[bool, str, str, int]:
+    try:
+        result = subprocess.run(
+            args,
+            cwd=workdir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        log_event(log_path, "ERROR", "git command failed", label=label, error=str(exc), args=" ".join(args))
+        return False, "", str(exc), 1
+    ok = result.returncode == 0
+    if not ok:
+        log_event(
+            log_path,
+            "ERROR",
+            "git command non-zero",
+            label=label,
+            returncode=result.returncode,
+            args=" ".join(args),
+            stderr=(result.stderr or "")[:500],
+        )
+    return ok, result.stdout or "", result.stderr or "", int(result.returncode)
+
+
+def _attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, task_text: str) -> bool:
+    """
+    Best-effort fallback when commit phase leaves tracked changes behind.
+    The goal is to be resilient and avoid stopping the whole backlog run.
+    """
+    ok_add, _, _, _ = _git_run(workdir, log_path, ["git", "add", "-A"], label="commit_fallback:add_all")
+    if not ok_add:
+        return False
+
+    # Nothing staged -> nothing to commit.
+    ok_quiet, _, _, rc = _git_run(workdir, log_path, ["git", "diff", "--cached", "--quiet"], label="commit_fallback:cached_quiet")
+    if ok_quiet:
+        return True
+    # Return code 1 means "diff exists" (i.e., something staged). Other codes are errors.
+    if rc not in (1,):
+        return False
+
+    title = f"{task_id}: checkpoint"
+    body = "Commit phase fallback: committed remaining changes left after commit phase."
+    if task_text:
+        body = f"{body}\n\nTask: {task_text}"
+    ok_commit, _, _, _ = _git_run(
+        workdir,
+        log_path,
+        ["git", "commit", "-m", title, "-m", body],
+        label="commit_fallback:commit",
+    )
+    return ok_commit
+
+
 def _run_commit_phase(
     workdir: str,
     run_root: Path,
@@ -455,9 +524,47 @@ def _run_commit_phase(
 
     ok2, porcelain2 = _git_status_porcelain(workdir, log_path)
     if ok2 and porcelain2.strip():
-        log_event(log_path, "ERROR", "commit phase left dirty tree", task_id=task_id, porcelain=porcelain2[:500])
-        print("[orc] commit phase: finished but repo still dirty", flush=True)
-        return False
+        tracked, untracked = _parse_git_porcelain(porcelain2)
+        log_event(
+            log_path,
+            "WARN",
+            "commit phase left dirty tree",
+            task_id=task_id,
+            tracked=len(tracked),
+            untracked=len(untracked),
+            porcelain=porcelain2[:500],
+        )
+        # If only untracked files remain, don't block the whole run.
+        if not tracked and untracked:
+            print("[orc] commit phase: warning (repo has untracked files)", flush=True)
+            return True
+
+        # If tracked changes remain, try a best-effort fallback autocommit.
+        task_text = str(prompt_vars.get("task_text") or "").strip()
+        if tracked:
+            print("[orc] commit phase: finished but repo still dirty; attempting fallback commit", flush=True)
+            if not _attempt_autocommit_fallback(workdir, log_path, task_id=task_id, task_text=task_text):
+                print("[orc] commit phase: fallback commit failed", flush=True)
+                return False
+
+        ok3, porcelain3 = _git_status_porcelain(workdir, log_path)
+        if ok3 and porcelain3.strip():
+            tracked3, untracked3 = _parse_git_porcelain(porcelain3)
+            # Allow untracked-only leftovers; fail if tracked changes remain.
+            if tracked3:
+                log_event(
+                    log_path,
+                    "ERROR",
+                    "commit phase still dirty after fallback",
+                    task_id=task_id,
+                    tracked=len(tracked3),
+                    untracked=len(untracked3),
+                    porcelain=porcelain3[:500],
+                )
+                print("[orc] commit phase: still dirty after fallback", flush=True)
+                return False
+            print("[orc] commit phase: completed (untracked leftovers remain)", flush=True)
+            return True
 
     log_event(log_path, "INFO", "commit phase completed", task_id=task_id)
     print("[orc] commit phase: completed", flush=True)
