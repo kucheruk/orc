@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
-from .backlog import find_first_open_task, is_task_done, parse_backlog, render_progress
+from .backlog import Task, find_first_open_task, is_task_done, parse_backlog, render_progress
 from .hooks import (
     ensure_repo_hooks,
     ensure_repo_hooks_config,
@@ -30,6 +30,7 @@ LOCK_FILE_NAME = "orc.lock"
 BASE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_PROMPT_PATH = BASE_DIR / "prompts" / "default.txt"
 CONTINUE_PROMPT_PATH = BASE_DIR / "prompts" / "continue.txt"
+COMMIT_PROMPT_PATH = BASE_DIR / "prompts" / "commit.txt"
 
 
 def load_prompt(path: Path) -> str:
@@ -307,6 +308,134 @@ def wait_for_completion(
     return "completed"
 
 
+def wait_for_process_exit(
+    monitor,
+    poll: float,
+    stall_timeout: float,
+    task_ttl: float,
+    log_path: Path,
+    label: str,
+) -> str:
+    """
+    Wait for the ht/agent process to exit (used for non-task phases, e.g. commit).
+    """
+    start_time = time.time()
+    #region agent log
+    debug_log(
+        "H3",
+        "orc_core/supervisor.py:wait_for_process_exit:start",
+        "wait process exit loop start",
+        {"stall_timeout": stall_timeout, "task_ttl": task_ttl, "poll": poll, "label": label},
+    )
+    #endregion
+    while True:
+        monitor.maybe_report()
+        if monitor.proc.poll() is not None:
+            log_event(
+                log_path,
+                "INFO" if monitor.proc.returncode == 0 else "ERROR",
+                "phase process exited",
+                label=label,
+                returncode=monitor.proc.returncode,
+            )
+            return "completed" if monitor.proc.returncode == 0 else "process_exited"
+        if time.time() - monitor.last_output_time > stall_timeout:
+            log_event(log_path, "ERROR", "stall detected", label=label, stall_seconds=stall_timeout)
+            return "stalled"
+        if time.time() - start_time > task_ttl:
+            log_event(log_path, "ERROR", "phase ttl exceeded", label=label, task_ttl=task_ttl)
+            return "ttl_exceeded"
+        time.sleep(max(poll, 0.2))
+
+
+def _git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=workdir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        log_event(log_path, "ERROR", "git status failed", error=str(exc))
+        return False, ""
+    if result.returncode != 0:
+        log_event(
+            log_path,
+            "ERROR",
+            "git status non-zero",
+            returncode=result.returncode,
+            stderr=(result.stderr or "")[:500],
+        )
+        return False, ""
+    return True, result.stdout or ""
+
+
+def _run_commit_phase(
+    workdir: str,
+    run_root: Path,
+    prompt_template: str,
+    prompt_vars: SafeDict,
+    model: str,
+    log_path: Path,
+    poll: float,
+    stall_timeout: float,
+    task_ttl: float,
+    task_id: str,
+    tag: str,
+) -> bool:
+    ok, porcelain = _git_status_porcelain(workdir, log_path)
+    if ok and not porcelain.strip():
+        log_event(log_path, "INFO", "commit phase skipped: clean tree", task_id=task_id)
+        print("[orc] commit phase: skip (clean tree)", flush=True)
+        return True
+
+    prompt = prompt_template.format_map(prompt_vars)
+    prompt_path = _write_prompt_file(run_root, prompt, f"{tag}__commit")
+    log_event(log_path, "INFO", "commit phase starting", task_id=task_id, prompt_path=str(prompt_path), model=model)
+    print("[orc] commit phase: starting", flush=True)
+
+    monitor = launch_agent_with_ht(
+        workdir,
+        prompt_path,
+        model,
+        log_path,
+        report_interval=15.0,
+        summary_lines=25,
+        listen_addr="",
+        task_id=f"{task_id}::commit",
+    )
+    try:
+        result = wait_for_process_exit(
+            monitor=monitor,
+            poll=poll,
+            stall_timeout=stall_timeout,
+            task_ttl=task_ttl,
+            log_path=log_path,
+            label="commit_phase",
+        )
+    finally:
+        monitor.stop()
+        kill_process_tree(monitor.init_pid or monitor.proc.pid, log_path, label="commit-phase")
+
+    if result != "completed":
+        log_event(log_path, "ERROR", "commit phase failed", task_id=task_id, result=result)
+        print(f"[orc] commit phase: failed ({result})", flush=True)
+        return False
+
+    ok2, porcelain2 = _git_status_porcelain(workdir, log_path)
+    if ok2 and porcelain2.strip():
+        log_event(log_path, "ERROR", "commit phase left dirty tree", task_id=task_id, porcelain=porcelain2[:500])
+        print("[orc] commit phase: finished but repo still dirty", flush=True)
+        return False
+
+    log_event(log_path, "INFO", "commit phase completed", task_id=task_id)
+    print("[orc] commit phase: completed", flush=True)
+    return True
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backlog", default="BACKLOG.md")
@@ -314,6 +443,20 @@ def main() -> int:
     ap.add_argument("--model", default="gpt-5.2-codex")
     ap.add_argument("--prompt-template", default="", help="Path to a custom prompt template file")
     ap.add_argument("--continue-template", default="", help="Path to a custom continue prompt file")
+    ap.add_argument(
+        "--commit-template",
+        default="",
+        help="Path to a custom commit prompt template file (runs after each completed task)",
+    )
+    ap.add_argument("--commit-model", default="", help="Optional model override for commit phase")
+    ap.add_argument(
+        "--commit-phase",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run a separate commit phase after each completed task (default: true)",
+    )
+    ap.add_argument("--commit-stall-timeout", type=float, default=300.0, help="Seconds without output before commit stall")
+    ap.add_argument("--commit-ttl", type=float, default=1800.0, help="Max seconds for commit phase before abort")
     ap.add_argument("--poll", type=float, default=1.0, help="Poll interval for task completion")
     ap.add_argument("--stall-timeout", type=float, default=600.0, help="Seconds without output before stall")
     ap.add_argument("--task-ttl", type=float, default=6 * 3600, help="Max seconds per task before abort")
@@ -326,6 +469,11 @@ def main() -> int:
     ap.add_argument("--nudge-text", default="continue", help="Text to send before Enter")
     ap.add_argument("--telegram-test", nargs="?", const="orc telegram test", default=None, help="Send a test Telegram message and exit")
     ap.add_argument("--reinit-hooks", action="store_true", help="Recreate hooks on startup")
+    ap.add_argument(
+        "--drop",
+        action="store_true",
+        help="Drop active task state (.cursor/orc-task.json) and restart task from scratch (no resume)",
+    )
     args = ap.parse_args()
 
     workdir = str(Path(args.workspace).resolve())
@@ -352,12 +500,19 @@ def main() -> int:
         try:
             template = load_prompt(Path(args.prompt_template)) if args.prompt_template else load_prompt(DEFAULT_PROMPT_PATH)
             continue_prompt = load_prompt(Path(args.continue_template)) if args.continue_template else load_prompt(CONTINUE_PROMPT_PATH)
+            commit_template = ""
+            if args.commit_phase:
+                commit_template = (
+                    load_prompt(Path(args.commit_template)) if args.commit_template else load_prompt(COMMIT_PROMPT_PATH)
+                )
         except FileNotFoundError as exc:
             log_event(orc_log_path, "ERROR", "prompt file missing", error=str(exc))
             return 2
 
         task_path = Path(workdir) / ".cursor" / TASK_FILE_NAME
         run_root = Path(workdir) / ".orc" / "backlog-run"
+        drop_pending = bool(args.drop)
+        drop_override: Optional[Tuple[str, str]] = None
         while True:
             tasks = parse_backlog(backlog_path)
             total = len(tasks)
@@ -365,6 +520,50 @@ def main() -> int:
             open_task = find_first_open_task(backlog_path)
 
             print("\n" + render_progress(done, total))
+
+            # One-shot drop: if there is an active task file, delete it and restart the task from scratch.
+            # This is intentionally done before resume selection to avoid continuing an already-started task.
+            if drop_pending and task_path.exists():
+                drop_pending = False
+                started_flag = False
+                try:
+                    active = json.loads(task_path.read_text(encoding="utf-8"))
+                    active_task_id = (active.get("task_id") or "").strip()
+                    active_task_text = (active.get("task_text") or "").strip()
+                    conversation_id = str(active.get("conversation_id") or "").strip()
+                    started_flag = bool(active.get("start_notified") or conversation_id)
+                    if active_task_id:
+                        drop_override = (active_task_id, active_task_text or active_task_id)
+                except Exception as exc:
+                    log_event(orc_log_path, "ERROR", "drop: failed to read task file (still deleting)", error=str(exc))
+                try:
+                    task_path.unlink()
+                    log_event(
+                        orc_log_path,
+                        "WARN",
+                        "drop: active task state deleted",
+                        task_path=str(task_path),
+                        started=started_flag,
+                    )
+                    if started_flag:
+                        print("🧹 --drop: активная задача была начата; сбрасываю состояние и запускаю с нуля.")
+                    else:
+                        print("🧹 --drop: сбрасываю состояние активной задачи и запускаю с нуля.")
+                except Exception as exc:
+                    log_event(orc_log_path, "ERROR", "drop: failed to delete task file", error=str(exc))
+                    print(f"❌ --drop: не удалось удалить {task_path}: {exc}", file=sys.stderr)
+                    return 2
+                if drop_override:
+                    dropped_task_id, _ = drop_override
+                    if dropped_task_id:
+                        # Only restart "the same task" if it still exists in BACKLOG.md.
+                        # If it was removed from backlog, proceed with the next open task (or exit).
+                        dropped_task = next((t for t in tasks if t.task_id == dropped_task_id), None)
+                        if dropped_task and not dropped_task.done:
+                            open_task = dropped_task
+                        else:
+                            drop_override = None
+
             if not open_task:
                 log_event(orc_log_path, "INFO", "backlog complete")
                 print("✅ BACKLOG.md: невыполненных пунктов не осталось. Выход.")
@@ -525,6 +724,23 @@ def main() -> int:
                     if not summary_text.strip():
                         log_event(orc_log_path, "WARN", "telegram summary empty", task_id=task_id)
                     active_monitor = None
+                    if args.commit_phase:
+                        commit_model = (args.commit_model or "").strip() or args.model
+                        if not _run_commit_phase(
+                            workdir=workdir,
+                            run_root=run_root,
+                            prompt_template=commit_template,
+                            prompt_vars=prompt_vars,
+                            model=commit_model,
+                            log_path=orc_log_path,
+                            poll=args.poll,
+                            stall_timeout=args.commit_stall_timeout,
+                            task_ttl=args.commit_ttl,
+                            task_id=task_id,
+                            tag=tag,
+                        ):
+                            print("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.", file=sys.stderr)
+                            return 1
                     break
                 active_monitor = None
                 restart_count += 1
