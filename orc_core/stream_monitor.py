@@ -2,8 +2,10 @@
 # -*- coding: utf-8 -*-
 
 import json
+import re
 import subprocess
 import threading
+import textwrap
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -201,36 +203,73 @@ class StreamJsonMonitor:
             self._append_reasoning_fragment(line[:220])
 
     def _append_reasoning_fragment(self, fragment: str) -> None:
-        chunk = fragment.strip()
-        if not chunk:
+        chunk = self._normalize_reasoning_fragment(fragment)
+        if not chunk.strip():
             return
         if not self._recent_reasoning:
-            self._recent_reasoning.append(chunk)
+            self._recent_reasoning.append(chunk.strip())
             return
         prev = self._recent_reasoning[-1]
         if self._should_stitch_reasoning(prev, chunk):
             self._recent_reasoning[-1] = (self._join_reasoning_chunks(prev, chunk))[:220]
             return
-        self._recent_reasoning.append(chunk[:220])
+        self._recent_reasoning.append(chunk.strip()[:220])
 
     def _should_stitch_reasoning(self, prev: str, chunk: str) -> bool:
         if "\n" in prev or "\n" in chunk:
             return False
-        if len(chunk) <= 20 and " " not in chunk and not prev.endswith((".", "?", "!", ":", ";")):
+        chunk_stripped = chunk.lstrip()
+        if not chunk_stripped:
+            return False
+        if chunk_stripped[0] in {".", ",", "!", "?", ":", ";", ")", "]", "}", "%"}:
+            return True
+        if prev and prev[-1].isalnum() and chunk_stripped[0].islower():
+            return True
+        if len(chunk_stripped) <= 20 and " " not in chunk_stripped and not prev.endswith((".", "?", "!", ":", ";")):
             return True
         return False
 
     def _join_reasoning_chunks(self, prev: str, chunk: str) -> str:
-        if chunk in {"**", "__", "`", "*"}:
+        chunk_stripped = chunk.lstrip()
+        if chunk_stripped in {"**", "__", "`", "*"}:
             return f"{prev}{chunk}"
         if prev and prev[-1] in {"(", "[", "{", "/", "-", "_", "`", "*"}:
-            return f"{prev}{chunk}"
-        if chunk and chunk[0] in {".", ",", "!", "?", ":", ";", ")", "]", "}", "%"}:
-            return f"{prev}{chunk}"
+            return f"{prev}{chunk_stripped}"
+        if chunk_stripped and chunk_stripped[0] in {".", ",", "!", "?", ":", ";", ")", "]", "}", "%"}:
+            return f"{prev}{chunk_stripped}"
         prev_last = prev.split(" ")[-1] if prev.strip() else ""
-        if prev_last.isalpha() and chunk.isalpha() and len(prev_last) <= 2 and len(chunk) >= 3:
+        first_token = chunk_stripped.split(" ")[0] if chunk_stripped else ""
+        if prev_last.isalpha() and first_token.isalpha() and len(prev_last) <= 2 and len(first_token) >= 3:
+            return f"{prev}{chunk_stripped}"
+        if prev and prev[-1].isalnum() and first_token and first_token[0].islower():
+            return f"{prev}{chunk_stripped}"
+        if chunk.startswith(" "):
             return f"{prev}{chunk}"
-        return f"{prev} {chunk}"
+        return f"{prev} {chunk_stripped}"
+
+    def _normalize_reasoning_fragment(self, fragment: str) -> str:
+        text = fragment.replace("\r", "").replace("\n", " ")
+        text = re.sub(r"(\*\*|__|`)", "", text)
+        text = re.sub(r"[ \t]+", " ", text)
+        return text
+
+    def _reasoning_lines_for_panel(self, max_width: int = 90, max_lines: int = 5) -> list[str]:
+        width = max(24, max_width)
+        lines: list[str] = []
+        for entry in self._recent_reasoning:
+            normalized = entry.strip()
+            if not normalized:
+                continue
+            wrapped = textwrap.wrap(
+                normalized,
+                width=width,
+                break_long_words=False,
+                break_on_hyphens=False,
+            )
+            lines.extend(wrapped or [normalized])
+        if not lines:
+            return ["waiting for reasoning..."]
+        return lines[-max_lines:]
 
     def _summarize_event(self, event: Dict[str, object], text: str) -> str:
         event_type = str(event.get("type") or "")
@@ -300,7 +339,8 @@ class StreamJsonMonitor:
 
         events = Text("\n".join(list(self._recent_events)[-4:]) or "waiting for events...")
         events_panel = Panel(events, title="Event Feed", border_style="yellow")
-        reasoning = Text("\n".join(list(self._recent_reasoning)[-5:]) or "waiting for reasoning...")
+        reasoning_width = max(36, min(self._console.size.width - 10, 100))
+        reasoning = Text("\n".join(self._reasoning_lines_for_panel(max_width=reasoning_width, max_lines=5)))
         reasoning_panel = Panel(reasoning, title="Reasoning (latest)", border_style="bright_yellow")
 
         term_width = max(self._console.size.width, 40)
