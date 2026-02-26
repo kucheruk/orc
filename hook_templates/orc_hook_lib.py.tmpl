@@ -3,8 +3,6 @@ import json
 import os
 import subprocess
 import sys
-import urllib.parse
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -15,6 +13,7 @@ DEFAULT_LOG_LEVEL = "WARN"
 if str(ORC_ROOT) not in sys.path:
     sys.path.insert(0, str(ORC_ROOT))
 from orc_core.task_contract import parse_task_line, render_task_line_with_mark
+from orc_core.telegram import post_telegram_message, resolve_telegram_credentials, truncate_telegram_message
 
 
 def now_iso() -> str:
@@ -142,60 +141,22 @@ def parse_backlog_counts(path: Path) -> Tuple[int, int]:
     return total, done
 
 
-def _load_telegram_config(log_path: Path) -> dict:
-    config_path = ORC_ROOT / ".orc" / "telegram.json"
-    if not config_path.exists():
-        log_event(log_path, "ERROR", "telegram config missing", path=str(config_path))
-        return {}
-    try:
-        return json.loads(config_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        log_event(log_path, "ERROR", "telegram config invalid", error=str(exc), path=str(config_path))
-        return {}
-
-
-def _resolve_telegram_credentials(log_path: Path) -> tuple[str, str]:
-    env_token = os.environ.get("ORC_TELEGRAM_TOKEN", "").strip()
-    env_chat_id = os.environ.get("ORC_TELEGRAM_CHAT_ID", "").strip()
-    if env_token and env_chat_id:
-        return env_token, env_chat_id
-    cfg = _load_telegram_config(log_path)
-    token = str(cfg.get("token") or "").strip()
-    chat_id = str(cfg.get("chat_id") or "").strip()
-    return token, chat_id
-
-
-def _truncate_message(message: str, max_len: int = 3800) -> tuple[str, bool]:
-    if len(message) <= max_len:
-        return message, False
-    suffix = "\n...(truncated)"
-    cutoff = max_len - len(suffix)
-    if cutoff <= 0:
-        return suffix.strip(), True
-    return message[:cutoff] + suffix, True
-
-
 def send_telegram_message(message: str, log_path: Path) -> None:
-    token, chat_id = _resolve_telegram_credentials(log_path)
+    token, chat_id, _source = resolve_telegram_credentials(orc_root=ORC_ROOT, log_path=log_path, log_event=log_event)
     if not token or not chat_id:
         log_event(log_path, "ERROR", "telegram credentials missing")
         return
     log_event(log_path, "INFO", "telegram send requested", text=message)
-    message, truncated = _truncate_message(message)
+    message, truncated = truncate_telegram_message(message)
     if truncated:
         log_event(log_path, "WARN", "telegram message truncated", max_len=3800)
-    api_url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = urllib.parse.urlencode({"chat_id": chat_id, "text": message}).encode("utf-8")
-    request = urllib.request.Request(api_url, data=payload, method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            raw = response.read().decode("utf-8")
-            data = json.loads(raw)
-    except Exception as exc:
-        log_event(log_path, "ERROR", "telegram send failed", error=str(exc))
+    data, raw, error = post_telegram_message(token=token, chat_id=chat_id, message=message, timeout=15)
+    if error:
+        log_event(log_path, "ERROR", "telegram send failed", error=error)
         return
-    if not data.get("ok"):
-        log_event(log_path, "ERROR", "telegram send error", response=data, raw=raw[:500])
+    if not isinstance(data, dict) or not data.get("ok"):
+        raw_preview = (raw or "")[:500]
+        log_event(log_path, "ERROR", "telegram send error", response=data, raw=raw_preview)
         return
     log_event(log_path, "INFO", "telegram sent", response=data)
 
