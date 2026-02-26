@@ -198,7 +198,63 @@ class StreamJsonMonitor:
         if not lines:
             return
         for line in lines[-5:]:
-            self._recent_reasoning.append(line[:220])
+            self._append_reasoning_fragment(line[:220])
+
+    def _append_reasoning_fragment(self, fragment: str) -> None:
+        chunk = fragment.strip()
+        if not chunk:
+            return
+        if not self._recent_reasoning:
+            self._recent_reasoning.append(chunk)
+            return
+        prev = self._recent_reasoning[-1]
+        if self._should_stitch_reasoning(prev, chunk):
+            self._recent_reasoning[-1] = (self._join_reasoning_chunks(prev, chunk))[:220]
+            return
+        self._recent_reasoning.append(chunk[:220])
+
+    def _should_stitch_reasoning(self, prev: str, chunk: str) -> bool:
+        if "\n" in prev or "\n" in chunk:
+            return False
+        if len(chunk) <= 20 and " " not in chunk and not prev.endswith((".", "?", "!", ":", ";")):
+            return True
+        return False
+
+    def _join_reasoning_chunks(self, prev: str, chunk: str) -> str:
+        if chunk in {"**", "__", "`", "*"}:
+            return f"{prev}{chunk}"
+        if prev and prev[-1] in {"(", "[", "{", "/", "-", "_", "`", "*"}:
+            return f"{prev}{chunk}"
+        if chunk and chunk[0] in {".", ",", "!", "?", ":", ";", ")", "]", "}", "%"}:
+            return f"{prev}{chunk}"
+        prev_last = prev.split(" ")[-1] if prev.strip() else ""
+        if prev_last.isalpha() and chunk.isalpha() and len(prev_last) <= 2 and len(chunk) >= 3:
+            return f"{prev}{chunk}"
+        return f"{prev} {chunk}"
+
+    def _summarize_event(self, event: Dict[str, object], text: str) -> str:
+        event_type = str(event.get("type") or "")
+        subtype = str(event.get("subtype") or "") or "update"
+        base = f"{event_type}:{subtype}"
+        preview_lines = clean_summary_lines(text.splitlines()) if text else []
+        preview = preview_lines[-1][:60] if preview_lines else ""
+
+        if event_type == "tool_call":
+            for key in ("tool_name", "tool", "name", "function"):
+                value = event.get(key)
+                if isinstance(value, str) and value.strip():
+                    return f"{base} {value.strip()[:40]}"
+        if event_type == "result":
+            status = str(event.get("status") or subtype).strip()
+            if status:
+                return f"{base} status={status[:20]}"
+        for key in ("command", "cmd", "shell_command"):
+            value = event.get(key)
+            if isinstance(value, str) and value.strip():
+                return f"{base} {value.strip()[:50]}"
+        if preview:
+            return f"{base} {preview}"
+        return base
 
     def _render(self):
         elapsed = int(max(time.time() - self.started_at, 0))
@@ -283,7 +339,6 @@ class StreamJsonMonitor:
         subtype = str(event.get("subtype") or "")
         self._last_event_type = event_type or "event"
         self._last_event_note = subtype or "update"
-        self._recent_events.append(f"{event_type}:{subtype or 'update'}")
         if event_type == "tool_call" and subtype == "started":
             self.metrics.command_count += 1
 
@@ -294,6 +349,7 @@ class StreamJsonMonitor:
 
         tokens = self._extract_tokens(event)
         text = self._extract_text(event)
+        self._recent_events.append(self._summarize_event(event, text))
         if tokens is None and text:
             tokens = extract_tokens_from_text(text)
         if tokens is not None:
