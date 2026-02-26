@@ -23,8 +23,8 @@ def ensure_repo_hooks(workdir: str) -> Tuple[Path, Path]:
     hook_lib_script = """#!/usr/bin/env python3
 import json
 import os
-import re
 import subprocess
+import sys
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -34,11 +34,9 @@ from typing import Dict, Optional, Tuple
 ORC_ROOT = Path(__ORC_ROOT__)
 LOG_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
 DEFAULT_LOG_LEVEL = "WARN"
-
-TASK_RE = re.compile(
-    r"^(?P<prefix>\\s*[-*]\\s*\\[)(?P<mark>[ xX])(?P<suffix>\\]\\s+)(?P<text>.+?)\\s*$"
-)
-TASK_ID_RE = re.compile(r"(?:\\*\\*)?(?P<id>[A-Z][A-Z0-9_-]+)(?::)?(?:\\*\\*)?\\s", re.UNICODE)
+if str(ORC_ROOT) not in sys.path:
+    sys.path.insert(0, str(ORC_ROOT))
+from orc_core.task_contract import parse_task_line, render_task_line_with_mark
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -116,34 +114,28 @@ def git_has_recent_commit(repo_root: Path, since_iso: str, log_path: Optional[Pa
         return False
     return bool(result.stdout.strip())
 
-def extract_task_id(text: str):
-    m = TASK_ID_RE.search(text)
-    return m.group("id") if m else None
-
 def is_task_marked(path: Path, task_id: str) -> bool:
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     for line in lines:
-        m = TASK_RE.match(line)
-        if not m:
+        parsed = parse_task_line(line)
+        if not parsed:
             continue
-        text = m.group("text").strip()
-        if extract_task_id(text) != task_id:
+        if parsed.task_id != task_id:
             continue
-        return m.group("mark").lower() == "x"
+        return parsed.mark.lower() == "x"
     return False
 
 def mark_task_done(path: Path, task_id: str) -> bool:
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     for i, line in enumerate(lines):
-        m = TASK_RE.match(line)
-        if not m:
+        parsed = parse_task_line(line)
+        if not parsed:
             continue
-        text = m.group("text").strip()
-        if extract_task_id(text) != task_id:
+        if parsed.task_id != task_id:
             continue
-        if m.group("mark").lower() == "x":
+        if parsed.mark.lower() == "x":
             return True
-        lines[i] = f"{m.group('prefix')}x{m.group('suffix')}{m.group('text')}"
+        lines[i] = render_task_line_with_mark(parsed, "x")
         path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
         return True
     return False
@@ -152,14 +144,13 @@ def parse_backlog_counts(path: Path) -> Tuple[int, int]:
     total = 0
     done = 0
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        m = TASK_RE.match(line)
-        if not m:
+        parsed = parse_task_line(line)
+        if not parsed:
             continue
-        text = m.group("text").strip()
-        if not extract_task_id(text):
+        if not parsed.task_id:
             continue
         total += 1
-        if m.group("mark").lower() == "x":
+        if parsed.mark.lower() == "x":
             done += 1
     return total, done
 
