@@ -283,50 +283,59 @@ class StreamJsonMonitor:
         status_table.add_row("Last", f"{self._last_event_type}:{self._last_event_note[:60]}")
         status_panel = Panel(status_table, title=f"ORC {spinner}", border_style="cyan")
 
-        cmd_table = Table(show_header=True, header_style="bold", expand=True)
-        cmd_table.add_column("#", width=3)
-        cmd_table.add_column("Recent Commands", no_wrap=True, overflow="ellipsis")
         commands = list(self._recent_commands)
-        if not commands:
-            cmd_table.add_row("-", "waiting for tool calls...")
-        else:
-            for idx, cmd in enumerate(commands[-5:], start=max(len(commands) - 4, 1)):
-                cmd_table.add_row(str(idx), cmd)
-        cmd_panel = Panel(cmd_table, title="Recent Commands", border_style="magenta")
-
-        file_table = Table(show_header=True, header_style="bold", expand=True)
-        file_table.add_column("#", width=3)
-        file_table.add_column("Edited/Touched Files", no_wrap=True, overflow="ellipsis")
         files = list(self._recent_files)
-        if not files:
-            file_table.add_row("-", "waiting for file operations...")
-        else:
-            for idx, path in enumerate(files[-6:], start=max(len(files) - 5, 1)):
-                file_table.add_row(str(idx), path)
-        files_panel = Panel(file_table, title="Files", border_style="green")
+        commands_text = (
+            Text("\n".join(f"- {cmd}" for cmd in commands[-5:]))
+            if commands
+            else Text("waiting for tool calls...")
+        )
+        files_text = (
+            Text("\n".join(f"- {path}" for path in files[-6:]))
+            if files
+            else Text("waiting for file operations...")
+        )
+        cmd_panel = Panel(commands_text, title="Recent Commands", border_style="magenta")
+        files_panel = Panel(files_text, title="Files", border_style="green")
 
         events = Text("\n".join(list(self._recent_events)[-4:]) or "waiting for events...")
         events_panel = Panel(events, title="Event Feed", border_style="yellow")
         reasoning = Text("\n".join(list(self._recent_reasoning)[-5:]) or "waiting for reasoning...")
         reasoning_panel = Panel(reasoning, title="Reasoning (latest)", border_style="bright_yellow")
 
+        term_width = max(self._console.size.width, 40)
         term_height = max(self._console.size.height, 16)
         available = max(term_height - 2, 14)
         status_h = min(10, max(6, available // 3))
         cmds_h = min(8, max(4, available // 5))
         files_h = min(9, max(4, available // 4))
-        used = status_h + cmds_h + files_h
+        side_by_side_recent = term_width >= 120
+        recent_h = max(cmds_h, files_h)
+        used = status_h + recent_h if side_by_side_recent else status_h + cmds_h + files_h
         events_h = max(4, (available - used) // 2)
         reasoning_h = max(4, available - used - events_h)
 
         layout = Layout()
-        layout.split_column(
-            Layout(status_panel, size=status_h),
-            Layout(cmd_panel, size=cmds_h),
-            Layout(files_panel, size=files_h),
-            Layout(reasoning_panel, size=reasoning_h),
-            Layout(events_panel, size=events_h),
-        )
+        if side_by_side_recent:
+            recent_layout = Layout(size=recent_h)
+            recent_layout.split_row(
+                Layout(cmd_panel, ratio=1),
+                Layout(files_panel, ratio=1),
+            )
+            layout.split_column(
+                Layout(status_panel, size=status_h),
+                recent_layout,
+                Layout(reasoning_panel, size=reasoning_h),
+                Layout(events_panel, size=events_h),
+            )
+        else:
+            layout.split_column(
+                Layout(status_panel, size=status_h),
+                Layout(cmd_panel, size=cmds_h),
+                Layout(files_panel, size=files_h),
+                Layout(reasoning_panel, size=reasoning_h),
+                Layout(events_panel, size=events_h),
+            )
         return layout
 
     def _record_event(self, event: Dict[str, object]) -> None:
