@@ -1,0 +1,8 @@
+# Changelog
+
+- 2026-02-27 00:00 (Europe/Moscow) — `ORC-SMOKE-001`: верифицирован и актуализирован отчёт рефакторинг-зон в [`__ref.md`](__ref.md), синхронизирована карточка [`tasks/ORC-SMOKE-001.md`](tasks/ORC-SMOKE-001.md), а в [`.orc/tmp/BACKLOG.temp.20260226-235933.md`](.orc/tmp/BACKLOG.temp.20260226-235933.md) добавлены ссылка на карточку и follow-up задачи `ORC-REF-001..006`.
+- 2026-02-26 23:57 (Europe/Moscow) — `ORC-SMOKE-001`: синхронизирована карточка [`tasks/ORC-SMOKE-001.md`](tasks/ORC-SMOKE-001.md) с финальным шаблоном (добавлена короткая шутка исполнителя), подтверждена привязка к пункту в [`.orc/tmp/BACKLOG.temp.20260226-235330.md`](.orc/tmp/BACKLOG.temp.20260226-235330.md).
+- 2026-02-26 23:54 (Europe/Moscow) — `ORC-SMOKE-001`: выполнен тщательный аудит зон рефакторинга с verifier/shrink секциями в [`__ref.md`](__ref.md), обновлена карточка [`tasks/ORC-SMOKE-001.md`](tasks/ORC-SMOKE-001.md), в актуальный backlog добавлены follow-up задачи `ORC-REF-001..006`.
+- 2026-02-26 23:29 (Europe/Moscow) — `ORC-SMOKE-001`: дооформлена карточка [`tasks/ORC-SMOKE-001.md`](tasks/ORC-SMOKE-001.md) по шаблону финального отчёта (добавлен комментарий исполнителя с короткой шуткой и явной ссылкой на backlog-задачу).
+- 2026-02-26 23:26 (Europe/Moscow) — `ORC-SMOKE-001`: выполнен подробный аудит зон рефакторинга, подготовлен отчёт [`__ref.md`](__ref.md), синхронизирована карточка [`tasks/ORC-SMOKE-001.md`](tasks/ORC-SMOKE-001.md) и добавлены follow-up задачи в backlog.
+- 2026-02-26 23:14 (Europe/Moscow) — `ORC-SMOKE-001`: выполнен аудит зон рефакторинга, подготовлены рекомендации в `__ref.md`, создана карточка [`tasks/ORC-SMOKE-001.md`](tasks/ORC-SMOKE-001.md).

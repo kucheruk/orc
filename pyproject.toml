@@ -1,0 +1,12 @@
+[project]
+name = "orc"
+version = "0.1.0"
+description = "ORC backlog orchestrator for Cursor Agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "rich>=14.3.3",
+]
+
+[tool.uv]
+package = false

@@ -5,7 +5,6 @@ import argparse
 import json
 import re
 import subprocess
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -21,8 +20,9 @@ from .hooks import (
 from .logging import ORC_LOG_NAME, ORC_ROOT, debug_log, log_event
 from .notify import send_telegram_message
 from .process import acquire_lock, kill_process_tree, release_lock
-from .runner import launch_agent_with_ht
+from .runner import launch_agent_stream_json
 from .text_parse import clean_summary_lines
+from .ui import ui_error, ui_info, ui_warn
 
 TASK_FILE_NAME = "orc-task.json"
 LOCK_FILE_NAME = "orc.lock"
@@ -37,6 +37,94 @@ def load_prompt(path: Path) -> str:
     if not path.exists():
         raise FileNotFoundError(f"Prompt file not found: {path}")
     return path.read_text(encoding="utf-8")
+
+
+def _create_temp_backlog(workdir: str, task_text: str, log_path: Path) -> tuple[Path, str]:
+    run_dir = Path(workdir) / ".orc" / "tmp"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backlog_path = run_dir / f"BACKLOG.temp.{ts}.md"
+    normalized = " ".join(task_text.strip().split())
+    task_id = "ORC-SMOKE-001"
+    backlog_path.write_text(f"- [ ] {task_id} {normalized}\n", encoding="utf-8")
+    rel_backlog = str(backlog_path.relative_to(Path(workdir)))
+    log_event(log_path, "INFO", "temporary backlog created", backlog_path=str(backlog_path), task_id=task_id)
+    return backlog_path, rel_backlog
+
+
+def _load_task_payload(task_path: Path) -> dict:
+    try:
+        payload = json.loads(task_path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _delete_task_file(
+    task_path: Path,
+    log_path: Path,
+    reason: str,
+    expected_task_id: Optional[str] = None,
+    expected_backlog: Optional[Path] = None,
+) -> bool:
+    if not task_path.exists():
+        return False
+    payload = _load_task_payload(task_path)
+    if expected_task_id and str(payload.get("task_id") or "").strip() != expected_task_id:
+        log_event(
+            log_path,
+            "WARN",
+            "skip task file remove: task_id mismatch",
+            reason=reason,
+            expected_task_id=expected_task_id,
+            actual_task_id=str(payload.get("task_id") or ""),
+        )
+        return False
+    if expected_backlog is not None:
+        actual_backlog = str(payload.get("backlog_path") or "").strip()
+        if actual_backlog and Path(actual_backlog) != expected_backlog:
+            log_event(
+                log_path,
+                "WARN",
+                "skip task file remove: backlog mismatch",
+                reason=reason,
+                expected_backlog=str(expected_backlog),
+                actual_backlog=actual_backlog,
+            )
+            return False
+    try:
+        task_path.unlink()
+        log_event(log_path, "WARN", "task file removed", reason=reason, task_path=str(task_path))
+        return True
+    except Exception as exc:
+        log_event(log_path, "ERROR", "failed to remove task file", reason=reason, error=str(exc), task_path=str(task_path))
+        return False
+
+
+def _cleanup_stale_task_file(task_path: Path, log_path: Path, allowed_backlog: Optional[Path] = None) -> bool:
+    """
+    Remove broken or stale task state that can block orchestrator startup/resume.
+    """
+    if not task_path.exists():
+        return False
+    payload = _load_task_payload(task_path)
+    if not payload:
+        return _delete_task_file(task_path, log_path, reason="invalid_task_json")
+    backlog_path_raw = str(payload.get("backlog_path") or "").strip()
+    if not backlog_path_raw:
+        return _delete_task_file(task_path, log_path, reason="missing_backlog_path")
+    backlog_path = Path(backlog_path_raw)
+    if not backlog_path.exists():
+        return _delete_task_file(task_path, log_path, reason="backlog_missing")
+    if allowed_backlog is not None and backlog_path.resolve() != allowed_backlog.resolve():
+        log_event(
+            log_path,
+            "WARN",
+            "task file references another backlog; keeping state",
+            task_backlog=str(backlog_path),
+            allowed_backlog=str(allowed_backlog),
+        )
+    return False
 
 
 class SafeDict(dict):
@@ -181,6 +269,7 @@ def wait_for_completion(
     last_stuck_notice_time = 0.0
     followup_seen_at: Optional[float] = None
     fallback_invoked = False
+    fallback_last_attempt = 0.0
     #region agent log
     debug_log(
         "H3",
@@ -195,7 +284,18 @@ def wait_for_completion(
         },
     )
     #endregion
-    while task_path.exists():
+    while True:
+        if not task_path.exists():
+            log_event(log_path, "INFO", "task file removed; completion observed")
+            #region agent log
+            debug_log(
+                "H3",
+                "orc_core/supervisor.py:wait_for_completion:done",
+                "task file removed",
+                {"task_path": str(task_path)},
+            )
+            #endregion
+            return "completed"
         monitor.maybe_report()
         stats_key = (
             monitor.metrics.total_lines,
@@ -252,13 +352,47 @@ def wait_for_completion(
         else:
             followup_seen_at = None
         # Auto-continue removed (was unreliable and noisy).
+        if getattr(monitor, "result_status", None) == "success":
+            if not task_path.exists():
+                return "completed"
+            if getattr(monitor, "result_seen_at", None) and (time.time() - monitor.result_seen_at) >= 10.0:
+                if not fallback_invoked or (time.time() - fallback_last_attempt) >= 5.0:
+                    log_event(log_path, "WARN", "result success observed; invoking stop-hook fallback")
+                    fallback_last_attempt = time.time()
+                    fallback_invoked = _invoke_stop_hook_fallback(monitor.workdir, task_path, log_path)
+                if not task_path.exists():
+                    return "completed"
+                # Hard safety-net: if backlog is already done (or missing), clear stale task file.
+                payload = _load_task_payload(task_path)
+                backlog_path_raw = str(payload.get("backlog_path") or "").strip()
+                current_task_id = str(payload.get("task_id") or "").strip()
+                if backlog_path_raw and current_task_id:
+                    backlog_path = Path(backlog_path_raw)
+                    if not backlog_path.exists():
+                        _delete_task_file(
+                            task_path,
+                            log_path,
+                            reason="result_success_backlog_missing",
+                            expected_task_id=current_task_id,
+                        )
+                        return "completed"
+                    if is_task_done(backlog_path, current_task_id):
+                        _delete_task_file(
+                            task_path,
+                            log_path,
+                            reason="result_success_backlog_already_done",
+                            expected_task_id=current_task_id,
+                            expected_backlog=backlog_path,
+                        )
+                        return "completed"
+
         if monitor.proc.poll() is not None:
-            log_event(log_path, "ERROR", "ht process exited while task still active", returncode=monitor.proc.returncode)
+            log_event(log_path, "ERROR", "agent process exited while task still active", returncode=monitor.proc.returncode)
             #region agent log
             debug_log(
                 "H4",
                 "orc_core/supervisor.py:wait_for_completion:exit",
-                "ht process exited early",
+                "agent process exited early",
                 {
                     "returncode": monitor.proc.returncode,
                     "task_exists": task_path.exists(),
@@ -296,15 +430,6 @@ def wait_for_completion(
             #endregion
             return "ttl_exceeded"
         time.sleep(max(poll, 0.2))
-    log_event(log_path, "INFO", "task file removed; completion observed")
-    #region agent log
-    debug_log(
-        "H3",
-        "orc_core/supervisor.py:wait_for_completion:done",
-        "task file removed",
-        {"task_path": str(task_path)},
-    )
-    #endregion
     return "completed"
 
 
@@ -318,7 +443,7 @@ def wait_for_process_exit(
     stop_on_followup_prompt: bool = False,
 ) -> str:
     """
-    Wait for the ht/agent process to exit (used for non-task phases, e.g. commit).
+    Wait for the agent process to exit (used for non-task phases, e.g. commit).
     """
     start_time = time.time()
     followup_seen_at: Optional[float] = None
@@ -485,22 +610,21 @@ def _run_commit_phase(
     ok, porcelain = _git_status_porcelain(workdir, log_path)
     if ok and not porcelain.strip():
         log_event(log_path, "INFO", "commit phase skipped: clean tree", task_id=task_id)
-        print("[orc] commit phase: skip (clean tree)", flush=True)
+        ui_info("[orc] commit phase: skip (clean tree)")
         return True
 
     prompt = prompt_template.format_map(prompt_vars)
     prompt_path = _write_prompt_file(run_root, prompt, f"{tag}__commit")
     log_event(log_path, "INFO", "commit phase starting", task_id=task_id, prompt_path=str(prompt_path), model=model)
-    print("[orc] commit phase: starting", flush=True)
+    ui_info("[orc] commit phase: starting")
 
-    monitor = launch_agent_with_ht(
+    monitor = launch_agent_stream_json(
         workdir,
         prompt_path,
         model,
         log_path,
         report_interval=15.0,
         summary_lines=25,
-        listen_addr="",
         task_id=f"{task_id}::commit",
     )
     try:
@@ -519,7 +643,7 @@ def _run_commit_phase(
 
     if result not in {"completed", "followup_stuck"}:
         log_event(log_path, "ERROR", "commit phase failed", task_id=task_id, result=result)
-        print(f"[orc] commit phase: failed ({result})", flush=True)
+        ui_error(f"[orc] commit phase: failed ({result})")
         return False
 
     ok2, porcelain2 = _git_status_porcelain(workdir, log_path)
@@ -536,15 +660,15 @@ def _run_commit_phase(
         )
         # If only untracked files remain, don't block the whole run.
         if not tracked and untracked:
-            print("[orc] commit phase: warning (repo has untracked files)", flush=True)
+            ui_warn("[orc] commit phase: warning (repo has untracked files)")
             return True
 
         # If tracked changes remain, try a best-effort fallback autocommit.
         task_text = str(prompt_vars.get("task_text") or "").strip()
         if tracked:
-            print("[orc] commit phase: finished but repo still dirty; attempting fallback commit", flush=True)
+            ui_warn("[orc] commit phase: finished but repo still dirty; attempting fallback commit")
             if not _attempt_autocommit_fallback(workdir, log_path, task_id=task_id, task_text=task_text):
-                print("[orc] commit phase: fallback commit failed", flush=True)
+                ui_error("[orc] commit phase: fallback commit failed")
                 return False
 
         ok3, porcelain3 = _git_status_porcelain(workdir, log_path)
@@ -561,19 +685,20 @@ def _run_commit_phase(
                     untracked=len(untracked3),
                     porcelain=porcelain3[:500],
                 )
-                print("[orc] commit phase: still dirty after fallback", flush=True)
+                ui_error("[orc] commit phase: still dirty after fallback")
                 return False
-            print("[orc] commit phase: completed (untracked leftovers remain)", flush=True)
+            ui_warn("[orc] commit phase: completed (untracked leftovers remain)")
             return True
 
     log_event(log_path, "INFO", "commit phase completed", task_id=task_id)
-    print("[orc] commit phase: completed", flush=True)
+    ui_info("[orc] commit phase: completed")
     return True
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backlog", default="BACKLOG.md")
+    ap.add_argument("--task", default="", help="Run a one-off task by creating a temporary backlog")
     ap.add_argument("--workspace", default=".")
     ap.add_argument("--model", default="gpt-5.2-codex")
     ap.add_argument("--prompt-template", default="", help="Path to a custom prompt template file")
@@ -596,9 +721,8 @@ def main() -> int:
     ap.add_argument("--stall-timeout", type=float, default=600.0, help="Seconds without output before stall")
     ap.add_argument("--task-ttl", type=float, default=6 * 3600, help="Max seconds per task before abort")
     ap.add_argument("--max-restarts", type=int, default=2, help="Max restarts for a task")
-    ap.add_argument("--report-interval", type=float, default=15.0, help="Seconds between stats reports")
+    ap.add_argument("--report-interval", type=float, default=2.0, help="Seconds between stats reports")
     ap.add_argument("--summary-lines", type=int, default=25, help="Lines to send to Telegram after completion")
-    ap.add_argument("--ht-listen", default="", help="Optional ht listen address (e.g. 127.0.0.1:0)")
     ap.add_argument("--nudge-after", type=int, default=10, help="Send continue after N identical stats")
     ap.add_argument("--nudge-cooldown", type=float, default=300.0, help="Seconds between auto-nudges")
     ap.add_argument("--nudge-text", default="continue", help="Text to send before Enter")
@@ -612,13 +736,21 @@ def main() -> int:
     args = ap.parse_args()
 
     workdir = str(Path(args.workspace).resolve())
-    backlog_path = Path(workdir) / args.backlog
     orc_log_path = ORC_ROOT / ".orc" / ORC_LOG_NAME
     lock_path = Path(workdir) / ".orc" / LOCK_FILE_NAME
+    temp_backlog_path: Optional[Path] = None
 
     if args.telegram_test is not None:
         send_telegram_message(args.telegram_test, orc_log_path)
         return 0
+
+    if args.task.strip():
+        backlog_path, rel_backlog = _create_temp_backlog(workdir, args.task, orc_log_path)
+        temp_backlog_path = backlog_path
+        args.backlog = rel_backlog
+        ui_info(f"[orc] test mode: using temporary backlog {backlog_path}")
+    else:
+        backlog_path = Path(workdir) / args.backlog
 
     if args.reinit_hooks:
         before_path, stop_path = ensure_repo_hooks(workdir)
@@ -626,8 +758,11 @@ def main() -> int:
         log_event(orc_log_path, "WARN", "hooks reinitialized", hooks_config=str(hooks_path))
 
     if not backlog_path.exists():
-        print(f"Backlog not found: {backlog_path}", file=sys.stderr)
+        ui_error(f"Backlog not found: {backlog_path}")
         return 2
+
+    task_path = Path(workdir) / ".cursor" / TASK_FILE_NAME
+    _cleanup_stale_task_file(task_path, orc_log_path, allowed_backlog=backlog_path)
 
     acquire_lock(lock_path, orc_log_path)
     active_monitor = None
@@ -644,7 +779,6 @@ def main() -> int:
             log_event(orc_log_path, "ERROR", "prompt file missing", error=str(exc))
             return 2
 
-        task_path = Path(workdir) / ".cursor" / TASK_FILE_NAME
         run_root = Path(workdir) / ".orc" / "backlog-run"
         drop_pending = bool(args.drop)
         drop_override: Optional[Tuple[str, str]] = None
@@ -653,8 +787,6 @@ def main() -> int:
             total = len(tasks)
             done = sum(1 for t in tasks if t.done)
             open_task = find_first_open_task(backlog_path)
-
-            print("\n" + render_progress(done, total))
 
             # One-shot drop: if there is an active task file, delete it and restart the task from scratch.
             # This is intentionally done before resume selection to avoid continuing an already-started task.
@@ -681,12 +813,12 @@ def main() -> int:
                         started=started_flag,
                     )
                     if started_flag:
-                        print("🧹 --drop: активная задача была начата; сбрасываю состояние и запускаю с нуля.")
+                        ui_warn("🧹 --drop: активная задача была начата; сбрасываю состояние и запускаю с нуля.")
                     else:
-                        print("🧹 --drop: сбрасываю состояние активной задачи и запускаю с нуля.")
+                        ui_warn("🧹 --drop: сбрасываю состояние активной задачи и запускаю с нуля.")
                 except Exception as exc:
                     log_event(orc_log_path, "ERROR", "drop: failed to delete task file", error=str(exc))
-                    print(f"❌ --drop: не удалось удалить {task_path}: {exc}", file=sys.stderr)
+                    ui_error(f"❌ --drop: не удалось удалить {task_path}: {exc}")
                     return 2
                 if drop_override:
                     dropped_task_id, _ = drop_override
@@ -701,7 +833,7 @@ def main() -> int:
 
             if not open_task:
                 log_event(orc_log_path, "INFO", "backlog complete")
-                print("✅ BACKLOG.md: невыполненных пунктов не осталось. Выход.")
+                ui_info("✅ BACKLOG.md: невыполненных пунктов не осталось. Выход.")
                 return 0
 
             task_id = open_task.task_id
@@ -709,7 +841,6 @@ def main() -> int:
 
             resume_existing = task_path.exists()
             resume_id: Optional[str] = None
-            resume_latest = False
             #region agent log
             debug_log(
                 "H2",
@@ -734,12 +865,12 @@ def main() -> int:
                     #endregion
                 except Exception as exc:
                     log_event(orc_log_path, "ERROR", "failed to read task file", error=str(exc))
-                    print(f"⚠️ Не удалось прочитать {task_path}. Удали файл и запусти заново.")
+                    ui_warn(f"⚠️ Не удалось прочитать {task_path}. Удали файл и запусти заново.")
                     time.sleep(max(args.poll, 0.2))
                     continue
                 if active_task_id and is_task_done(backlog_path, active_task_id):
                     log_event(orc_log_path, "INFO", "task already marked done; removing task file", task_id=active_task_id)
-                    print(f"✅ {active_task_id} уже отмечена [x]. Удаляю {task_path} и продолжаю.")
+                    ui_info(f"✅ {active_task_id} уже отмечена [x]. Удаляю {task_path} и продолжаю.")
                     try:
                         task_path.unlink()
                     except Exception as exc:
@@ -749,22 +880,21 @@ def main() -> int:
                 task_id = active_task_id or task_id
                 task_text = active_task_text or task_text
                 log_event(orc_log_path, "INFO", "resume existing task", task_id=task_id)
-                print(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
+                ui_info(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
                 if not resume_id:
                     resume_id = _get_resume_id_from_agent_ls(workdir, orc_log_path)
                     if resume_id:
                         _update_task_conversation_id(task_path, orc_log_path, resume_id)
-                resume_latest = resume_id is None
                 log_event(
                     orc_log_path,
                     "INFO",
                     "resume selection",
                     conversation_id=resume_id or "",
-                    resume_latest=resume_latest,
+                    resume_from_latest=resume_id is None,
                 )
 
             short = (task_text[:120] + "…") if len(task_text) > 120 else task_text
-            print(f"▶️ Текущая задача: {task_id} — {short}")
+            ui_info(f"▶️ Текущая задача: {task_id} — {short}")
 
             before_path, stop_path = ensure_repo_hooks(workdir)
             hooks_path = ensure_repo_hooks_config(workdir, before_path, stop_path, orc_log_path)
@@ -786,21 +916,22 @@ def main() -> int:
                 update_task_restart_count(task_path, orc_log_path, restart_count)
                 log_event(orc_log_path, "INFO", "launching agent", task_id=task_id, restart_count=restart_count)
                 try:
-                    active_monitor = launch_agent_with_ht(
+                    active_monitor = launch_agent_stream_json(
                         workdir,
                         prompt_path,
                         args.model,
                         orc_log_path,
                         report_interval=args.report_interval,
                         summary_lines=args.summary_lines,
-                        listen_addr=args.ht_listen,
                         task_id=task_id,
+                        progress_done=done,
+                        progress_total=total,
                         resume_id=resume_id if resume_existing else None,
                         resume_latest=resume_existing and resume_id is None,
                         resume_prompt=args.nudge_text if resume_existing else None,
                     )
                 except FileNotFoundError:
-                    print("❌ ht не найден. Установите ht и попробуйте снова.")
+                    ui_error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
                     return 2
                 result = wait_for_completion(
                     task_path=task_path,
@@ -839,10 +970,9 @@ def main() -> int:
                     summary_text = "\n".join(cleaned_lines[-args.summary_lines :])
                     tokens = active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-"
                     files_edited = active_monitor.metrics.files_edited if active_monitor.metrics.files_edited is not None else "-"
-                    print(
+                    ui_info(
                         f"[orc] completed stats tokens={tokens} lines={active_monitor.metrics.total_lines} "
-                        f"commands={active_monitor.metrics.command_count} files_edited={files_edited}",
-                        flush=True,
+                        f"commands={active_monitor.metrics.command_count} files_edited={files_edited}"
                     )
                     #region agent log
                     debug_log(
@@ -874,7 +1004,7 @@ def main() -> int:
                             task_id=task_id,
                             tag=tag,
                         ):
-                            print("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.", file=sys.stderr)
+                            ui_error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
                             return 1
                     break
                 active_monitor = None
@@ -889,22 +1019,34 @@ def main() -> int:
                         {"task_id": task_id, "restart_count": restart_count, "max_restarts": args.max_restarts},
                     )
                     #endregion
-                    print("❌ Агент не завершил задачу. Проверь логи.")
+                    ui_error("❌ Агент не завершил задачу. Проверь логи.")
                     return 1
                 log_event(orc_log_path, "WARN", "restarting task", task_id=task_id, restart_count=restart_count, reason=result)
                 prompt = continue_prompt.format_map(prompt_vars)
                 prompt_path = _write_prompt_file(run_root, prompt, f"{tag}__r{restart_count}")
-            print("[orc] pause 5s before next task (Ctrl+C to stop)", flush=True)
+            ui_info("[orc] pause 5s before next task (Ctrl+C to stop)")
             time.sleep(5)
     except KeyboardInterrupt:
         log_event(orc_log_path, "WARN", "keyboard interrupt")
-        print("⏹️ Прервано. Состояние сохранено.")
+        ui_warn("⏹️ Прервано. Состояние сохранено.")
         return 130
     finally:
         if active_monitor is not None:
             active_monitor.stop()
             kill_process_tree(active_monitor.init_pid or active_monitor.proc.pid, orc_log_path, label="agent-finalize")
         release_lock(lock_path, orc_log_path)
+        # Final safety-net for one-off runs: never leave stale task state behind.
+        if temp_backlog_path is not None and task_path.exists():
+            payload = _load_task_payload(task_path)
+            task_backlog = str(payload.get("backlog_path") or "").strip()
+            if not task_backlog or Path(task_backlog) == temp_backlog_path or not Path(task_backlog).exists():
+                _delete_task_file(task_path, orc_log_path, reason="one_off_final_cleanup")
+        if temp_backlog_path is not None and temp_backlog_path.exists():
+            try:
+                temp_backlog_path.unlink()
+                log_event(orc_log_path, "INFO", "temporary backlog removed", backlog_path=str(temp_backlog_path))
+            except Exception as exc:
+                log_event(orc_log_path, "WARN", "failed to remove temporary backlog", error=str(exc), backlog_path=str(temp_backlog_path))
 
 
 if __name__ == "__main__":

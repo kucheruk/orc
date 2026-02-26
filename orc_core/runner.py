@@ -7,89 +7,77 @@ from pathlib import Path
 from typing import Optional
 
 from .logging import debug_log, log_event
-from .monitor import HtMonitor
+from .stream_monitor import StreamJsonMonitor
 
 
-def launch_agent_with_ht(
+def launch_agent_stream_json(
     workdir: str,
     prompt_path: Optional[Path],
     model: str,
     log_path: Path,
     report_interval: float,
     summary_lines: int,
-    listen_addr: str,
     task_id: str,
+    progress_done: int = 0,
+    progress_total: int = 1,
     resume_id: Optional[str] = None,
     resume_latest: bool = False,
     resume_prompt: Optional[str] = None,
-) -> HtMonitor:
+) -> StreamJsonMonitor:
     #region agent log
     debug_log(
         "H2",
-        "orc_core/runner.py:launch_agent_with_ht",
-        "launch ht",
+        "orc_core/runner.py:launch_agent_stream_json",
+        "launch agent stream-json",
         {
             "workdir": workdir,
             "prompt_path": str(prompt_path) if prompt_path else None,
             "model": model,
+            "progress_done": progress_done,
+            "progress_total": progress_total,
             "resume_id": resume_id,
             "resume_latest": resume_latest,
             "resume_prompt": resume_prompt,
         },
     )
     #endregion
-    ht_cmd = [
-        "ht",
-        "--subscribe",
-        "init,output,snapshot",
-        "--size",
-        "120x40",
+
+    agent_cmd = [
+        "agent",
+        "-p",
+        "--force",
+        "--model",
+        model,
+        "--output-format",
+        "stream-json",
+        "--stream-partial-output",
     ]
-    if listen_addr:
-        ht_cmd.extend(["--listen", listen_addr])
-    resume_prompt_arg = f" {shlex.quote(resume_prompt)}" if resume_prompt else ""
     if resume_id:
-        ht_cmd.extend(
-            [
-                "--",
-                "bash",
-                "-lc",
-                f"cd {shlex.quote(workdir)} && agent --force --model {shlex.quote(model)} --resume {shlex.quote(resume_id)}{resume_prompt_arg}",
-            ]
-        )
+        agent_cmd.extend(["--resume", resume_id])
+        if resume_prompt:
+            agent_cmd.append(resume_prompt)
     elif resume_latest:
-        ht_cmd.extend(
-            [
-                "--",
-                "bash",
-                "-lc",
-                f"cd {shlex.quote(workdir)} && agent --force --model {shlex.quote(model)} --resume{resume_prompt_arg}",
-            ]
-        )
+        agent_cmd.append("--resume")
+        if resume_prompt:
+            agent_cmd.append(resume_prompt)
     else:
         if prompt_path is None:
             raise ValueError("prompt_path is required when not resuming")
-        ht_cmd.extend(
-            [
-                "--",
-                "bash",
-                "-lc",
-                f"cd {shlex.quote(workdir)} && agent --force --model {shlex.quote(model)} \"$(cat {shlex.quote(str(prompt_path))})\"",
-            ]
-        )
+        prompt = prompt_path.read_text(encoding="utf-8")
+        agent_cmd.append(prompt)
     #region agent log
     debug_log(
         "H1",
-        "orc_core/runner.py:launch_agent_with_ht:cmd",
-        "ht command",
-        {"cmd": " ".join(ht_cmd)},
+        "orc_core/runner.py:launch_agent_stream_json:cmd",
+        "agent command",
+        {"cmd": " ".join(shlex.quote(part) for part in agent_cmd)},
     )
     #endregion
-    log_event(log_path, "INFO", "launch ht", command=" ".join(ht_cmd))
+    log_event(log_path, "INFO", "launch agent stream-json", command=" ".join(shlex.quote(part) for part in agent_cmd))
     try:
         proc = subprocess.Popen(
-            ht_cmd,
-            stdin=subprocess.PIPE,
+            agent_cmd,
+            cwd=workdir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -97,17 +85,17 @@ def launch_agent_with_ht(
             errors="replace",
         )
     except FileNotFoundError as exc:
-        log_event(log_path, "ERROR", "ht executable not found", error=str(exc))
+        log_event(log_path, "ERROR", "agent executable not found", error=str(exc))
         raise
     #region agent log
     debug_log(
         "H1",
-        "orc_core/runner.py:launch_agent_with_ht:spawned",
-        "ht spawned",
+        "orc_core/runner.py:launch_agent_stream_json:spawned",
+        "agent spawned",
         {"pid": proc.pid},
     )
     #endregion
-    return HtMonitor(
+    monitor = StreamJsonMonitor(
         proc,
         log_path,
         report_interval=report_interval,
@@ -115,3 +103,5 @@ def launch_agent_with_ht(
         task_id=task_id,
         workdir=workdir,
     )
+    monitor.set_progress(progress_done, progress_total)
+    return monitor

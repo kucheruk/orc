@@ -1,0 +1,180 @@
+# Cursor Documentation
+
+## Get Started
+
+- https://cursor.com/docs.md
+- https://cursor.com/docs/get-started/quickstart.md
+- https://cursor.com/docs/get-started/concepts.md
+- https://cursor.com/docs/models.md
+- https://cursor.com/docs/account/pricing.md
+
+## Agent
+
+- https://cursor.com/docs/agent/overview.md
+- https://cursor.com/docs/agent/modes.md
+- https://cursor.com/docs/agent/review.md
+- https://cursor.com/docs/agent/terminal.md
+- https://cursor.com/docs/agent/browser.md
+- https://cursor.com/docs/agent/security.md
+- https://cursor.com/docs/agent/hooks.md
+  - https://cursor.com/docs/agent/third-party-hooks.md
+
+## Context
+
+- https://cursor.com/docs/context/rules.md
+- https://cursor.com/docs/context/commands.md
+- https://cursor.com/docs/context/skills.md
+- https://cursor.com/docs/context/subagents.md
+- https://cursor.com/docs/context/semantic-search.md
+- https://cursor.com/docs/context/mentions.md
+- https://cursor.com/docs/context/mcp.md
+  - https://cursor.com/docs/context/mcp/directory.md
+  - https://cursor.com/docs/context/mcp/install-links.md
+- https://cursor.com/docs/plugins.md
+  - https://cursor.com/docs/plugins/security.md
+  - https://cursor.com/docs/plugins/building.md
+
+## Features
+
+- https://cursor.com/docs/tab/overview.md
+- https://cursor.com/docs/cloud-agent.md
+  - https://cursor.com/docs/cloud-agent/setup.md
+  - https://cursor.com/docs/cloud-agent/capabilities.md
+  - https://cursor.com/docs/cloud-agent/best-practices.md
+  - https://cursor.com/docs/cloud-agent/security.md
+  - https://cursor.com/docs/cloud-agent/network-access.md
+  - https://cursor.com/docs/cloud-agent/egress-ip-ranges.md
+  - https://cursor.com/docs/cloud-agent/settings.md
+  - https://cursor.com/docs/cloud-agent/api/endpoints.md
+- https://cursor.com/docs/cli/overview.md
+  - https://cursor.com/docs/cli/installation.md
+  - https://cursor.com/docs/cli/using.md
+  - https://cursor.com/docs/cli/shell-mode.md
+  - https://cursor.com/docs/cli/mcp.md
+  - https://cursor.com/docs/cli/headless.md
+    - https://cursor.com/docs/cli/github-actions.md
+    - https://cursor.com/docs/cli/cookbook/code-review.md
+      - https://cursor.com/docs/cli/cookbook/update-docs.md
+      - https://cursor.com/docs/cli/cookbook/fix-ci.md
+      - https://cursor.com/docs/cli/cookbook/secret-audit.md
+      - https://cursor.com/docs/cli/cookbook/translate-keys.md
+  - https://cursor.com/docs/cli/reference/slash-commands.md
+    - https://cursor.com/docs/cli/reference/parameters.md
+    - https://cursor.com/docs/cli/reference/authentication.md
+    - https://cursor.com/docs/cli/reference/permissions.md
+    - https://cursor.com/docs/cli/reference/configuration.md
+    - https://cursor.com/docs/cli/reference/output-format.md
+    - https://cursor.com/docs/cli/reference/terminal-setup.md
+- https://cursor.com/docs/inline-edit/overview.md
+  - https://cursor.com/docs/inline-edit/terminal.md
+- https://cursor.com/docs/bugbot.md
+- https://cursor.com/docs/shared-transcripts.md
+
+## Integrations
+
+- https://cursor.com/docs/integrations/slack.md
+- https://cursor.com/docs/integrations/linear.md
+- https://cursor.com/docs/integrations/github.md
+- https://cursor.com/docs/integrations/git.md
+- https://cursor.com/docs/integrations/gitlab.md
+- https://cursor.com/docs/integrations/deeplinks.md
+
+## Configuration
+
+- https://cursor.com/docs/context/ignore-files.md
+- https://cursor.com/docs/configuration/extensions.md
+- https://cursor.com/docs/configuration/kbd.md
+- https://cursor.com/docs/configuration/themes.md
+- https://cursor.com/docs/configuration/shell.md
+- https://cursor.com/docs/configuration/worktrees.md
+- https://cursor.com/docs/settings/api-keys.md
+  - https://cursor.com/docs/settings/aws-bedrock.md
+- https://cursor.com/docs/configuration/languages/python.md
+- https://cursor.com/docs/configuration/languages/javascript-typescript.md
+- https://cursor.com/docs/configuration/languages/ios-macos-swift.md
+- https://cursor.com/docs/configuration/languages/java.md
+- https://cursor.com/docs/configuration/migrations/vscode.md
+- https://cursor.com/docs/configuration/migrations/jetbrains.md
+
+## Account
+
+- https://cursor.com/docs/account/billing.md
+  - https://cursor.com/docs/account/billing/spend-alerts.md
+  - https://cursor.com/docs/account/billing/spend-limits.md
+- https://cursor.com/docs/account/update-access.md
+- https://cursor.com/docs/account/teams/setup.md
+  - https://cursor.com/docs/account/teams/pricing.md
+  - https://cursor.com/docs/account/teams/members.md
+  - https://cursor.com/docs/account/teams/sso.md
+  - https://cursor.com/docs/account/teams/dashboard.md
+  - https://cursor.com/docs/account/teams/analytics.md
+- https://cursor.com/docs/enterprise.md
+  - https://cursor.com/docs/enterprise/identity-and-access-management.md
+    - https://cursor.com/docs/account/teams/scim.md
+  - https://cursor.com/docs/enterprise/privacy-and-data-governance.md
+  - https://cursor.com/docs/enterprise/network-configuration.md
+  - https://cursor.com/docs/enterprise/llm-safety-and-controls.md
+  - https://cursor.com/docs/enterprise/model-and-integration-management.md
+  - https://cursor.com/docs/enterprise/compliance-and-monitoring.md
+  - https://cursor.com/docs/enterprise/deployment-patterns.md
+  - https://cursor.com/docs/account/enterprise/service-accounts.md
+  - https://cursor.com/docs/account/enterprise/billing-groups.md
+  - https://cursor.com/docs/integrations/cursor-blame.md
+
+## Cookbook
+
+- https://cursor.com/docs/cookbook/agent-workflows.md
+- https://cursor.com/docs/cookbook/building-mcp-server.md
+- https://cursor.com/docs/cookbook/web-development.md
+- https://cursor.com/docs/cookbook/data-science.md
+- https://cursor.com/docs/cookbook/large-codebases.md
+- https://cursor.com/docs/cookbook/mermaid-diagrams.md
+- https://cursor.com/docs/cookbook/bugbot-rules.md
+
+## Troubleshooting
+
+- https://cursor.com/docs/troubleshooting/common-issues.md
+- https://cursor.com/docs/troubleshooting/request-reporting.md
+- https://cursor.com/docs/troubleshooting/troubleshooting-guide.md
+- https://cursor.com/docs/downloads.md
+
+# CLI Documentation
+
+## Get Started
+
+- https://cursor.com/docs/cli/overview.md
+- https://cursor.com/docs/cli/installation.md
+- https://cursor.com/docs/cli/using.md
+- https://cursor.com/docs/cli/shell-mode.md
+- https://cursor.com/docs/cli/mcp.md
+
+## Headless
+
+- https://cursor.com/docs/cli/headless.md
+- https://cursor.com/docs/cli/github-actions.md
+- https://cursor.com/docs/cli/cookbook/code-review.md
+  - https://cursor.com/docs/cli/cookbook/update-docs.md
+  - https://cursor.com/docs/cli/cookbook/fix-ci.md
+  - https://cursor.com/docs/cli/cookbook/secret-audit.md
+  - https://cursor.com/docs/cli/cookbook/translate-keys.md
+
+## Reference
+
+- https://cursor.com/docs/cli/reference/slash-commands.md
+- https://cursor.com/docs/cli/reference/parameters.md
+- https://cursor.com/docs/cli/reference/authentication.md
+- https://cursor.com/docs/cli/reference/permissions.md
+- https://cursor.com/docs/cli/reference/configuration.md
+- https://cursor.com/docs/cli/reference/output-format.md
+- https://cursor.com/docs/cli/reference/terminal-setup.md
+
+## Internationalization
+
+All documentation is available in multiple languages. To access a specific language version, prepend the language code to the path. For example:
+
+- Spanish: `https://cursor.com/es/docs/bugbot.md`
+- Japanese: `https://cursor.com/ja/docs/bugbot.md`
+- French: `https://cursor.com/fr/docs/bugbot.md`
+- And more...
+
+Available languages: cn, ja, zh-Hant, es, fr, pt-BR, ko, ru, tr, id, de

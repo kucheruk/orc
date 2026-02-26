@@ -196,42 +196,32 @@ Minimum log events:
 - No global hooks modifications.
 - No assumptions about agent working directory beyond `workspace_root`.
 
-## Optional: HT Wrapper for Deterministic Agent Lifecycle
+## Stream-JSON Runtime (Mandatory)
 
-`ht` (headless terminal) can wrap the Cursor CLI agent to provide explicit lifecycle signals and reliable "is running / finished" state via a PTY-backed JSON API. This is an optional enhancement to avoid ambiguity in Terminal-based launches.
+ORC runs agents only through headless Cursor CLI stream output:
 
-Reference: https://github.com/andyk/ht
+```bash
+agent -p --force --output-format stream-json --stream-partial-output "<PROMPT>"
+```
 
-### Why use ht
+### Why stream-json
 
-- Provides a PTY wrapper with structured events.
-- Explicit `init`, `output`, `snapshot`, and `resize` events.
-- Allows driving and monitoring the agent process without relying on terminal window state.
-
-### Proposed Integration (Optional)
-
-1. Start the agent with `ht`, in the repo workdir:
-   ```
-   ht --subscribe init,output,snapshot --size 120x40 --listen 127.0.0.1:0 \
-     bash -lc "cd /path/to/repo && agent --force --model gpt-5.2-codex \"<PROMPT>\""
-   ```
-2. Parse `init` event to get the agent PID and to confirm start.
-3. Track `output` stream to detect idle/quiet intervals.
-4. Use `takeSnapshot` polling to determine terminal is stable when needed.
-5. Process exit indicates definitive completion.
+- Structured lifecycle events without terminal scraping.
+- Stable machine-readable telemetry (`system`, `assistant`, `tool_call`, `result`).
+- No external terminal wrappers or PTY-level dependencies.
 
 ### Lifecycle Signals
 
-- **Started**: `init` event received (includes PID).
-- **Running**: `output` events continue.
-- **Stopped**: ht exits / child process exit.
-- **Finished**: child process exit + hooks performed cleanup (task file deleted).
+- **Started**: process spawned + first `system/init` event.
+- **Running**: `assistant` and `tool_call` events arrive.
+- **Finished Success**: `result` event with success subtype/status.
+- **Finished Error**: `result` event with non-success status or early process exit.
 
 ### Constraints / Notes
 
-- ht is not a Cursor API. It's a terminal wrapper and requires local install.
-- With `--listen`, you can attach a live viewer for debugging.
-- The orchestrator should still rely on hooks for `[x]` and follow-up, but can use ht to avoid spawning multiple agents and to guarantee process lifecycle.
+- `stream-json` schema can evolve between CLI versions; parser must be tolerant to optional fields.
+- Task completion remains hook-driven (`stop` marks backlog and removes task file).
+- If `result success` observed but task file lingers, orchestrator invokes stop-hook fallback.
 
 ## Conversation Log Access (Unsupported)
 
