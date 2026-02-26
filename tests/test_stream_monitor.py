@@ -14,18 +14,29 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         monitor._recent_events = deque(maxlen=8)
         return monitor
 
-    def test_reasoning_chunks_are_coalesced(self) -> None:
+    def test_reasoning_chunks_are_coalesced_without_word_split(self) -> None:
         monitor = self._make_monitor()
-        event = {"type": "assistant", "subtype": "reasoning"}
-
-        monitor._remember_reasoning(event, "and")
-        monitor._remember_reasoning(event, "un")
-        monitor._remember_reasoning(event, "tracked")
-        monitor._remember_reasoning(event, "files")
-        monitor._remember_reasoning(event, "**")
+        monitor._append_reasoning_fragment("Prior")
+        monitor._append_reasoning_fragment("itizing user commit preference")
 
         self.assertEqual(len(monitor._recent_reasoning), 1)
-        self.assertIn("untracked", monitor._recent_reasoning[-1])
+        self.assertEqual(monitor._recent_reasoning[-1], "Prioritizing user commit preference")
+
+    def test_reasoning_strips_basic_markdown(self) -> None:
+        monitor = self._make_monitor()
+        event = {"type": "assistant", "subtype": "reasoning"}
+        monitor._remember_reasoning(event, "**Checking for existing technical specs**")
+
+        self.assertEqual(len(monitor._recent_reasoning), 1)
+        self.assertNotIn("**", monitor._recent_reasoning[-1])
+        self.assertEqual(monitor._recent_reasoning[-1], "Checking for existing technical specs")
+
+    def test_reasoning_panel_lines_wrap_long_entries(self) -> None:
+        monitor = self._make_monitor()
+        monitor._recent_reasoning.append("Assessing documentation and code structure for event feed improvements and token parsing stability")
+
+        lines = monitor._reasoning_lines_for_panel(max_width=40, max_lines=5)
+        self.assertGreater(len(lines), 1)
 
     def test_event_summary_contains_useful_context(self) -> None:
         monitor = self._make_monitor()
