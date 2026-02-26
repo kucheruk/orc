@@ -20,7 +20,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .logging import log_event
-from .text_parse import clean_summary_lines
+from .text_parse import clean_summary_lines, extract_tokens_from_text
 from .ui import ui_console
 
 
@@ -71,6 +71,7 @@ class StreamJsonMonitor:
         self._recent_commands: Deque[str] = deque(maxlen=8)
         self._recent_files: Deque[str] = deque(maxlen=10)
         self._recent_events: Deque[str] = deque(maxlen=8)
+        self._recent_reasoning: Deque[str] = deque(maxlen=12)
         self._progress_done = 0
         self._progress_total = 1
         self._console = ui_console()
@@ -172,6 +173,33 @@ class StreamJsonMonitor:
                 if path not in self._recent_files:
                     self._recent_files.append(path[:200])
 
+    def _is_reasoning_event(self, event: Dict[str, object]) -> bool:
+        markers = ("reason", "analysis", "think", "thought")
+        event_type = str(event.get("type") or "").lower()
+        subtype = str(event.get("subtype") or "").lower()
+        if any(marker in event_type for marker in markers):
+            return True
+        if any(marker in subtype for marker in markers):
+            return True
+        for key, _ in self._iter_values(event):
+            if not isinstance(key, str):
+                continue
+            key_lower = key.lower()
+            if any(marker in key_lower for marker in markers):
+                return True
+        return False
+
+    def _remember_reasoning(self, event: Dict[str, object], text: str) -> None:
+        if not text.strip():
+            return
+        if not self._is_reasoning_event(event):
+            return
+        lines = clean_summary_lines(text.splitlines())
+        if not lines:
+            return
+        for line in lines[-5:]:
+            self._recent_reasoning.append(line[:220])
+
     def _render(self):
         elapsed = int(max(time.time() - self.started_at, 0))
         minutes = elapsed // 60
@@ -223,6 +251,8 @@ class StreamJsonMonitor:
 
         events = Text("\n".join(list(self._recent_events)[-4:]) or "waiting for events...")
         events_panel = Panel(events, title="Event Feed", border_style="yellow")
+        reasoning = Text("\n".join(list(self._recent_reasoning)[-5:]) or "waiting for reasoning...")
+        reasoning_panel = Panel(reasoning, title="Reasoning (latest)", border_style="bright_yellow")
 
         term_height = max(self._console.size.height, 16)
         available = max(term_height - 2, 14)
@@ -230,13 +260,15 @@ class StreamJsonMonitor:
         cmds_h = min(8, max(4, available // 5))
         files_h = min(9, max(4, available // 4))
         used = status_h + cmds_h + files_h
-        events_h = max(4, available - used)
+        events_h = max(4, (available - used) // 2)
+        reasoning_h = max(4, available - used - events_h)
 
         layout = Layout()
         layout.split_column(
             Layout(status_panel, size=status_h),
             Layout(cmd_panel, size=cmds_h),
             Layout(files_panel, size=files_h),
+            Layout(reasoning_panel, size=reasoning_h),
             Layout(events_panel, size=events_h),
         )
         return layout
@@ -261,16 +293,19 @@ class StreamJsonMonitor:
             self.result_seen_at = time.time()
 
         tokens = self._extract_tokens(event)
+        text = self._extract_text(event)
+        if tokens is None and text:
+            tokens = extract_tokens_from_text(text)
         if tokens is not None:
             self.metrics.tokens_total = max(self.metrics.tokens_total or 0, tokens)
 
-        text = self._extract_text(event)
         if text:
             for line in clean_summary_lines(text.splitlines()):
                 self._line_buffer.append(line)
             preview = self._line_buffer[-1] if self._line_buffer else ""
             if preview:
                 self._last_event_note = preview[:80]
+            self._remember_reasoning(event, text)
 
         self._remember_command(event)
         self._remember_paths(event)
