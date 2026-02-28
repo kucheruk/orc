@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import json
+import time
+from argparse import Namespace
+from pathlib import Path
+from typing import Callable, Optional, Tuple
+
+from .hooks import ensure_repo_hooks, ensure_repo_hooks_config
+from .logging import log_event
+from .task_execution import TaskExecutionEngine, TaskExecutionRequest
+from .task_source import MarkdownTaskSource, Task
+from .ui import ui_info
+
+
+TaskSourceFactory = Callable[[Path], MarkdownTaskSource]
+
+
+class BacklogOrchestrator:
+    def __init__(
+        self,
+        *,
+        workdir: str,
+        backlog_path: Path,
+        args: Namespace,
+        task_path: Path,
+        run_root: Path,
+        log_path: Path,
+        prompt_template: str,
+        continue_template: str,
+        commit_template: str,
+        engine: TaskExecutionEngine,
+        task_source_factory: TaskSourceFactory = MarkdownTaskSource,
+        sleep_fn: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self.workdir = workdir
+        self.backlog_path = backlog_path
+        self.args = args
+        self.task_path = task_path
+        self.run_root = run_root
+        self.log_path = log_path
+        self.prompt_template = prompt_template
+        self.continue_template = continue_template
+        self.commit_template = commit_template
+        self.engine = engine
+        self.task_source_factory = task_source_factory
+        self.sleep_fn = sleep_fn
+
+    def run(self) -> int:
+        drop_pending = bool(self.args.drop)
+        drop_override: Optional[Tuple[str, str]] = None
+
+        while True:
+            task_source = self.task_source_factory(self.backlog_path)
+            tasks = task_source.list_tasks()
+            total = len(tasks)
+            done = sum(1 for t in tasks if t.done)
+            open_task = task_source.get_first_open_task()
+
+            if drop_pending and self.task_path.exists():
+                drop_pending = False
+                started_flag = False
+                try:
+                    active = json.loads(self.task_path.read_text(encoding="utf-8"))
+                    active_task_id = (active.get("task_id") or "").strip()
+                    active_task_text = (active.get("task_text") or "").strip()
+                    conversation_id = str(active.get("conversation_id") or "").strip()
+                    started_flag = bool(active.get("start_notified") or conversation_id)
+                    if active_task_id:
+                        drop_override = (active_task_id, active_task_text or active_task_id)
+                except Exception as exc:
+                    log_event(self.log_path, "ERROR", "drop: failed to read task file (still deleting)", error=str(exc))
+                try:
+                    self.task_path.unlink()
+                    log_event(
+                        self.log_path,
+                        "WARN",
+                        "drop: active task state deleted",
+                        task_path=str(self.task_path),
+                        started=started_flag,
+                    )
+                except Exception as exc:
+                    log_event(self.log_path, "ERROR", "drop: failed to delete task file", error=str(exc))
+                    return 2
+                if drop_override:
+                    dropped_task_id, _ = drop_override
+                    if dropped_task_id:
+                        dropped_task = next((t for t in tasks if t.task_id == dropped_task_id), None)
+                        if dropped_task and not dropped_task.done:
+                            open_task = dropped_task
+                        else:
+                            drop_override = None
+
+            if not open_task:
+                log_event(self.log_path, "INFO", "backlog complete")
+                ui_info("✅ BACKLOG.md: невыполненных пунктов не осталось. Выход.")
+                return 0
+
+            self._ensure_hooks()
+            short = (open_task.text[:120] + "…") if len(open_task.text) > 120 else open_task.text
+            ui_info(f"▶️ Текущая задача: {open_task.task_id} — {short}")
+
+            result = self.engine.execute(
+                TaskExecutionRequest(
+                    task=open_task,
+                    backlog_path=self.backlog_path,
+                    backlog_arg=self.args.backlog,
+                    task_path=self.task_path,
+                    workdir=self.workdir,
+                    run_root=self.run_root,
+                    model=self.args.model,
+                    commit_model=(self.args.commit_model or "").strip() or self.args.model,
+                    prompt_template=self.prompt_template,
+                    continue_template=self.continue_template,
+                    commit_template=self.commit_template,
+                    commit_phase=bool(self.args.commit_phase),
+                    poll=self.args.poll,
+                    stall_timeout=self.args.stall_timeout,
+                    task_ttl=self.args.task_ttl,
+                    max_restarts=self.args.max_restarts,
+                    report_interval=self.args.report_interval,
+                    summary_lines=self.args.summary_lines,
+                    nudge_after=self.args.nudge_after,
+                    nudge_cooldown=self.args.nudge_cooldown,
+                    nudge_text=self.args.nudge_text,
+                    commit_stall_timeout=self.args.commit_stall_timeout,
+                    commit_ttl=self.args.commit_ttl,
+                    progress_done=done,
+                    progress_total=total,
+                )
+            )
+
+            if result.status == "failed":
+                return 1
+            if result.delay_seconds > 0:
+                self.sleep_fn(result.delay_seconds)
+            if result.status == "completed":
+                ui_info("[orc] pause 5s before next task (Ctrl+C to stop)")
+                self.sleep_fn(5)
+
+    def _ensure_hooks(self) -> None:
+        before_path, stop_path = ensure_repo_hooks(self.workdir)
+        hooks_path = ensure_repo_hooks_config(self.workdir, before_path, stop_path, self.log_path)
+        log_event(self.log_path, "INFO", "hooks ready", hooks_config=str(hooks_path))

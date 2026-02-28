@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
+from .backlog_orchestrator import BacklogOrchestrator
 from .backlog import render_progress
 from .hooks import (
     ensure_repo_hooks,
@@ -21,6 +22,7 @@ from .logging import ORC_LOG_NAME, ORC_ROOT, debug_log, log_event
 from .notify import send_telegram_message
 from .process import acquire_lock, kill_process_tree, release_lock
 from .runner import launch_agent_stream_json
+from .task_execution import TaskExecutionEngine
 from .task_source import MarkdownTaskSource, Task
 from .text_parse import clean_summary_lines
 from .ui import ui_error, ui_info, ui_warn
@@ -766,7 +768,6 @@ def main() -> int:
     _cleanup_stale_task_file(task_path, orc_log_path, allowed_backlog=backlog_path)
 
     acquire_lock(lock_path, orc_log_path)
-    active_monitor = None
     try:
         try:
             template = load_prompt(Path(args.prompt_template)) if args.prompt_template else load_prompt(DEFAULT_PROMPT_PATH)
@@ -781,261 +782,25 @@ def main() -> int:
             return 2
 
         run_root = Path(workdir) / ".orc" / "backlog-run"
-        drop_pending = bool(args.drop)
-        drop_override: Optional[Tuple[str, str]] = None
-        while True:
-            task_source = MarkdownTaskSource(backlog_path)
-            tasks = task_source.list_tasks()
-            total = len(tasks)
-            done = sum(1 for t in tasks if t.done)
-            open_task = task_source.get_first_open_task()
-
-            # One-shot drop: if there is an active task file, delete it and restart the task from scratch.
-            # This is intentionally done before resume selection to avoid continuing an already-started task.
-            if drop_pending and task_path.exists():
-                drop_pending = False
-                started_flag = False
-                try:
-                    active = json.loads(task_path.read_text(encoding="utf-8"))
-                    active_task_id = (active.get("task_id") or "").strip()
-                    active_task_text = (active.get("task_text") or "").strip()
-                    conversation_id = str(active.get("conversation_id") or "").strip()
-                    started_flag = bool(active.get("start_notified") or conversation_id)
-                    if active_task_id:
-                        drop_override = (active_task_id, active_task_text or active_task_id)
-                except Exception as exc:
-                    log_event(orc_log_path, "ERROR", "drop: failed to read task file (still deleting)", error=str(exc))
-                try:
-                    task_path.unlink()
-                    log_event(
-                        orc_log_path,
-                        "WARN",
-                        "drop: active task state deleted",
-                        task_path=str(task_path),
-                        started=started_flag,
-                    )
-                    if started_flag:
-                        ui_warn("🧹 --drop: активная задача была начата; сбрасываю состояние и запускаю с нуля.")
-                    else:
-                        ui_warn("🧹 --drop: сбрасываю состояние активной задачи и запускаю с нуля.")
-                except Exception as exc:
-                    log_event(orc_log_path, "ERROR", "drop: failed to delete task file", error=str(exc))
-                    ui_error(f"❌ --drop: не удалось удалить {task_path}: {exc}")
-                    return 2
-                if drop_override:
-                    dropped_task_id, _ = drop_override
-                    if dropped_task_id:
-                        # Only restart "the same task" if it still exists in BACKLOG.md.
-                        # If it was removed from backlog, proceed with the next open task (or exit).
-                        dropped_task = next((t for t in tasks if t.task_id == dropped_task_id), None)
-                        if dropped_task and not dropped_task.done:
-                            open_task = dropped_task
-                        else:
-                            drop_override = None
-
-            if not open_task:
-                log_event(orc_log_path, "INFO", "backlog complete")
-                ui_info("✅ BACKLOG.md: невыполненных пунктов не осталось. Выход.")
-                return 0
-
-            task_id = open_task.task_id
-            task_text = open_task.text
-
-            resume_existing = task_path.exists()
-            resume_id: Optional[str] = None
-            #region agent log
-            debug_log(
-                "H2",
-                "orc_core/supervisor.py:main:task_state",
-                "task file state",
-                {"task_path": str(task_path), "exists": resume_existing},
-            )
-            #endregion
-            if resume_existing:
-                try:
-                    active = json.loads(task_path.read_text(encoding="utf-8"))
-                    active_task_id = active.get("task_id")
-                    active_task_text = active.get("task_text")
-                    resume_id = (active.get("conversation_id") or "").strip() or None
-                    #region agent log
-                    debug_log(
-                        "H2",
-                        "orc_core/supervisor.py:main:resume_existing",
-                        "resume task loaded",
-                        {"active_task_id": active_task_id, "task_text_len": len(active_task_text) if active_task_text else 0},
-                    )
-                    #endregion
-                except Exception as exc:
-                    log_event(orc_log_path, "ERROR", "failed to read task file", error=str(exc))
-                    ui_warn(f"⚠️ Не удалось прочитать {task_path}. Удали файл и запусти заново.")
-                    time.sleep(max(args.poll, 0.2))
-                    continue
-                if active_task_id and task_source.is_task_done(active_task_id):
-                    log_event(orc_log_path, "INFO", "task already marked done; removing task file", task_id=active_task_id)
-                    ui_info(f"✅ {active_task_id} уже отмечена [x]. Удаляю {task_path} и продолжаю.")
-                    try:
-                        task_path.unlink()
-                    except Exception as exc:
-                        log_event(orc_log_path, "ERROR", "failed to delete task file", error=str(exc))
-                    continue
-                # Файл актуален — используем его данные для resume
-                task_id = active_task_id or task_id
-                task_text = active_task_text or task_text
-                log_event(orc_log_path, "INFO", "resume existing task", task_id=task_id)
-                ui_info(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
-                if not resume_id:
-                    resume_id = _get_resume_id_from_agent_ls(workdir, orc_log_path)
-                    if resume_id:
-                        _update_task_conversation_id(task_path, orc_log_path, resume_id)
-                log_event(
-                    orc_log_path,
-                    "INFO",
-                    "resume selection",
-                    conversation_id=resume_id or "",
-                    resume_from_latest=resume_id is None,
-                )
-
-            short = (task_text[:120] + "…") if len(task_text) > 120 else task_text
-            ui_info(f"▶️ Текущая задача: {task_id} — {short}")
-
-            before_path, stop_path = ensure_repo_hooks(workdir)
-            hooks_path = ensure_repo_hooks_config(workdir, before_path, stop_path, orc_log_path)
-            log_event(orc_log_path, "INFO", "hooks ready", hooks_config=str(hooks_path))
-
-            if not resume_existing:
-                write_task_file(workdir, open_task, backlog_path, orc_log_path, restart_count=0)
-
-            prompt_vars = SafeDict(task_text=task_text, task_id=task_id, backlog=args.backlog, workspace=workdir)
-            prompt = template.format_map(prompt_vars)
-
-            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-            safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", task_text)[:60]
-            tag = f"{ts}__{safe_name}"
-            prompt_path = _write_prompt_file(run_root, prompt, tag)
-
-            restart_count = 0
-            while True:
-                update_task_restart_count(task_path, orc_log_path, restart_count)
-                log_event(orc_log_path, "INFO", "launching agent", task_id=task_id, restart_count=restart_count)
-                try:
-                    active_monitor = launch_agent_stream_json(
-                        workdir,
-                        prompt_path,
-                        args.model,
-                        orc_log_path,
-                        report_interval=args.report_interval,
-                        summary_lines=args.summary_lines,
-                        task_id=task_id,
-                        progress_done=done,
-                        progress_total=total,
-                        resume_id=resume_id if resume_existing else None,
-                        resume_latest=resume_existing and resume_id is None,
-                        resume_prompt=args.nudge_text if resume_existing else None,
-                    )
-                except FileNotFoundError:
-                    ui_error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
-                    return 2
-                result = wait_for_completion(
-                    task_path=task_path,
-                    monitor=active_monitor,
-                    poll=args.poll,
-                    stall_timeout=args.stall_timeout,
-                    task_ttl=args.task_ttl,
-                    log_path=orc_log_path,
-                    nudge_after=args.nudge_after,
-                    nudge_cooldown=args.nudge_cooldown,
-                    nudge_text=args.nudge_text,
-                    task_id=task_id,
-                    task_text=task_text,
-                )
-                active_monitor.stop()
-                kill_process_tree(active_monitor.init_pid or active_monitor.proc.pid, orc_log_path, label="agent")
-                #region agent log
-                debug_log(
-                    "H8",
-                    "orc_core/supervisor.py:main:completion_state",
-                    "completion state",
-                    {
-                        "result": result,
-                        "monitor_is_none": active_monitor is None,
-                        "lines": active_monitor.metrics.total_lines,
-                        "commands": active_monitor.metrics.command_count,
-                        "tokens_total": active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-",
-                    },
-                )
-                #endregion
-                if result == "completed":
-                    log_event(orc_log_path, "INFO", "task completed", task_id=task_id)
-                    raw_summary_text = active_monitor.get_summary_text()
-                    raw_lines = raw_summary_text.splitlines() if raw_summary_text else []
-                    cleaned_lines = clean_summary_lines(raw_lines)
-                    summary_text = "\n".join(cleaned_lines[-args.summary_lines :])
-                    tokens = active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-"
-                    files_edited = active_monitor.metrics.files_edited if active_monitor.metrics.files_edited is not None else "-"
-                    ui_info(
-                        f"[orc] completed stats tokens={tokens} lines={active_monitor.metrics.total_lines} "
-                        f"commands={active_monitor.metrics.command_count} files_edited={files_edited}"
-                    )
-                    #region agent log
-                    debug_log(
-                        "H8",
-                        "orc_core/supervisor.py:main:summary",
-                        "summary prepared",
-                        {
-                            "summary_len": len(summary_text),
-                            "summary_lines": summary_text.count("\n") + 1 if summary_text else 0,
-                        },
-                    )
-                    #endregion
-                    # Telegram notifications are handled by hooks.
-                    if not summary_text.strip():
-                        log_event(orc_log_path, "WARN", "telegram summary empty", task_id=task_id)
-                    active_monitor = None
-                    if args.commit_phase:
-                        commit_model = (args.commit_model or "").strip() or args.model
-                        if not _run_commit_phase(
-                            workdir=workdir,
-                            run_root=run_root,
-                            prompt_template=commit_template,
-                            prompt_vars=prompt_vars,
-                            model=commit_model,
-                            log_path=orc_log_path,
-                            poll=args.poll,
-                            stall_timeout=args.commit_stall_timeout,
-                            task_ttl=args.commit_ttl,
-                            task_id=task_id,
-                            tag=tag,
-                        ):
-                            ui_error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
-                            return 1
-                    break
-                active_monitor = None
-                restart_count += 1
-                if restart_count > args.max_restarts:
-                    log_event(orc_log_path, "ERROR", "max restarts exceeded", task_id=task_id)
-                    #region agent log
-                    debug_log(
-                        "H6",
-                        "orc_core/supervisor.py:main:max_restarts",
-                        "max restarts exceeded",
-                        {"task_id": task_id, "restart_count": restart_count, "max_restarts": args.max_restarts},
-                    )
-                    #endregion
-                    ui_error("❌ Агент не завершил задачу. Проверь логи.")
-                    return 1
-                log_event(orc_log_path, "WARN", "restarting task", task_id=task_id, restart_count=restart_count, reason=result)
-                prompt = continue_prompt.format_map(prompt_vars)
-                prompt_path = _write_prompt_file(run_root, prompt, f"{tag}__r{restart_count}")
-            ui_info("[orc] pause 5s before next task (Ctrl+C to stop)")
-            time.sleep(5)
+        engine = TaskExecutionEngine(log_path=orc_log_path)
+        orchestrator = BacklogOrchestrator(
+            workdir=workdir,
+            backlog_path=backlog_path,
+            args=args,
+            task_path=task_path,
+            run_root=run_root,
+            log_path=orc_log_path,
+            prompt_template=template,
+            continue_template=continue_prompt,
+            commit_template=commit_template,
+            engine=engine,
+        )
+        return orchestrator.run()
     except KeyboardInterrupt:
         log_event(orc_log_path, "WARN", "keyboard interrupt")
         ui_warn("⏹️ Прервано. Состояние сохранено.")
         return 130
     finally:
-        if active_monitor is not None:
-            active_monitor.stop()
-            kill_process_tree(active_monitor.init_pid or active_monitor.proc.pid, orc_log_path, label="agent-finalize")
         release_lock(lock_path, orc_log_path)
         # Final safety-net for one-off runs: never leave stale task state behind.
         if temp_backlog_path is not None and task_path.exists():
