@@ -86,7 +86,8 @@ class StreamJsonMonitor:
             console=self._console,
             refresh_per_second=8,
             auto_refresh=False,
-            transient=False,
+            transient=True,
+            screen=True,
         )
         self._live_started = False
         try:

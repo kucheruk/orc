@@ -357,7 +357,19 @@ class TaskExecutionEngine:
                 if resume_id:
                     update_task_conversation_id(request.task_path, self.log_path, resume_id)
                 else:
-                    ui_warn("⚠️ Resume ID не найден, запускаю задачу без --continue.")
+                    ui_warn("⚠️ Resume ID не найден, сбрасываю state и запускаю задачу заново.")
+                    try:
+                        request.task_path.unlink()
+                        resume_existing = False
+                        log_event(
+                            self.log_path,
+                            "WARN",
+                            "resume state reset: missing conversation_id",
+                            task_id=task_id,
+                            task_path=str(request.task_path),
+                        )
+                    except Exception as exc:
+                        log_event(self.log_path, "ERROR", "failed to reset resume state", error=str(exc))
             log_event(
                 self.log_path,
                 "INFO",

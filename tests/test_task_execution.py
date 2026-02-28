@@ -136,7 +136,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.get_resume_id_from_agent_ls", return_value=None)
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
-    def test_missing_resume_id_does_not_use_resume_latest(self, *_mocks) -> None:
+    @patch("orc_core.task_execution.write_task_file")
+    def test_missing_resume_id_resets_state_and_restarts_fresh(self, write_task_file, *_mocks) -> None:
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
@@ -152,6 +153,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 1)
+        write_task_file.assert_called_once()
         self.assertFalse(worker.launch_kwargs[0].get("resume_latest"))
 
 
