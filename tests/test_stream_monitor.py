@@ -73,10 +73,15 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         monitor._spinner_idx = 0
         monitor._live_started = True
         monitor._live_disabled_notified = False
+        monitor._plain_status_mode = False
+        monitor._last_plain_status_time = 0.0
         monitor._live = _Live()
         monitor._update_git_stats = lambda: None
         monitor._write_metrics_snapshot = lambda: None
         monitor._render = lambda: "render"
+        monitor.task_id = "TASK-1"
+        monitor._last_event_type = "init"
+        monitor._last_event_note = "starting"
 
         monitor.maybe_report()
         self.assertFalse(monitor._live_started)
@@ -100,10 +105,15 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         monitor._spinner_idx = 0
         monitor._live_started = True
         monitor._live_disabled_notified = False
+        monitor._plain_status_mode = False
+        monitor._last_plain_status_time = 0.0
         monitor._live = _Live()
         monitor._update_git_stats = lambda: None
         monitor._write_metrics_snapshot = lambda: None
         monitor._render = lambda: "render"
+        monitor.task_id = "TASK-1"
+        monitor._last_event_type = "init"
+        monitor._last_event_note = "starting"
 
         with patch("orc_core.stream_monitor.ui_warn", side_effect=BlockingIOError(35, "blocked")):
             monitor.maybe_report()
