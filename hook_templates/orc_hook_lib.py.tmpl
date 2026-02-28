@@ -12,7 +12,7 @@ LOG_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
 DEFAULT_LOG_LEVEL = "WARN"
 if str(ORC_ROOT) not in sys.path:
     sys.path.insert(0, str(ORC_ROOT))
-from orc_core.task_contract import parse_task_line, render_task_line_with_mark
+from orc_core.task_source import MarkdownTaskSource
 from orc_core.telegram import post_telegram_message, resolve_telegram_credentials, truncate_telegram_message
 
 
@@ -99,45 +99,17 @@ def git_has_recent_commit(repo_root: Path, since_iso: str, log_path: Optional[Pa
 
 
 def is_task_marked(path: Path, task_id: str) -> bool:
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    for line in lines:
-        parsed = parse_task_line(line)
-        if not parsed:
-            continue
-        if parsed.task_id != task_id:
-            continue
-        return parsed.mark.lower() == "x"
-    return False
+    return MarkdownTaskSource(path).is_task_done(task_id)
 
 
 def mark_task_done(path: Path, task_id: str) -> bool:
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    for i, line in enumerate(lines):
-        parsed = parse_task_line(line)
-        if not parsed:
-            continue
-        if parsed.task_id != task_id:
-            continue
-        if parsed.mark.lower() == "x":
-            return True
-        lines[i] = render_task_line_with_mark(parsed, "x")
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        return True
-    return False
+    return MarkdownTaskSource(path).mark_task_done(task_id)
 
 
 def parse_backlog_counts(path: Path) -> Tuple[int, int]:
-    total = 0
-    done = 0
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        parsed = parse_task_line(line)
-        if not parsed:
-            continue
-        if not parsed.task_id:
-            continue
-        total += 1
-        if parsed.mark.lower() == "x":
-            done += 1
+    tasks = MarkdownTaskSource(path).list_tasks()
+    total = len(tasks)
+    done = sum(1 for task in tasks if task.done)
     return total, done
 
 

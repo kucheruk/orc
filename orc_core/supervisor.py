@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
-from .backlog import Task, find_first_open_task, is_task_done, parse_backlog, render_progress
+from .backlog import render_progress
 from .hooks import (
     ensure_repo_hooks,
     ensure_repo_hooks_config,
@@ -21,6 +21,7 @@ from .logging import ORC_LOG_NAME, ORC_ROOT, debug_log, log_event
 from .notify import send_telegram_message
 from .process import acquire_lock, kill_process_tree, release_lock
 from .runner import launch_agent_stream_json
+from .task_source import MarkdownTaskSource, Task
 from .text_parse import clean_summary_lines
 from .ui import ui_error, ui_info, ui_warn
 
@@ -334,7 +335,7 @@ def wait_for_completion(
                     payload = {}
                 backlog_path = payload.get("backlog_path")
                 current_task_id = payload.get("task_id")
-                if backlog_path and current_task_id and is_task_done(Path(backlog_path), str(current_task_id)):
+                if backlog_path and current_task_id and MarkdownTaskSource(Path(backlog_path)).is_task_done(str(current_task_id)):
                     log_event(
                         log_path,
                         "WARN",
@@ -376,7 +377,7 @@ def wait_for_completion(
                             expected_task_id=current_task_id,
                         )
                         return "completed"
-                    if is_task_done(backlog_path, current_task_id):
+                    if MarkdownTaskSource(backlog_path).is_task_done(current_task_id):
                         _delete_task_file(
                             task_path,
                             log_path,
@@ -783,10 +784,11 @@ def main() -> int:
         drop_pending = bool(args.drop)
         drop_override: Optional[Tuple[str, str]] = None
         while True:
-            tasks = parse_backlog(backlog_path)
+            task_source = MarkdownTaskSource(backlog_path)
+            tasks = task_source.list_tasks()
             total = len(tasks)
             done = sum(1 for t in tasks if t.done)
-            open_task = find_first_open_task(backlog_path)
+            open_task = task_source.get_first_open_task()
 
             # One-shot drop: if there is an active task file, delete it and restart the task from scratch.
             # This is intentionally done before resume selection to avoid continuing an already-started task.
@@ -868,7 +870,7 @@ def main() -> int:
                     ui_warn(f"⚠️ Не удалось прочитать {task_path}. Удали файл и запусти заново.")
                     time.sleep(max(args.poll, 0.2))
                     continue
-                if active_task_id and is_task_done(backlog_path, active_task_id):
+                if active_task_id and task_source.is_task_done(active_task_id):
                     log_event(orc_log_path, "INFO", "task already marked done; removing task file", task_id=active_task_id)
                     ui_info(f"✅ {active_task_id} уже отмечена [x]. Удаляю {task_path} и продолжаю.")
                     try:

@@ -96,6 +96,18 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 5. (Опционально) Запустить commit phase и дождаться её завершения.
 6. Повторить цикл с шага 1.
 
+## Источник задач (Task Source)
+
+Работа с источником задач вынесена в интерфейсный слой `TaskSource` (`orc_core/task_source.py`).
+
+- `MarkdownTaskSource` — текущая реализация для `BACKLOG.md`
+- `supervisor` и hook-логика используют этот слой для:
+  - чтения списка задач,
+  - получения первой незавершённой задачи,
+  - проверки и пометки задачи как выполненной
+
+Это позволяет добавить другой backend (например, Jira/Kaiten/GitHub Issues) без изменения orchestration-цикла.
+
 ## Поведение хуков
 
 ### beforeSubmitPrompt
