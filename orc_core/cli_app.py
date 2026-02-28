@@ -7,7 +7,7 @@ from typing import Optional
 
 from .backlog_orchestrator import BacklogOrchestrator
 from .backlog_status import inspect_backlog
-from .logging import ORC_LOG_NAME, ORC_ROOT, log_event
+from .logging import ORC_LOG_NAME, ORC_ROOT, init_debug_logging, log_event
 from .notify import send_telegram_message
 from .process import acquire_lock, release_lock
 from .start_menu import show_start_menu
@@ -61,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--mode", choices=["backlog", "single", "prompt"], default="", help="Execution mode")
     ap.add_argument("--task-id", default="", help="Run exactly one backlog task by ID")
     ap.add_argument("--prompt", default="", help="Run one arbitrary prompt without requiring backlog")
+    ap.add_argument("--debug", action="store_true", help="Enable debug logging to /tmp/orc")
     return ap
 
 
@@ -77,6 +78,7 @@ def _resolve_mode(args, backlog_path: Path) -> None:
     status = inspect_backlog(backlog_path)
     choice = show_start_menu(status)
     args.mode = choice.mode
+    args.debug = bool(args.debug or choice.debug_enabled)
     if choice.task_id:
         args.task_id = choice.task_id
     if choice.prompt_text:
@@ -123,6 +125,10 @@ def main() -> int:
 
     initial_backlog_path = Path(workdir) / args.backlog
     _resolve_mode(args, initial_backlog_path)
+    debug_log_path = init_debug_logging(enabled=bool(args.debug), workdir=workdir)
+    if debug_log_path is not None:
+        ui_info(f"[orc] debug log: {debug_log_path}")
+        log_event(log_path, "INFO", "debug logging enabled", debug_log_path=str(debug_log_path))
     backlog_path, temp_backlog_path = _resolve_backlog(args, workdir, log_path)
     if not _validate_inputs(args, backlog_path):
         return 2

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 from prompt_toolkit import prompt
-from prompt_toolkit.shortcuts import message_dialog, radiolist_dialog
+from prompt_toolkit.shortcuts import checkboxlist_dialog, message_dialog, radiolist_dialog
 
 from .backlog_status import BacklogStatus
 from .task_source import Task
@@ -18,6 +18,7 @@ class StartMenuChoice:
     mode: Mode
     task_id: str = ""
     prompt_text: str = ""
+    debug_enabled: bool = False
 
 
 def show_start_menu(backlog_status: BacklogStatus) -> StartMenuChoice:
@@ -41,15 +42,16 @@ def show_start_menu(backlog_status: BacklogStatus) -> StartMenuChoice:
                 text=f"Backlog-режим недоступен: {backlog_status.disabled_reason}",
             ).run()
             continue
+        debug_enabled = _pick_debug_enabled()
         if selected_mode == "single":
             task = _pick_single_task(backlog_status.open_tasks)
             if task is None:
                 continue
-            return StartMenuChoice(mode="single", task_id=task.task_id)
+            return StartMenuChoice(mode="single", task_id=task.task_id, debug_enabled=debug_enabled)
         if selected_mode == "prompt":
             prompt_text = _read_prompt_textarea()
-            return StartMenuChoice(mode="prompt", prompt_text=prompt_text)
-        return StartMenuChoice(mode="backlog")
+            return StartMenuChoice(mode="prompt", prompt_text=prompt_text, debug_enabled=debug_enabled)
+        return StartMenuChoice(mode="backlog", debug_enabled=debug_enabled)
 
 
 def _menu_text(backlog_status: BacklogStatus) -> str:
@@ -88,3 +90,12 @@ def _read_prompt_textarea() -> str:
         if value:
             return value
         message_dialog(title="Пустой ввод", text="Введите непустой prompt.").run()
+
+
+def _pick_debug_enabled() -> bool:
+    selected = checkboxlist_dialog(
+        title="Дополнительные опции",
+        text="Выберите опции запуска (Space — переключить, Enter — подтвердить).",
+        values=[("debug", "Включить debug logging в /tmp/orc")],
+    ).run()
+    return bool(selected and "debug" in selected)
