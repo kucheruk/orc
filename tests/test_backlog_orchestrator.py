@@ -106,6 +106,8 @@ class BacklogOrchestratorTest(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual(engine.calls, [])
+        hooks.assert_called_once_with(tmpdir)
+        hooks_config.assert_called_once()
 
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")

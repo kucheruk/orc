@@ -55,6 +55,7 @@ class BacklogOrchestrator:
         drop_override: Optional[Tuple[str, str]] = None
 
         while True:
+            self._ensure_hooks()
             task_source = self.task_source_factory(self.backlog_path)
             tasks = task_source.list_tasks()
             total = len(tasks)
@@ -112,7 +113,6 @@ class BacklogOrchestrator:
                 ui_info("✅ BACKLOG.md: невыполненных пунктов не осталось. Выход.")
                 return 0
 
-            self._ensure_hooks()
             short = (open_task.text[:120] + "…") if len(open_task.text) > 120 else open_task.text
             ui_info(f"▶️ Текущая задача: {open_task.task_id} — {short}")
 

@@ -413,12 +413,7 @@ def main() -> int:
         if lib.git_has_recent_commit(script_repo, created_at, log_path):
             lib.log_event(log_path, "INFO", "stop: recent commit detected; proceeding", task_id=task_id)
         else:
-            lib.log_event(log_path, "WARN", "stop: no git changes; retrying task", task_id=task_id)
-            try:
-                task_file.unlink()
-            except Exception as exc:
-                lib.log_event(log_path, "ERROR", "stop: failed to delete task file", error=str(exc))
-            return 0
+            lib.log_event(log_path, "WARN", "stop: completed without new commit or local changes", task_id=task_id)
 
     if lib.mark_task_done(Path(backlog_path), task_id):
         lib.log_event(log_path, "INFO", "stop: marked task", task_id=task_id)
