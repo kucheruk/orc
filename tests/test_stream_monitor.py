@@ -120,6 +120,26 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         get_blocking_mock.assert_called_once_with(1)
         set_blocking_mock.assert_called_once_with(1, True)
 
+    @patch("orc_core.stream_monitor.os.set_blocking")
+    @patch("orc_core.stream_monitor.os.get_blocking", return_value=False)
+    def test_ensure_agent_streams_are_forced_to_blocking(self, get_blocking_mock, set_blocking_mock) -> None:
+        class _S:
+            def __init__(self, fd: int) -> None:
+                self._fd = fd
+
+            def fileno(self) -> int:
+                return self._fd
+
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        monitor.log_path = Path("/tmp/orc.log")
+        monitor.proc = SimpleNamespace(stdout=_S(11), stderr=_S(12))
+
+        monitor._ensure_stream_blocking_output()
+
+        self.assertEqual(get_blocking_mock.call_count, 2)
+        set_blocking_mock.assert_any_call(11, True)
+        set_blocking_mock.assert_any_call(12, True)
+
 
 if __name__ == "__main__":
     unittest.main()

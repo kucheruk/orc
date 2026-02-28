@@ -79,6 +79,7 @@ class StreamJsonMonitor:
         self._progress_total = 1
         self._console = ui_console()
         self._ensure_console_blocking_output()
+        self._ensure_stream_blocking_output()
         self._live_disabled_notified = False
         self._live = Live(
             self._render(),
@@ -427,32 +428,38 @@ class StreamJsonMonitor:
     def _read_stdout(self) -> None:
         if self.proc.stdout is None:
             return
-        for line in self.proc.stdout:
-            if self._stop.is_set():
-                break
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                event = json.loads(raw)
-            except Exception as exc:
-                log_event(self.log_path, "WARN", "stream_json_bad_line", error=str(exc), raw=raw[:500])
-                continue
-            if isinstance(event, dict):
-                self._record_event(event)
+        try:
+            for line in self.proc.stdout:
+                if self._stop.is_set():
+                    break
+                raw = line.strip()
+                if not raw:
+                    continue
+                try:
+                    event = json.loads(raw)
+                except Exception as exc:
+                    log_event(self.log_path, "WARN", "stream_json_bad_line", error=str(exc), raw=raw[:500])
+                    continue
+                if isinstance(event, dict):
+                    self._record_event(event)
+        except Exception as exc:
+            log_event(self.log_path, "ERROR", "stream_stdout_reader_failed", error=str(exc))
 
     def _read_stderr(self) -> None:
         if self.proc.stderr is None:
             return
-        for line in self.proc.stderr:
-            if self._stop.is_set():
-                break
-            raw = line.strip()
-            if not raw:
-                continue
-            self.last_stderr_line = raw[:500]
-            self.stderr_count += 1
-            log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)
+        try:
+            for line in self.proc.stderr:
+                if self._stop.is_set():
+                    break
+                raw = line.strip()
+                if not raw:
+                    continue
+                self.last_stderr_line = raw[:500]
+                self.stderr_count += 1
+                log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)
+        except Exception as exc:
+            log_event(self.log_path, "ERROR", "stream_stderr_reader_failed", error=str(exc))
 
     def _notify_live_disabled(self) -> None:
         if self._live_disabled_notified:
@@ -474,6 +481,19 @@ class StreamJsonMonitor:
                 log_event(self.log_path, "WARN", "console_output_forced_blocking", fd=fd)
         except Exception:
             return
+
+    def _ensure_stream_blocking_output(self) -> None:
+        for name in ("stdout", "stderr"):
+            stream = getattr(self.proc, name, None)
+            if stream is None:
+                continue
+            try:
+                fd = stream.fileno()
+                if not os.get_blocking(fd):
+                    os.set_blocking(fd, True)
+                    log_event(self.log_path, "WARN", "agent_stream_forced_blocking", stream=name, fd=fd)
+            except Exception:
+                continue
 
     def _update_git_stats(self) -> None:
         try:
