@@ -25,6 +25,8 @@ class _FakeEngine:
 
 def _args(backlog: str) -> Namespace:
     return Namespace(
+        mode="backlog",
+        task_id="",
         backlog=backlog,
         model="gpt-5.2-codex",
         commit_model="",
@@ -134,6 +136,41 @@ class BacklogOrchestratorTest(unittest.TestCase):
         self.assertEqual(len(engine.calls), 1)
         self.assertEqual(engine.calls[0].progress_done, 0)
         self.assertEqual(engine.calls[0].progress_total, 1)
+
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    def test_single_mode_runs_selected_task_once(self, hooks_config, hooks) -> None:
+        hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
+        hooks_config.return_value = Path("/tmp/hooks.json")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text(
+                "- [ ] TASK-001 first\n"
+                "- [ ] TASK-002 second\n",
+                encoding="utf-8",
+            )
+            engine = _FakeEngine(backlog_path)
+            args = _args("BACKLOG.md")
+            args.mode = "single"
+            args.task_id = "TASK-002"
+            orchestrator = BacklogOrchestrator(
+                workdir=tmpdir,
+                backlog_path=backlog_path,
+                args=args,
+                task_path=Path(tmpdir) / ".cursor" / "orc-task.json",
+                run_root=Path(tmpdir) / ".orc" / "run",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+                prompt_template="{task_id}",
+                continue_template="{task_id}",
+                commit_template="{task_id}",
+                engine=engine,
+                sleep_fn=lambda _seconds: None,
+            )
+
+            rc = orchestrator.run()
+
+        self.assertEqual(rc, 0)
+        self.assertEqual([call.task.task_id for call in engine.calls], ["TASK-002"])
 
 
 if __name__ == "__main__":

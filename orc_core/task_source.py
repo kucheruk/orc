@@ -19,7 +19,13 @@ class TaskSource(Protocol):
     def list_tasks(self) -> List[Task]:
         ...
 
+    def get_open_tasks(self) -> List[Task]:
+        ...
+
     def get_first_open_task(self) -> Optional[Task]:
+        ...
+
+    def get_task_by_id(self, task_id: str) -> Optional[Task]:
         ...
 
     def is_task_done(self, task_id: str) -> bool:
@@ -51,6 +57,18 @@ class MarkdownTaskSource:
     def get_first_open_task(self) -> Optional[Task]:
         for task in self.list_tasks():
             if not task.done:
+                return task
+        return None
+
+    def get_open_tasks(self) -> List[Task]:
+        return [task for task in self.list_tasks() if not task.done]
+
+    def get_task_by_id(self, task_id: str) -> Optional[Task]:
+        wanted = str(task_id or "").strip()
+        if not wanted:
+            return None
+        for task in self.list_tasks():
+            if task.task_id == wanted:
                 return task
         return None
 

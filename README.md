@@ -59,11 +59,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 6. **Запустить оркестратор:**
    ```bash
-   uv run python orc.py --workspace /path/to/your/repo
+   # можно без ключей, из директории проекта
+   uv run python /path/to/orc/orc.py
    ```
 
    ORC сделает следующее:
-   - Прочитает `BACKLOG.md` и найдёт первую невыполненную задачу
+   - Покажет стартовое меню режимов (backlog-loop / single-task / arbitrary prompt)
+   - Для backlog-режимов прочитает `BACKLOG.md` и найдёт нужную задачу
    - Создаст нужные hook‑файлы в `.cursor/` (и лог хуков в `.orc/`)
    - Запустит Cursor Agent для текущей задачи
    - Дождётся завершения и автоматически отметит задачу как выполненную
@@ -145,7 +147,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ### Базовый запуск
 
 ```bash
-uv run python orc.py --workspace /path/to/repo
+# запуск из директории целевого проекта, без обязательных ключей
+uv run python /path/to/orc/orc.py
 ```
 
 Или с абсолютным путём:
@@ -160,10 +163,22 @@ uv run python /path/to/orc/orc.py --workspace /path/to/repo
 - `--workspace PATH` — путь к целевому репозиторию (по умолчанию: `.`)
 
 #### One-off запуск без BACKLOG
-- `--task TEXT` — создать временный backlog с одной задачей и выполнить её как smoke-сценарий
+- `--task TEXT` — legacy one-off режим (создаёт временный backlog и выполняет одну задачу)
 
 #### Backlog
 - `--backlog PATH` — путь к файлу backlog (по умолчанию: `BACKLOG.md`)
+
+#### Режимы выполнения
+- `--mode backlog|single|prompt` — принудительно выбрать режим (иначе показывается интерактивное меню)
+- `--task-id TASK-ID` — выполнить только указанную задачу из backlog (single mode)
+- `--prompt TEXT` — выполнить произвольный prompt (создаётся временный backlog на одну задачу)
+
+Приоритет выбора режима:
+- явные новые флаги (`--mode`, `--task-id`, `--prompt`)
+- затем legacy `--task`
+- затем интерактивное меню
+
+Если `BACKLOG.md` отсутствует или в нём нет открытых задач, backlog-пункты в меню отображаются disabled с пояснением, но режим произвольного prompt доступен.
 
 #### Агент
 - `--model MODEL` — модель Cursor agent (по умолчанию: `gpt-5.2-codex`)
@@ -201,16 +216,20 @@ uv run python /path/to/orc/orc.py --workspace /path/to/repo
 
 ```bash
 # Базовый запуск
-uv run python orc.py --workspace /path/to/myproject
+cd /path/to/myproject
+uv run python /path/to/orc/orc.py
 
 # Кастомная модель и другой backlog
 uv run python orc.py --workspace /path/to/myproject --model gpt-4 --backlog TODO.md
 
+# Выполнить одну конкретную задачу из backlog
+uv run python orc.py --workspace /path/to/myproject --mode single --task-id TASK-123
+
 # Проверка Telegram
 uv run python orc.py --telegram-test "Hello from orc!"
 
-# Smoke-запуск без BACKLOG.md
-uv run python orc.py --workspace /path/to/myproject --model gpt-5.3-codex --task "Проанализируй текущий проект на предмет зон для рефакторинга"
+# Произвольная задача (ad-hoc prompt)
+uv run python orc.py --workspace /path/to/myproject --mode prompt --prompt "Проанализируй проект и предложи 3 безопасных рефакторинга"
 
 # Переинициализация хуков
 uv run python orc.py --workspace /path/to/myproject --reinit-hooks

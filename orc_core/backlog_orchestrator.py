@@ -11,7 +11,7 @@ from .hooks import ensure_repo_hooks, ensure_repo_hooks_config
 from .logging import log_event
 from .task_execution import TaskExecutionEngine, TaskExecutionRequest
 from .task_source import MarkdownTaskSource, Task
-from .ui import ui_info
+from .ui import ui_error, ui_info
 
 
 TaskSourceFactory = Callable[[Path], MarkdownTaskSource]
@@ -48,6 +48,9 @@ class BacklogOrchestrator:
         self.sleep_fn = sleep_fn
 
     def run(self) -> int:
+        mode = str(getattr(self.args, "mode", "backlog") or "backlog").strip().lower()
+        selected_task_id = str(getattr(self.args, "task_id", "") or "").strip()
+        single_mode = mode == "single" or bool(selected_task_id)
         drop_pending = bool(self.args.drop)
         drop_override: Optional[Tuple[str, str]] = None
 
@@ -57,6 +60,18 @@ class BacklogOrchestrator:
             total = len(tasks)
             done = sum(1 for t in tasks if t.done)
             open_task = task_source.get_first_open_task()
+            if single_mode:
+                if not selected_task_id:
+                    ui_error("Single mode requires task id.")
+                    return 2
+                selected_task = task_source.get_task_by_id(selected_task_id)
+                if not selected_task:
+                    ui_error(f"❌ Задача не найдена в backlog: {selected_task_id}")
+                    return 2
+                if selected_task.done:
+                    ui_info(f"✅ {selected_task_id} уже отмечена [x]. Выход.")
+                    return 0
+                open_task = selected_task
 
             if drop_pending and self.task_path.exists():
                 drop_pending = False
@@ -136,6 +151,9 @@ class BacklogOrchestrator:
             if result.delay_seconds > 0:
                 self.sleep_fn(result.delay_seconds)
             if result.status == "completed":
+                if single_mode:
+                    ui_info("✅ Single task mode: задача выполнена. Выход.")
+                    return 0
                 ui_info("[orc] pause 5s before next task (Ctrl+C to stop)")
                 self.sleep_fn(5)
 

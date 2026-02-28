@@ -5,6 +5,7 @@ description = "ORC backlog orchestrator for Cursor Agent"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "prompt_toolkit>=3.0.51",
   "rich>=14.3.3",
 ]
 

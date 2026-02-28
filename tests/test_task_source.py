@@ -70,6 +70,36 @@ class TaskSourceTest(unittest.TestCase):
         self.assertFalse(marked)
         self.assertIn("- [ ] TASK-100 existing", path.read_text(encoding="utf-8"))
 
+    def test_get_open_tasks_returns_only_unfinished(self) -> None:
+        tmpdir, path = self._write_backlog(
+            "- [x] TASK-001 done\n"
+            "- [ ] TASK-002 open\n"
+            "- [ ] TASK-003 open\n"
+        )
+        self.addCleanup(tmpdir.cleanup)
+        source = MarkdownTaskSource(path)
+
+        open_tasks = source.get_open_tasks()
+
+        self.assertEqual([task.task_id for task in open_tasks], ["TASK-002", "TASK-003"])
+
+    def test_get_task_by_id_returns_task_or_none(self) -> None:
+        tmpdir, path = self._write_backlog(
+            "- [x] TASK-001 done\n"
+            "- [ ] TASK-002 open\n"
+        )
+        self.addCleanup(tmpdir.cleanup)
+        source = MarkdownTaskSource(path)
+
+        selected = source.get_task_by_id("TASK-002")
+        missing = source.get_task_by_id("TASK-999")
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected.task_id, "TASK-002")
+        self.assertFalse(selected.done)
+        self.assertIsNone(missing)
+
 
 if __name__ == "__main__":
     unittest.main()

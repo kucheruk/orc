@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import argparse
+from pathlib import Path
+from typing import Optional
+
+from .backlog_orchestrator import BacklogOrchestrator
+from .backlog_status import inspect_backlog
+from .logging import ORC_LOG_NAME, ORC_ROOT, log_event
+from .notify import send_telegram_message
+from .process import acquire_lock, release_lock
+from .start_menu import show_start_menu
+from .supervisor import (
+    COMMIT_PROMPT_PATH,
+    CONTINUE_PROMPT_PATH,
+    DEFAULT_PROMPT_PATH,
+    _cleanup_stale_task_file,
+    _create_temp_backlog,
+    _delete_task_file,
+    _load_task_payload,
+    load_prompt,
+)
+from .task_execution import TaskExecutionEngine
+from .ui import ui_error, ui_info, ui_warn
+
+TASK_FILE_NAME = "orc-task.json"
+LOCK_FILE_NAME = "orc.lock"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--backlog", default="BACKLOG.md")
+    ap.add_argument("--task", default="", help="Run a one-off task by creating a temporary backlog")
+    ap.add_argument("--workspace", default=".")
+    ap.add_argument("--model", default="gpt-5.2-codex")
+    ap.add_argument("--prompt-template", default="", help="Path to a custom prompt template file")
+    ap.add_argument("--continue-template", default="", help="Path to a custom continue prompt file")
+    ap.add_argument("--commit-template", default="", help="Path to a custom commit prompt template file")
+    ap.add_argument("--commit-model", default="", help="Optional model override for commit phase")
+    ap.add_argument(
+        "--commit-phase",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run a separate commit phase after each completed task (default: true)",
+    )
+    ap.add_argument("--commit-stall-timeout", type=float, default=300.0, help="Commit stall timeout seconds")
+    ap.add_argument("--commit-ttl", type=float, default=1800.0, help="Max seconds for commit phase")
+    ap.add_argument("--poll", type=float, default=1.0, help="Poll interval for task completion")
+    ap.add_argument("--stall-timeout", type=float, default=600.0, help="Seconds without output before stall")
+    ap.add_argument("--task-ttl", type=float, default=6 * 3600, help="Max seconds per task before abort")
+    ap.add_argument("--max-restarts", type=int, default=2, help="Max restarts for a task")
+    ap.add_argument("--report-interval", type=float, default=2.0, help="Seconds between stats reports")
+    ap.add_argument("--summary-lines", type=int, default=25, help="Lines in Telegram summary")
+    ap.add_argument("--nudge-after", type=int, default=10, help="Send continue after N identical stats")
+    ap.add_argument("--nudge-cooldown", type=float, default=300.0, help="Seconds between auto-nudges")
+    ap.add_argument("--nudge-text", default="continue", help="Text to send before Enter")
+    ap.add_argument("--telegram-test", nargs="?", const="orc telegram test", default=None, help="Test Telegram and exit")
+    ap.add_argument("--reinit-hooks", action="store_true", help="Recreate hooks on startup")
+    ap.add_argument("--drop", action="store_true", help="Drop active task state and restart from scratch")
+    ap.add_argument("--mode", choices=["backlog", "single", "prompt"], default="", help="Execution mode")
+    ap.add_argument("--task-id", default="", help="Run exactly one backlog task by ID")
+    ap.add_argument("--prompt", default="", help="Run one arbitrary prompt without requiring backlog")
+    return ap
+
+
+def _resolve_mode(args, backlog_path: Path) -> None:
+    explicit_new_flow = bool(args.mode or args.task_id.strip() or args.prompt.strip())
+    if explicit_new_flow:
+        if not args.mode:
+            args.mode = "prompt" if args.prompt.strip() else "single"
+        return
+    if args.task.strip():
+        args.mode = "prompt"
+        args.prompt = args.task.strip()
+        return
+    status = inspect_backlog(backlog_path)
+    choice = show_start_menu(status)
+    args.mode = choice.mode
+    if choice.task_id:
+        args.task_id = choice.task_id
+    if choice.prompt_text:
+        args.prompt = choice.prompt_text
+
+
+def _resolve_backlog(args, workdir: str, log_path: Path) -> tuple[Path, Optional[Path]]:
+    temp_backlog_path: Optional[Path] = None
+    backlog_path = Path(workdir) / args.backlog
+    if args.mode == "prompt":
+        prompt_text = args.prompt.strip()
+        if not prompt_text:
+            raise ValueError("Prompt mode requires non-empty --prompt")
+        backlog_path, rel_backlog = _create_temp_backlog(workdir, prompt_text, log_path)
+        temp_backlog_path = backlog_path
+        args.backlog = rel_backlog
+        args.task = prompt_text
+        args.task_id = ""
+        ui_info(f"[orc] prompt mode: temporary backlog {backlog_path}")
+    return backlog_path, temp_backlog_path
+
+
+def _validate_inputs(args, backlog_path: Path) -> bool:
+    if args.mode in {"backlog", "single"} and not backlog_path.exists():
+        ui_error(f"Backlog not found: {backlog_path}")
+        return False
+    if args.mode == "single" and not args.task_id.strip():
+        ui_error("Single mode requires --task-id (or choose task in interactive menu)")
+        return False
+    return True
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    workdir = str(Path(args.workspace).resolve())
+    lock_path = Path(workdir) / ".orc" / LOCK_FILE_NAME
+    log_path = ORC_ROOT / ".orc" / ORC_LOG_NAME
+    task_path = Path(workdir) / ".cursor" / TASK_FILE_NAME
+    temp_backlog_path: Optional[Path] = None
+
+    if args.telegram_test is not None:
+        send_telegram_message(args.telegram_test, log_path)
+        return 0
+
+    initial_backlog_path = Path(workdir) / args.backlog
+    _resolve_mode(args, initial_backlog_path)
+    backlog_path, temp_backlog_path = _resolve_backlog(args, workdir, log_path)
+    if not _validate_inputs(args, backlog_path):
+        return 2
+
+    _cleanup_stale_task_file(task_path, log_path, allowed_backlog=backlog_path)
+    acquire_lock(lock_path, log_path)
+    try:
+        try:
+            template = load_prompt(Path(args.prompt_template)) if args.prompt_template else load_prompt(DEFAULT_PROMPT_PATH)
+            continue_template = load_prompt(Path(args.continue_template)) if args.continue_template else load_prompt(CONTINUE_PROMPT_PATH)
+            commit_template = ""
+            if args.commit_phase:
+                commit_template = load_prompt(Path(args.commit_template)) if args.commit_template else load_prompt(COMMIT_PROMPT_PATH)
+        except FileNotFoundError as exc:
+            log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
+            return 2
+
+        run_root = Path(workdir) / ".orc" / "backlog-run"
+        engine = TaskExecutionEngine(log_path=log_path)
+        orchestrator = BacklogOrchestrator(
+            workdir=workdir,
+            backlog_path=backlog_path,
+            args=args,
+            task_path=task_path,
+            run_root=run_root,
+            log_path=log_path,
+            prompt_template=template,
+            continue_template=continue_template,
+            commit_template=commit_template,
+            engine=engine,
+        )
+        return orchestrator.run()
+    except KeyboardInterrupt:
+        log_event(log_path, "WARN", "keyboard interrupt")
+        ui_warn("⏹️ Прервано. Состояние сохранено.")
+        return 130
+    finally:
+        release_lock(lock_path, log_path)
+        if temp_backlog_path is not None and task_path.exists():
+            payload = _load_task_payload(task_path)
+            task_backlog = str(payload.get("backlog_path") or "").strip()
+            if not task_backlog or Path(task_backlog) == temp_backlog_path or not Path(task_backlog).exists():
+                _delete_task_file(task_path, log_path, reason="one_off_final_cleanup")
+        if temp_backlog_path is not None and temp_backlog_path.exists():
+            try:
+                temp_backlog_path.unlink()
+                log_event(log_path, "INFO", "temporary backlog removed", backlog_path=str(temp_backlog_path))
+            except Exception as exc:
+                log_event(log_path, "WARN", "failed to remove temporary backlog", error=str(exc), backlog_path=str(temp_backlog_path))
