@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import json
+import os
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -15,6 +17,10 @@ MODEL_STATE_PATH = Path(".orc") / "model-selection.json"
 
 class ModelSelectionError(RuntimeError):
     pass
+
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+_MODEL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 
 class ModelListLoader:
@@ -51,6 +57,7 @@ def list_supported_models() -> list[str]:
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            env={**os.environ, "TERM": "dumb", "NO_COLOR": "1"},
         )
     except FileNotFoundError as exc:
         raise ModelSelectionError("Команда agent недоступна для получения списка моделей.") from exc
@@ -59,12 +66,22 @@ def list_supported_models() -> list[str]:
         raise ModelSelectionError(f"Не удалось выполнить `agent --list-models`: {stderr or 'unknown error'}")
     models: list[str] = []
     for raw in (result.stdout or "").splitlines():
-        model = raw.strip()
-        if model and model not in models:
-            models.append(model)
+        parsed_model = _parse_model_id(raw)
+        if parsed_model and parsed_model not in models:
+            models.append(parsed_model)
     if not models:
         raise ModelSelectionError("Список моделей пуст. Проверьте `agent --list-models`.")
     return models
+
+
+def _parse_model_id(raw: str) -> Optional[str]:
+    cleaned = _ANSI_ESCAPE_RE.sub("", raw or "").strip()
+    if not cleaned:
+        return None
+    model_id = cleaned.split(" - ", 1)[0].strip()
+    if not _MODEL_ID_RE.match(model_id):
+        return None
+    return model_id
 
 
 def start_model_list_loading() -> ModelListLoader:

@@ -42,10 +42,24 @@ class ModelSelectorCommandTest(unittest.TestCase):
     @patch("orc_core.model_selector.subprocess.run")
     def test_list_supported_models_parses_non_empty_lines(self, run_mock) -> None:
         run_mock.return_value.returncode = 0
-        run_mock.return_value.stdout = "gpt-5.3-codex\nsonnet-4.5\n\n"
+        run_mock.return_value.stdout = "gpt-5.3-codex - GPT 5.3 Codex\nsonnet-4.5 - Sonnet\n\n"
         run_mock.return_value.stderr = ""
         models = list_supported_models()
         self.assertEqual(models, ["gpt-5.3-codex", "sonnet-4.5"])
+
+    @patch("orc_core.model_selector.subprocess.run")
+    def test_list_supported_models_ignores_ansi_and_non_model_lines(self, run_mock) -> None:
+        run_mock.return_value.returncode = 0
+        run_mock.return_value.stdout = (
+            "\x1b[2K\x1b[GLoading models...\n"
+            "\x1b[2K\x1b[GAvailable models\n"
+            "auto - Auto\n"
+            "gpt-5.3-codex - GPT 5.3 Codex\n"
+            "composer-1.5 - Composer\n"
+        )
+        run_mock.return_value.stderr = ""
+        models = list_supported_models()
+        self.assertEqual(models, ["auto", "gpt-5.3-codex", "composer-1.5"])
 
     @patch("orc_core.model_selector.subprocess.run")
     def test_list_supported_models_raises_when_empty(self, run_mock) -> None:

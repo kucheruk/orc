@@ -8,9 +8,10 @@ from prompt_toolkit.application import Application
 from prompt_toolkit import prompt
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
-from prompt_toolkit.layout.containers import HSplit
+from prompt_toolkit.layout.containers import HSplit, VSplit
 from prompt_toolkit.shortcuts import message_dialog, radiolist_dialog
-from prompt_toolkit.widgets import Button, Dialog, Label, RadioList
+from prompt_toolkit.styles import Style
+from prompt_toolkit.widgets import Box, Button, Dialog, Frame, Label, RadioList
 
 from .backlog_status import BacklogStatus
 from .task_source import Task
@@ -137,27 +138,60 @@ def _pick_start_options(
     def cancel() -> None:
         app.exit()
 
-    body = HSplit(
+    left_column = HSplit(
         [
             Label(text=_menu_text(backlog_status)),
             Label(text=""),
-            Label(text="Режим"),
-            mode_selector,
+            Label(text="Навигация: Tab/Shift+Tab между блоками, стрелки меняют выбор."),
             Label(text=""),
-            Label(text="Модель"),
-            model_selector,
+            Frame(
+                title="Режим",
+                body=mode_selector,
+            ),
             Label(text=""),
-            Label(text="Debug logging в /tmp/orc"),
-            debug_selector,
-            Label(text=""),
-            Label(text="Навигация: Tab/Shift+Tab переключают блоки, стрелки меняют выбор."),
+            Frame(
+                title="Debug logging",
+                body=debug_selector,
+            ),
         ]
+    )
+    right_column = HSplit(
+        [
+            Frame(
+                title="Модель",
+                body=model_selector,
+            ),
+            Label(text=""),
+            Label(text=f"Default: {model_selector.current_value}"),
+            Label(text="Выбранная модель будет сохранена как последняя ручная."),
+        ]
+    )
+    body = VSplit(
+        [
+            Box(left_column, padding=1),
+            Box(right_column, padding=1),
+        ],
+        padding=1,
     )
     dialog = Dialog(
         title="ORC стартовый экран",
         body=body,
         buttons=[Button(text="OK", handler=accept), Button(text="Cancel", handler=cancel)],
         with_background=True,
+    )
+    style = Style.from_dict(
+        {
+            "": "fg:#39ff14 bg:#0a0412",
+            "dialog": "fg:#39ff14 bg:#0a0412",
+            "dialog.body": "fg:#39ff14 bg:#0a0412",
+            "dialog frame.label": "fg:#39ff14 bg:#0a0412 bold",
+            "frame.border": "fg:#1c7f3a bg:#0a0412",
+            "button": "fg:#39ff14 bg:#140a20",
+            "button.focused": "fg:#0a0412 bg:#39ff14 bold",
+            "radio": "fg:#39ff14 bg:#0a0412",
+            "radio-selected": "fg:#39ff14 bg:#0a0412 bold",
+            "label": "fg:#39ff14 bg:#0a0412",
+        }
     )
     kb = KeyBindings()
 
@@ -169,7 +203,12 @@ def _pick_start_options(
     def _focus_previous(_event) -> None:
         _event.app.layout.focus_previous()
 
-    app = Application(layout=Layout(dialog, focused_element=mode_selector), key_bindings=kb, full_screen=False)
+    app = Application(
+        layout=Layout(dialog, focused_element=mode_selector),
+        key_bindings=kb,
+        full_screen=True,
+        style=style,
+    )
     app.run()
     return (
         result["mode"] if isinstance(result["mode"], str) else None,
