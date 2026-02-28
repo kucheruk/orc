@@ -27,7 +27,8 @@ if __name__ == "__main__":
     try:
         from orc_core.cli_app import main
     except ModuleNotFoundError as exc:
-        if exc.name == "rich" and os.environ.get("ORC_BOOTSTRAPPED") != "1":
+        runtime_deps = {"rich", "prompt_toolkit"}
+        if exc.name in runtime_deps and os.environ.get("ORC_BOOTSTRAPPED") != "1":
             raise SystemExit(_run_from_orc_project())
         raise
     raise SystemExit(main())
