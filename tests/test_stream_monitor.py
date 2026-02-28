@@ -108,6 +108,18 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         with patch("orc_core.stream_monitor.ui_warn", side_effect=BlockingIOError(35, "blocked")):
             monitor.maybe_report()
 
+    @patch("orc_core.stream_monitor.os.set_blocking")
+    @patch("orc_core.stream_monitor.os.get_blocking", return_value=False)
+    def test_ensure_console_output_is_forced_to_blocking(self, get_blocking_mock, set_blocking_mock) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        monitor.log_path = Path("/tmp/orc.log")
+        monitor._console = SimpleNamespace(file=SimpleNamespace(fileno=lambda: 1))
+
+        monitor._ensure_console_blocking_output()
+
+        get_blocking_mock.assert_called_once_with(1)
+        set_blocking_mock.assert_called_once_with(1, True)
+
 
 if __name__ == "__main__":
     unittest.main()

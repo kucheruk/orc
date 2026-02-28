@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import os
 import re
 import subprocess
 import threading
@@ -77,6 +78,7 @@ class StreamJsonMonitor:
         self._progress_done = 0
         self._progress_total = 1
         self._console = ui_console()
+        self._ensure_console_blocking_output()
         self._live_disabled_notified = False
         self._live = Live(
             self._render(),
@@ -460,6 +462,18 @@ class StreamJsonMonitor:
             ui_warn("[orc] live UI disabled: non-blocking terminal output. Task continues.")
         except (BlockingIOError, OSError):
             log_event(self.log_path, "WARN", "live_ui_notice_write_blocked")
+
+    def _ensure_console_blocking_output(self) -> None:
+        """
+        Rich Live expects blocking writes; some shells leave stdout non-blocking.
+        """
+        try:
+            fd = self._console.file.fileno()
+            if not os.get_blocking(fd):
+                os.set_blocking(fd, True)
+                log_event(self.log_path, "WARN", "console_output_forced_blocking", fd=fd)
+        except Exception:
+            return
 
     def _update_git_stats(self) -> None:
         try:
