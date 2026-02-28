@@ -123,6 +123,14 @@ def wait_for_completion(
                     return "completed"
 
         if monitor.proc.poll() is not None:
+            returncode = int(monitor.proc.returncode or 0)
+            if returncode == 0:
+                log_event(log_path, "WARN", "agent exited with code 0 while task still active; attempting cleanup")
+                if not fallback_invoked or (time.time() - fallback_last_attempt) >= 5.0:
+                    fallback_last_attempt = time.time()
+                    fallback_invoked = invoke_stop_hook_fallback(monitor.workdir, task_path, log_path)
+                if not task_path.exists() or hard_cleanup_after_success(task_path, log_path):
+                    return "completed"
             log_event(log_path, "ERROR", "agent process exited while task still active", returncode=monitor.proc.returncode)
             debug_log(
                 "H4",
