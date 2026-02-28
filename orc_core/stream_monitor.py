@@ -5,7 +5,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import threading
 import textwrap
 import time
@@ -82,9 +81,6 @@ class StreamJsonMonitor:
         self._ensure_console_blocking_output()
         self._ensure_stream_blocking_output()
         self._live_disabled_notified = False
-        self._plain_status_mode = False
-        self._last_plain_status_time = 0.0
-        self._live_disabled_marker = Path(self.workdir) / ".orc" / "live-ui.disabled"
         self._live = Live(
             self._render(),
             console=self._console,
@@ -94,18 +90,12 @@ class StreamJsonMonitor:
             screen=True,
         )
         self._live_started = False
-        if self._live_disabled_marker.exists():
-            self._plain_status_mode = True
+        try:
+            self._live.start()
+            self._live_started = True
+        except (BlockingIOError, OSError) as exc:
+            log_event(self.log_path, "WARN", "live_start_blocked", error=str(exc))
             self._notify_live_disabled()
-        else:
-            try:
-                self._live.start()
-                self._live_started = True
-            except (BlockingIOError, OSError) as exc:
-                log_event(self.log_path, "WARN", "live_start_blocked", error=str(exc))
-                self._plain_status_mode = True
-                self._mark_live_disabled()
-                self._notify_live_disabled()
         self._stop = threading.Event()
         self._stdout_thread = threading.Thread(target=self._read_stdout, daemon=True)
         self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
@@ -481,13 +471,6 @@ class StreamJsonMonitor:
         except (BlockingIOError, OSError):
             log_event(self.log_path, "WARN", "live_ui_notice_write_blocked")
 
-    def _mark_live_disabled(self) -> None:
-        try:
-            self._live_disabled_marker.parent.mkdir(parents=True, exist_ok=True)
-            self._live_disabled_marker.write_text("1\n", encoding="utf-8")
-        except Exception:
-            return
-
     def _ensure_console_blocking_output(self) -> None:
         """
         Rich Live expects blocking writes; some shells leave stdout non-blocking.
@@ -581,27 +564,13 @@ class StreamJsonMonitor:
                 except BlockingIOError as exc:
                     # Non-blocking stdout can intermittently reject writes; disable live UI.
                     self._live_started = False
-                    self._plain_status_mode = True
                     log_event(self.log_path, "WARN", "live_update_blocked", error=str(exc))
-                    self._mark_live_disabled()
                     self._notify_live_disabled()
                     try:
                         self._live.stop()
                     except Exception:
                         pass
             self._last_ui_render = now2
-        if self._plain_status_mode and (now2 - self._last_plain_status_time) >= 5.0:
-            self._last_plain_status_time = now2
-            try:
-                status = (
-                    f"[orc] task={self.task_id} lines={self.metrics.total_lines} "
-                    f"cmds={self.metrics.command_count} files={self.metrics.files_edited or '-'} "
-                    f"tokens={self.metrics.tokens_total or '-'} last={self._last_event_type}:{self._last_event_note[:40]}"
-                )
-                sys.stderr.write(status + "\n")
-                sys.stderr.flush()
-            except (BlockingIOError, OSError):
-                log_event(self.log_path, "WARN", "plain_status_write_blocked")
         log_event(
             self.log_path,
             "INFO",
