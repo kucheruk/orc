@@ -7,7 +7,8 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.cli_app import _resolve_mode
+from orc_core.cli_app import _resolve_mode, _resolve_model
+from orc_core.model_selector import DEFAULT_MODEL
 from orc_core.start_menu import StartMenuChoice
 
 
@@ -17,6 +18,8 @@ def _args() -> Namespace:
         task_id="",
         prompt="",
         task="",
+        model="",
+        debug=False,
     )
 
 
@@ -52,6 +55,67 @@ class CliAppModeSelectionTest(unittest.TestCase):
 
         self.assertEqual(args.mode, "single")
         self.assertEqual(args.task_id, "TASK-002")
+
+
+class _FakeLoader:
+    def __init__(self, models: list[str]) -> None:
+        self.models = models
+
+    def result(self, timeout: float | None = None) -> list[str]:
+        return self.models
+
+
+class CliAppModelSelectionTest(unittest.TestCase):
+    @patch("orc_core.cli_app.save_last_selected_model")
+    @patch("orc_core.cli_app.choose_model_interactive")
+    @patch("orc_core.cli_app.load_last_selected_model")
+    def test_interactive_selection_uses_saved_model_default(
+        self,
+        load_last_selected_model,
+        choose_model_interactive,
+        save_last_selected_model,
+    ) -> None:
+        args = _args()
+        load_last_selected_model.return_value = "sonnet-4.5"
+        choose_model_interactive.return_value = "sonnet-4.5"
+        loader = _FakeLoader(models=["gpt-5.3-codex", "sonnet-4.5"])
+
+        _resolve_model(args, "/tmp/workspace", interactive_requested=True, model_loader=loader)
+
+        self.assertEqual(args.model, "sonnet-4.5")
+        choose_model_interactive.assert_called_once_with(
+            ["gpt-5.3-codex", "sonnet-4.5"],
+            default_model="sonnet-4.5",
+        )
+        save_last_selected_model.assert_called_once_with("/tmp/workspace", "sonnet-4.5")
+
+    @patch("orc_core.cli_app.save_last_selected_model")
+    @patch("orc_core.cli_app.choose_model_interactive")
+    def test_non_interactive_without_explicit_model_uses_default(
+        self,
+        choose_model_interactive,
+        save_last_selected_model,
+    ) -> None:
+        args = _args()
+
+        _resolve_model(args, "/tmp/workspace", interactive_requested=False, model_loader=None)
+
+        self.assertEqual(args.model, DEFAULT_MODEL)
+        choose_model_interactive.assert_not_called()
+        save_last_selected_model.assert_not_called()
+
+    @patch("orc_core.cli_app.save_last_selected_model")
+    @patch("orc_core.cli_app.choose_model_interactive")
+    def test_explicit_model_bypasses_selector(self, choose_model_interactive, save_last_selected_model) -> None:
+        args = _args()
+        args.model = "o3"
+        loader = _FakeLoader(models=["gpt-5.3-codex"])
+
+        _resolve_model(args, "/tmp/workspace", interactive_requested=True, model_loader=loader)
+
+        self.assertEqual(args.model, "o3")
+        choose_model_interactive.assert_not_called()
+        save_last_selected_model.assert_not_called()
 
 
 if __name__ == "__main__":

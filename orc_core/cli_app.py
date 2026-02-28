@@ -5,9 +5,19 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
+from .agent_preflight import AgentNotInstalledError, ensure_agent_installed
 from .backlog_orchestrator import BacklogOrchestrator
 from .backlog_status import inspect_backlog
 from .logging import ORC_LOG_NAME, ORC_ROOT, init_debug_logging, log_event
+from .model_selector import (
+    DEFAULT_MODEL,
+    ModelListLoader,
+    ModelSelectionError,
+    choose_model_interactive,
+    load_last_selected_model,
+    save_last_selected_model,
+    start_model_list_loading,
+)
 from .notify import send_telegram_message
 from .process import acquire_lock, release_lock
 from .start_menu import show_start_menu
@@ -33,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--backlog", default="BACKLOG.md")
     ap.add_argument("--task", default="", help="Run a one-off task by creating a temporary backlog")
     ap.add_argument("--workspace", default=".")
-    ap.add_argument("--model", default="gpt-5.2-codex")
+    ap.add_argument("--model", default="")
     ap.add_argument("--prompt-template", default="", help="Path to a custom prompt template file")
     ap.add_argument("--continue-template", default="", help="Path to a custom continue prompt file")
     ap.add_argument("--commit-template", default="", help="Path to a custom commit prompt template file")
@@ -65,6 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _should_use_interactive_flow(args) -> bool:
+    return not bool(args.mode or args.task_id.strip() or args.prompt.strip() or args.task.strip())
+
+
 def _resolve_mode(args, backlog_path: Path) -> None:
     explicit_new_flow = bool(args.mode or args.task_id.strip() or args.prompt.strip())
     if explicit_new_flow:
@@ -83,6 +97,21 @@ def _resolve_mode(args, backlog_path: Path) -> None:
         args.task_id = choice.task_id
     if choice.prompt_text:
         args.prompt = choice.prompt_text
+
+
+def _resolve_model(args, workdir: str, *, interactive_requested: bool, model_loader: Optional[ModelListLoader]) -> None:
+    if str(args.model).strip():
+        return
+    if not interactive_requested:
+        args.model = DEFAULT_MODEL
+        return
+    if model_loader is None:
+        raise ModelSelectionError("Model loader не инициализирован для интерактивного выбора.")
+    default_model = load_last_selected_model(workdir) or DEFAULT_MODEL
+    models = model_loader.result(timeout=30.0)
+    selected_model = choose_model_interactive(models, default_model=default_model)
+    args.model = selected_model
+    save_last_selected_model(workdir, selected_model)
 
 
 def _resolve_backlog(args, workdir: str, log_path: Path) -> tuple[Path, Optional[Path]]:
@@ -123,8 +152,22 @@ def main() -> int:
         send_telegram_message(args.telegram_test, log_path)
         return 0
 
+    try:
+        ensure_agent_installed()
+    except AgentNotInstalledError as exc:
+        ui_error(str(exc))
+        return 2
+
+    interactive_requested = _should_use_interactive_flow(args)
+    model_loader = start_model_list_loading() if interactive_requested and not str(args.model).strip() else None
+
     initial_backlog_path = Path(workdir) / args.backlog
     _resolve_mode(args, initial_backlog_path)
+    try:
+        _resolve_model(args, workdir, interactive_requested=interactive_requested, model_loader=model_loader)
+    except ModelSelectionError as exc:
+        ui_error(f"❌ {exc}")
+        return 2
     debug_log_path = init_debug_logging(enabled=bool(args.debug), workdir=workdir)
     if debug_log_path is not None:
         ui_info(f"[orc] debug log: {debug_log_path}")
