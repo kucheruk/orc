@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 from prompt_toolkit import prompt
-from prompt_toolkit.shortcuts import checkboxlist_dialog, message_dialog, radiolist_dialog
+from prompt_toolkit.shortcuts import message_dialog, radiolist_dialog
 
 from .backlog_status import BacklogStatus
 from .task_source import Task
@@ -93,9 +93,13 @@ def _read_prompt_textarea() -> str:
 
 
 def _pick_debug_enabled() -> bool:
-    selected = checkboxlist_dialog(
+    selected = radiolist_dialog(
         title="Дополнительные опции",
-        text="Выберите опции запуска (Space — переключить, Enter — подтвердить).",
-        values=[("debug", "Включить debug logging в /tmp/orc")],
+        text="Debug logging в /tmp/orc:",
+        values=[
+            ("off", "Выключен"),
+            ("on", "Включен"),
+        ],
+        default="off",
     ).run()
-    return bool(selected and "debug" in selected)
+    return selected == "on"

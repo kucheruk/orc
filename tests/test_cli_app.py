@@ -106,16 +106,21 @@ class CliAppModelSelectionTest(unittest.TestCase):
 
     @patch("orc_core.cli_app.save_last_selected_model")
     @patch("orc_core.cli_app.choose_model_interactive")
-    def test_explicit_model_bypasses_selector(self, choose_model_interactive, save_last_selected_model) -> None:
+    def test_explicit_model_sets_default_but_still_shows_selector(
+        self,
+        choose_model_interactive,
+        save_last_selected_model,
+    ) -> None:
         args = _args()
         args.model = "o3"
         loader = _FakeLoader(models=["gpt-5.3-codex"])
+        choose_model_interactive.return_value = "gpt-5.3-codex"
 
         _resolve_model(args, "/tmp/workspace", interactive_requested=True, model_loader=loader)
 
-        self.assertEqual(args.model, "o3")
-        choose_model_interactive.assert_not_called()
-        save_last_selected_model.assert_not_called()
+        self.assertEqual(args.model, "gpt-5.3-codex")
+        choose_model_interactive.assert_called_once_with(["gpt-5.3-codex"], default_model="o3")
+        save_last_selected_model.assert_called_once_with("/tmp/workspace", "gpt-5.3-codex")
 
 
 if __name__ == "__main__":

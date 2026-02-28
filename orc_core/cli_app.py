@@ -100,14 +100,15 @@ def _resolve_mode(args, backlog_path: Path) -> None:
 
 
 def _resolve_model(args, workdir: str, *, interactive_requested: bool, model_loader: Optional[ModelListLoader]) -> None:
-    if str(args.model).strip():
-        return
     if not interactive_requested:
+        if str(args.model).strip():
+            return
         args.model = DEFAULT_MODEL
         return
     if model_loader is None:
         raise ModelSelectionError("Model loader не инициализирован для интерактивного выбора.")
-    default_model = load_last_selected_model(workdir) or DEFAULT_MODEL
+    explicit_model = str(args.model).strip()
+    default_model = explicit_model or load_last_selected_model(workdir) or DEFAULT_MODEL
     models = model_loader.result(timeout=30.0)
     selected_model = choose_model_interactive(models, default_model=default_model)
     args.model = selected_model
@@ -159,7 +160,7 @@ def main() -> int:
         return 2
 
     interactive_requested = _should_use_interactive_flow(args)
-    model_loader = start_model_list_loading() if interactive_requested and not str(args.model).strip() else None
+    model_loader = start_model_list_loading() if interactive_requested else None
 
     initial_backlog_path = Path(workdir) / args.backlog
     _resolve_mode(args, initial_backlog_path)
