@@ -100,6 +100,29 @@ class TaskSourceTest(unittest.TestCase):
         self.assertFalse(selected.done)
         self.assertIsNone(missing)
 
+    def test_duplicate_task_ids_do_not_leave_open_copy(self) -> None:
+        tmpdir, path = self._write_backlog(
+            "- [x] REFACT-012 done copy\n"
+            "- [ ] REFACT-012 open copy\n"
+            "- [ ] TASK-999 next\n"
+        )
+        self.addCleanup(tmpdir.cleanup)
+        source = MarkdownTaskSource(path)
+
+        selected = source.get_task_by_id("REFACT-012")
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertFalse(selected.done)
+        self.assertFalse(source.is_task_done("REFACT-012"))
+
+        marked = source.mark_task_done("REFACT-012")
+        self.assertTrue(marked)
+        self.assertTrue(source.is_task_done("REFACT-012"))
+
+        backlog_text = path.read_text(encoding="utf-8")
+        self.assertIn("- [x] REFACT-012 done copy", backlog_text)
+        self.assertIn("- [x] REFACT-012 open copy", backlog_text)
+
 
 if __name__ == "__main__":
     unittest.main()

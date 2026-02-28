@@ -67,26 +67,39 @@ class MarkdownTaskSource:
         wanted = str(task_id or "").strip()
         if not wanted:
             return None
+        first_done: Optional[Task] = None
         for task in self.list_tasks():
-            if task.task_id == wanted:
+            if task.task_id != wanted:
+                continue
+            if not task.done:
                 return task
-        return None
+            if first_done is None:
+                first_done = task
+        return first_done
 
     def is_task_done(self, task_id: str) -> bool:
+        found = False
         for task in self.list_tasks():
-            if task.task_id == task_id:
-                return task.done
-        return False
+            if task.task_id != task_id:
+                continue
+            found = True
+            if not task.done:
+                return False
+        return found
 
     def mark_task_done(self, task_id: str) -> bool:
         lines = self.path.read_text(encoding="utf-8", errors="replace").splitlines()
+        found = False
+        changed = False
         for i, line in enumerate(lines):
             parsed = parse_task_line(line)
             if not parsed or parsed.task_id != task_id:
                 continue
+            found = True
             if parsed.mark.lower() == "x":
-                return True
+                continue
             lines[i] = render_task_line_with_mark(parsed, "x")
+            changed = True
+        if found and changed:
             self.path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            return True
-        return False
+        return found
