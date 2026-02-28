@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Protocol
 
+from .escape_exit import EscapeExitWatcher
 from .hooks import update_task_restart_count, write_task_file
 from .logging import debug_log, log_event
 from .process import kill_process_tree
@@ -239,15 +240,18 @@ def _run_commit_phase(
         task_id=f"{task_id}::commit",
     )
     try:
-        result = wait_for_process_exit(
-            monitor=monitor,
-            poll=request.poll,
-            stall_timeout=request.commit_stall_timeout,
-            task_ttl=request.commit_ttl,
-            log_path=log_path,
-            label="commit_phase",
-            stop_on_followup_prompt=True,
-        )
+        with EscapeExitWatcher() as escape_watcher:
+            result = wait_for_process_exit(
+                monitor=monitor,
+                poll=request.poll,
+                stall_timeout=request.commit_stall_timeout,
+                task_ttl=request.commit_ttl,
+                log_path=log_path,
+                label="commit_phase",
+                stop_on_followup_prompt=True,
+                escape_requested=escape_watcher.poll_escape,
+                confirm_exit=escape_watcher.confirm_exit,
+            )
     finally:
         monitor.stop()
         kill_process_tree(monitor.init_pid or monitor.proc.pid, log_path, label="commit-phase")
@@ -352,12 +356,14 @@ class TaskExecutionEngine:
                 resume_id = get_resume_id_from_agent_ls(request.workdir, self.log_path)
                 if resume_id:
                     update_task_conversation_id(request.task_path, self.log_path, resume_id)
+                else:
+                    ui_warn("⚠️ Resume ID не найден, запускаю задачу без --continue.")
             log_event(
                 self.log_path,
                 "INFO",
                 "resume selection",
                 conversation_id=resume_id or "",
-                resume_from_latest=resume_id is None,
+                resume_from_latest=False,
             )
 
         if not resume_existing:
@@ -386,26 +392,29 @@ class TaskExecutionEngine:
                     progress_done=request.progress_done,
                     progress_total=request.progress_total,
                     resume_id=resume_id if resume_existing else None,
-                    resume_latest=resume_existing and resume_id is None,
+                    resume_latest=False,
                     resume_prompt=request.nudge_text if resume_existing else None,
                 )
             except FileNotFoundError:
                 ui_error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
                 return TaskExecutionResult(status="failed", reason="agent_not_found")
 
-            result = wait_for_completion(
-                task_path=request.task_path,
-                monitor=active_monitor,
-                poll=request.poll,
-                stall_timeout=request.stall_timeout,
-                task_ttl=request.task_ttl,
-                log_path=self.log_path,
-                nudge_after=request.nudge_after,
-                nudge_cooldown=request.nudge_cooldown,
-                nudge_text=request.nudge_text,
-                task_id=task_id,
-                task_text=task_text,
-            )
+            with EscapeExitWatcher() as escape_watcher:
+                result = wait_for_completion(
+                    task_path=request.task_path,
+                    monitor=active_monitor,
+                    poll=request.poll,
+                    stall_timeout=request.stall_timeout,
+                    task_ttl=request.task_ttl,
+                    log_path=self.log_path,
+                    nudge_after=request.nudge_after,
+                    nudge_cooldown=request.nudge_cooldown,
+                    nudge_text=request.nudge_text,
+                    task_id=task_id,
+                    task_text=task_text,
+                    escape_requested=escape_watcher.poll_escape,
+                    confirm_exit=escape_watcher.confirm_exit,
+                )
             active_monitor.stop()
             kill_process_tree(active_monitor.init_pid or active_monitor.proc.pid, self.log_path, label="agent")
 

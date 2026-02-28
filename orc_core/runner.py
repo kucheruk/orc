@@ -57,7 +57,7 @@ def launch_agent_stream_json(
         if resume_prompt:
             agent_cmd.append(resume_prompt)
     elif resume_latest:
-        agent_cmd.append("--resume")
+        agent_cmd.append("--continue")
         if resume_prompt:
             agent_cmd.append(resume_prompt)
     else:

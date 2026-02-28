@@ -20,7 +20,11 @@ def _run_from_orc_project() -> int:
     ]
     env = os.environ.copy()
     env["ORC_BOOTSTRAPPED"] = "1"
-    return subprocess.call(cmd, env=env)
+    try:
+        return subprocess.call(cmd, env=env)
+    except KeyboardInterrupt:
+        # Keep Ctrl+C UX clean when bootstrap child is running.
+        return 130
 
 
 if __name__ == "__main__":

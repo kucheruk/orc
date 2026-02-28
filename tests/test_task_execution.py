@@ -45,9 +45,11 @@ class _FakeMonitor:
 class _FakeWorker:
     def __init__(self) -> None:
         self.launch_calls = 0
+        self.launch_kwargs: list[dict] = []
 
     def launch(self, **kwargs):
         self.launch_calls += 1
+        self.launch_kwargs.append(kwargs)
         return _FakeMonitor()
 
 
@@ -129,6 +131,28 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.reason, "commit_phase_failed")
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.get_resume_id_from_agent_ls", return_value=None)
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    def test_missing_resume_id_does_not_use_resume_latest(self, *_mocks) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            request.task_path.parent.mkdir(parents=True, exist_ok=True)
+            request.task_path.write_text(
+                '{"task_id":"TASK-001","task_text":"test task","backlog_path":"%s"}'
+                % str(request.backlog_path),
+                encoding="utf-8",
+            )
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 1)
+        self.assertFalse(worker.launch_kwargs[0].get("resume_latest"))
 
 
 if __name__ == "__main__":

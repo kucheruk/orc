@@ -23,7 +23,7 @@ from rich.text import Text
 
 from .logging import log_event
 from .text_parse import clean_summary_lines, extract_tokens_from_text
-from .ui import ui_console
+from .ui import ui_console, ui_warn
 
 
 @dataclass
@@ -77,6 +77,7 @@ class StreamJsonMonitor:
         self._progress_done = 0
         self._progress_total = 1
         self._console = ui_console()
+        self._live_disabled_notified = False
         self._live = Live(
             self._render(),
             console=self._console,
@@ -85,8 +86,12 @@ class StreamJsonMonitor:
             transient=False,
         )
         self._live_started = False
-        self._live.start()
-        self._live_started = True
+        try:
+            self._live.start()
+            self._live_started = True
+        except (BlockingIOError, OSError) as exc:
+            log_event(self.log_path, "WARN", "live_start_blocked", error=str(exc))
+            self._notify_live_disabled()
         self._stop = threading.Event()
         self._stdout_thread = threading.Thread(target=self._read_stdout, daemon=True)
         self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
@@ -447,6 +452,15 @@ class StreamJsonMonitor:
             self.stderr_count += 1
             log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)
 
+    def _notify_live_disabled(self) -> None:
+        if self._live_disabled_notified:
+            return
+        self._live_disabled_notified = True
+        try:
+            ui_warn("[orc] live UI disabled: non-blocking terminal output. Task continues.")
+        except (BlockingIOError, OSError):
+            log_event(self.log_path, "WARN", "live_ui_notice_write_blocked")
+
     def _update_git_stats(self) -> None:
         try:
             result = subprocess.run(
@@ -510,7 +524,17 @@ class StreamJsonMonitor:
         if now2 - self._last_ui_render >= 0.7:
             self._spinner_idx += 1
             if self._live_started:
-                self._live.update(self._render(), refresh=True)
+                try:
+                    self._live.update(self._render(), refresh=True)
+                except BlockingIOError as exc:
+                    # Non-blocking stdout can intermittently reject writes; disable live UI.
+                    self._live_started = False
+                    log_event(self.log_path, "WARN", "live_update_blocked", error=str(exc))
+                    self._notify_live_disabled()
+                    try:
+                        self._live.stop()
+                    except Exception:
+                        pass
             self._last_ui_render = now2
         log_event(
             self.log_path,
