@@ -13,7 +13,6 @@ from .model_selector import (
     DEFAULT_MODEL,
     ModelListLoader,
     ModelSelectionError,
-    choose_model_interactive,
     load_last_selected_model,
     save_last_selected_model,
     start_model_list_loading,
@@ -79,7 +78,13 @@ def _should_use_interactive_flow(args) -> bool:
     return not bool(args.mode or args.task_id.strip() or args.prompt.strip() or args.task.strip())
 
 
-def _resolve_mode(args, backlog_path: Path) -> None:
+def _resolve_mode(
+    args,
+    backlog_path: Path,
+    *,
+    models: Optional[list[str]] = None,
+    default_model: str = DEFAULT_MODEL,
+) -> None:
     explicit_new_flow = bool(args.mode or args.task_id.strip() or args.prompt.strip())
     if explicit_new_flow:
         if not args.mode:
@@ -90,9 +95,12 @@ def _resolve_mode(args, backlog_path: Path) -> None:
         args.prompt = args.task.strip()
         return
     status = inspect_backlog(backlog_path)
-    choice = show_start_menu(status)
+    if not models:
+        raise ModelSelectionError("Невозможно открыть стартовый экран: список моделей пуст.")
+    choice = show_start_menu(status, models=models, default_model=default_model)
     args.mode = choice.mode
     args.debug = bool(args.debug or choice.debug_enabled)
+    args.model = choice.model
     if choice.task_id:
         args.task_id = choice.task_id
     if choice.prompt_text:
@@ -105,14 +113,10 @@ def _resolve_model(args, workdir: str, *, interactive_requested: bool, model_loa
             return
         args.model = DEFAULT_MODEL
         return
-    if model_loader is None:
-        raise ModelSelectionError("Model loader не инициализирован для интерактивного выбора.")
-    explicit_model = str(args.model).strip()
-    default_model = explicit_model or load_last_selected_model(workdir) or DEFAULT_MODEL
-    models = model_loader.result(timeout=30.0)
-    selected_model = choose_model_interactive(models, default_model=default_model)
-    args.model = selected_model
-    save_last_selected_model(workdir, selected_model)
+    if str(args.model).strip():
+        save_last_selected_model(workdir, args.model)
+        return
+    raise ModelSelectionError("Интерактивный запуск требует выбранной модели со стартового экрана.")
 
 
 def _resolve_backlog(args, workdir: str, log_path: Path) -> tuple[Path, Optional[Path]]:
@@ -163,7 +167,12 @@ def main() -> int:
     model_loader = start_model_list_loading() if interactive_requested else None
 
     initial_backlog_path = Path(workdir) / args.backlog
-    _resolve_mode(args, initial_backlog_path)
+    if interactive_requested:
+        last_model = str(args.model).strip() or load_last_selected_model(workdir) or DEFAULT_MODEL
+        models = model_loader.result(timeout=30.0) if model_loader is not None else [DEFAULT_MODEL]
+        _resolve_mode(args, initial_backlog_path, models=models, default_model=last_model)
+    else:
+        _resolve_mode(args, initial_backlog_path)
     try:
         _resolve_model(args, workdir, interactive_requested=interactive_requested, model_loader=model_loader)
     except ModelSelectionError as exc:
