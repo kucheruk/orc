@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import json
 import time
 from pathlib import Path
 from typing import Callable, Optional, Tuple
@@ -10,6 +11,44 @@ from .logging import debug_log, log_event
 from .notify import send_telegram_message
 
 PROCESS_EXIT_GRACE_SECONDS = 3.0
+DEBUG_SESSION_LOG_PATH = Path("/Users/vetinary/work/orc/.cursor/debug-bbb5e7.log")
+DEBUG_SESSION_ID = "bbb5e7"
+
+
+def _task_done_in_backlog(task_path: Path) -> bool:
+    try:
+        payload = json.loads(task_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    backlog_raw = str(payload.get("backlog_path") or "").strip()
+    task_id = str(payload.get("task_id") or "").strip()
+    if not backlog_raw or not task_id:
+        return False
+    try:
+        from .task_source import MarkdownTaskSource
+
+        return MarkdownTaskSource(Path(backlog_raw)).is_task_done(task_id)
+    except Exception:
+        return False
+
+
+def _session_debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": DEBUG_SESSION_ID,
+        "id": f"log_{int(time.time() * 1000)}_{hypothesis_id}",
+        "runId": "run1",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        DEBUG_SESSION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with DEBUG_SESSION_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        return
 
 def wait_for_completion(
     task_path: Path,
@@ -27,11 +66,13 @@ def wait_for_completion(
     confirm_exit: Optional[Callable[[], bool]] = None,
 ) -> str:
     start_time = time.time()
+    last_heartbeat_time = 0.0
     last_stats_key: Optional[Tuple[int, int, int, int]] = None
     same_count = 0
     last_tokens_value: Optional[int] = None
     last_tokens_time = time.time()
     last_stuck_notice_time = 0.0
+    last_done_check_time = 0.0
     debug_log(
         "H3",
         "orc_core/supervisor_lifecycle.py:wait_for_completion:start",
@@ -59,7 +100,52 @@ def wait_for_completion(
                 {"task_path": str(task_path)},
             )
             return "completed"
+        now = time.time()
+        if now - last_done_check_time >= 2.0 and _task_done_in_backlog(task_path):
+            last_done_check_time = now
+            log_event(log_path, "INFO", "task marked done in backlog; treating as completed", task_id=task_id)
+            try:
+                task_path.unlink()
+            except Exception:
+                pass
+            return "completed"
+        if (now - last_heartbeat_time) >= 20.0:
+            last_heartbeat_time = now
+            #region agent log
+            _session_debug_log(
+                "H3",
+                "orc_core/supervisor_lifecycle.py:wait_for_completion:heartbeat",
+                "wait loop heartbeat before maybe_report",
+                {
+                    "task_exists": task_path.exists(),
+                    "since_last_output": now - monitor.last_output_time,
+                    "lines": monitor.metrics.total_lines,
+                    "commands": monitor.metrics.command_count,
+                    "tokens_total": int(monitor.metrics.tokens_total or 0),
+                    "result_status": getattr(monitor, "result_status", None),
+                    "ui_followup_prompt": bool(getattr(monitor, "ui_followup_prompt", False)),
+                    "proc_pid": getattr(monitor.proc, "pid", None),
+                    "proc_returncode": monitor.proc.poll(),
+                },
+            )
+            #endregion
+        maybe_report_started = time.time()
         monitor.maybe_report()
+        maybe_report_duration = time.time() - maybe_report_started
+        if maybe_report_duration >= 2.0:
+            #region agent log
+            _session_debug_log(
+                "H2",
+                "orc_core/supervisor_lifecycle.py:wait_for_completion:maybe_report",
+                "maybe_report is slow",
+                {
+                    "duration_seconds": maybe_report_duration,
+                    "task_exists": task_path.exists(),
+                    "since_last_output": time.time() - monitor.last_output_time,
+                    "proc_returncode": monitor.proc.poll(),
+                },
+            )
+            #endregion
         stats_key = (
             monitor.metrics.total_lines,
             monitor.metrics.command_count,
@@ -97,6 +183,13 @@ def wait_for_completion(
                 while time.time() < grace_deadline:
                     if not task_path.exists():
                         log_event(log_path, "INFO", "task file removed during exit grace window")
+                        return "completed"
+                    if _task_done_in_backlog(task_path):
+                        log_event(log_path, "INFO", "task marked done during exit grace window", task_id=task_id)
+                        try:
+                            task_path.unlink()
+                        except Exception:
+                            pass
                         return "completed"
                     time.sleep(max(min(poll, 0.2), 0.05))
             log_event(log_path, "ERROR", "agent process exited while task still active", returncode=monitor.proc.returncode)

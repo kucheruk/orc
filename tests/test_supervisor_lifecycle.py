@@ -43,6 +43,63 @@ class _FakeMonitor:
 
 
 class SupervisorLifecycleTest(unittest.TestCase):
+    def test_wait_for_completion_treats_done_backlog_task_as_completed_before_stall(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [x] REFACT-005 done\n", encoding="utf-8")
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text(
+                '{"task_id":"REFACT-005","backlog_path":"%s"}' % str(backlog_path),
+                encoding="utf-8",
+            )
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
+            monitor.last_output_time = time.time() - 1000.0
+
+            result = wait_for_completion(
+                task_path=task_path,
+                monitor=monitor,
+                poll=0.01,
+                stall_timeout=600.0,
+                task_ttl=0.2,
+                log_path=Path(tmpdir) / "orc.log",
+                nudge_after=10,
+                nudge_cooldown=300.0,
+                nudge_text="continue",
+                task_id="REFACT-005",
+                task_text="repro",
+            )
+
+        self.assertEqual(result, "completed")
+
+    def test_wait_for_completion_treats_done_backlog_task_as_completed_after_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [x] REFACT-006 done\n", encoding="utf-8")
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text(
+                '{"task_id":"REFACT-006","backlog_path":"%s"}' % str(backlog_path),
+                encoding="utf-8",
+            )
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+
+            with patch("orc_core.supervisor_lifecycle.PROCESS_EXIT_GRACE_SECONDS", 0.01):
+                result = wait_for_completion(
+                    task_path=task_path,
+                    monitor=monitor,
+                    poll=0.01,
+                    stall_timeout=30.0,
+                    task_ttl=30.0,
+                    log_path=Path(tmpdir) / "orc.log",
+                    nudge_after=10,
+                    nudge_cooldown=300.0,
+                    nudge_text="continue",
+                    task_id="REFACT-006",
+                    task_text="repro",
+                )
+
+        self.assertEqual(result, "completed")
+
     def test_wait_for_completion_treats_exit_zero_with_active_task_as_process_exited(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             task_path = Path(tmpdir) / "orc-task.json"
