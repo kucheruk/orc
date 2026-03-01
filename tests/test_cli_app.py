@@ -29,9 +29,21 @@ def _args() -> Namespace:
 
 
 class CliAppModeSelectionTest(unittest.TestCase):
+    def test_parser_debug_help_mentions_system_temp_directory(self) -> None:
+        parser = cli_app.build_parser()
+        debug_action = next((action for action in parser._actions if "--debug" in action.option_strings), None)
+        self.assertIsNotNone(debug_action)
+        self.assertIn("system temp directory", str(debug_action.help))
+
     def test_parser_supports_agent_output_log_flag(self) -> None:
         parsed = cli_app.build_parser().parse_args(["--agent-output-log"])
         self.assertTrue(parsed.agent_output_log)
+
+    def test_parser_agent_output_log_help_mentions_system_temp_directory(self) -> None:
+        parser = cli_app.build_parser()
+        action = next((item for item in parser._actions if "--agent-output-log" in item.option_strings), None)
+        self.assertIsNotNone(action)
+        self.assertIn("system temp directory", str(action.help))
 
     def test_parser_fallback_commits_default_is_disabled(self) -> None:
         parsed = cli_app.build_parser().parse_args([])

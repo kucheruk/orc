@@ -46,6 +46,17 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         self.assertEqual(state._recent_reasoning[-1], "Split across")
 
+    def test_reasoning_update_fragments_preserve_spaces_between_words(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event({"type": "thinking", "subtype": "update", "text": "Понял"})
+        state.record_event({"type": "thinking", "subtype": "update", "text": " "})
+        state.record_event({"type": "thinking", "subtype": "update", "text": "задачу"})
+        state.record_event({"type": "thinking", "subtype": "completed"})
+
+        self.assertIn("Понял задачу", state.reasoning_lines_for_panel()[-1])
+
     def test_assistant_update_stream_is_collected_into_reasoning(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
@@ -64,6 +75,17 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": " фразы"}]}})
 
         self.assertEqual(state.build_snapshot().recent_events, [])
+
+    def test_assistant_message_without_subtype_is_collected_into_reasoning(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event({"type": "assistant", "message": {"content": [{"type": "text", "text": "Начинаю"}]}})
+        state.record_event({"type": "assistant", "message": {"content": [{"type": "text", "text": " работу"}]}})
+        state.record_event({"type": "tool_call", "subtype": "started", "tool_name": "ReadFile"})
+
+        self.assertTrue(any("Начинаю" in line for line in state.reasoning_lines_for_panel()))
+        self.assertTrue(all(not event.startswith("assistant:") for event in state.build_snapshot().recent_events))
 
     def test_reasoning_strips_basic_markdown(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState

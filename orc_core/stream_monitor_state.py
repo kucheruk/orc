@@ -108,7 +108,26 @@ class StreamMonitorState:
         chunk = self.normalize_reasoning_fragment(fragment)
         if not chunk.strip():
             return
-        self._recent_reasoning.append(self._trim_fragment(chunk.strip()))
+        normalized = re.sub(r"\s+", " ", chunk).strip()
+        self._recent_reasoning.append(self._trim_fragment(normalized))
+
+    def _append_to_reasoning_buffer(self, fragment: str) -> None:
+        chunk = self.normalize_reasoning_fragment(fragment)
+        if not chunk:
+            return
+        self._reasoning_buffer += chunk
+
+    def _should_flush_reasoning_buffer(self, fragment: str, subtype: str) -> bool:
+        if not self._reasoning_buffer:
+            return False
+        if "\n" in fragment:
+            return True
+        if len(self._reasoning_buffer) >= 220:
+            return True
+        if subtype in {"completed", "complete", "done", "end"}:
+            return True
+        sentence_markers = (".", "!", "?", ":", ";")
+        return len(self._reasoning_buffer) >= 48 and any(marker in fragment for marker in sentence_markers)
 
     def _flush_reasoning_buffer(self) -> None:
         buffered = self.normalize_reasoning_fragment(self._reasoning_buffer)
@@ -125,8 +144,8 @@ class StreamMonitorState:
         subtype_lower = str(subtype or "").strip().lower()
         if event_lower in {"thinking", "analysis"}:
             return event_lower
-        if event_lower == "assistant" and subtype_lower in {"update", "delta"}:
-            return "assistant_update"
+        if event_lower == "assistant":
+            return "assistant_text"
         if event_lower in {"assistant", "message"} and subtype_lower in {"reasoning", "analysis", "thinking"}:
             return subtype_lower or "reasoning"
         return ""
@@ -157,21 +176,13 @@ class StreamMonitorState:
             self._flush_reasoning_buffer()
         self._reasoning_stream_kind = stream_kind
 
-        if subtype_lower == "delta":
-            self._reasoning_buffer += fragment
-            return
-        if stream_kind == "assistant_update" and subtype_lower in {"update", "delta", ""}:
-            self._reasoning_buffer += fragment
-            return
         if subtype_lower in {"completed", "complete", "done", "end"}:
             self._flush_reasoning_buffer()
             return
 
-        # Non-delta reasoning events can contain complete text payload.
-        if self._reasoning_buffer:
+        self._append_to_reasoning_buffer(fragment)
+        if self._should_flush_reasoning_buffer(fragment, subtype_lower):
             self._flush_reasoning_buffer()
-        if fragment.strip():
-            self.append_reasoning_fragment(fragment[:220])
 
     def reasoning_lines_for_panel(self, max_width: int = 90, max_lines: int = 5) -> list[str]:
         width = max(24, max_width)
@@ -431,7 +442,7 @@ class StreamMonitorState:
         tokens = self.extract_tokens(event)
         structured_entries = self._extract_structured_token_entries(event)
         text = self._extract_text(event)
-        if not (stream_kind == "assistant_update" and str(subtype or "").strip().lower() in {"update", "delta", ""}):
+        if event_type.lower() != "assistant":
             self._recent_events.append(self._summarize_event(event, text))
         if structured_entries:
             total_delta = 0

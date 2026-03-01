@@ -151,7 +151,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 2. Убедитесь, что в `.cursor/orc-task.json` корректные `task_id` и `backlog_path`.
 3. Проверьте, что строка в `BACKLOG.md` содержит тот же `task_id` в формате `- [ ]`.
 4. Убедитесь, что `.cursor/hooks.json` ссылается на repo‑hooks.
-5. Для расширенной диагностики (включая debug-логи в `/tmp/orc`) используйте [docs/diagnostics-runbook.md](docs/diagnostics-runbook.md).
+5. Для расширенной диагностики (включая debug-логи в системном temp-каталоге) используйте [docs/diagnostics-runbook.md](docs/diagnostics-runbook.md).
 
 Для безопасного прогона хуков и unit-тестов без реальных уведомлений используйте
 `ORC_TELEGRAM_DISABLE=1`.
@@ -218,7 +218,7 @@ uv run python /path/to/orc/orc.py --workspace /path/to/repo
 #### Обслуживание
 - `--reinit-hooks` — пересоздать хуки при старте (полезно при поломанных конфигурациях)
 - `--drop` — удалить `.cursor/orc-task.json` (если есть) и перезапустить текущую задачу “с нуля” (без resume)
-- `--debug` — включить расширенное debug-логирование в `/tmp/orc`
+- `--debug` — включить расширенное debug-логирование в `Path(tempfile.gettempdir()) / "orc"`
 
 #### Commit phase
 - `--commit-phase` / `--no-commit-phase` — включить/выключить отдельную фазу коммита после каждой завершённой задачи (по умолчанию: включено)
@@ -252,7 +252,7 @@ uv run python orc.py --workspace /path/to/myproject --mode prompt --prompt "Пр
 # Переинициализация хуков
 uv run python orc.py --workspace /path/to/myproject --reinit-hooks
 
-# Запуск с debug-логированием в /tmp/orc
+# Запуск с debug-логированием в системный temp-каталог
 uv run python orc.py --workspace /path/to/myproject --debug
 
 # Длинные задачи

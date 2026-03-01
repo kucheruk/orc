@@ -3,11 +3,13 @@
 
 import json
 import io
+import importlib
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import orc_core.logging as logging_module
 from orc_core.logging import build_crash_stdout_payload, emit_crash_stdout_payload, log_event, set_log_context
 
 
@@ -30,6 +32,17 @@ class LoggingContextTest(unittest.TestCase):
         self.assertIsInstance(payload.get("pid"), int)
         self.assertEqual(payload.get("orc_pid"), payload.get("pid"))
         self.assertEqual(payload.get("task_id"), "TASK-1")
+
+
+class DebugLogDirTest(unittest.TestCase):
+    def test_debug_log_dir_uses_system_tempdir(self) -> None:
+        mocked_tempdir = str(Path("/tmp") / "orc-tests-tempdir")
+        try:
+            with patch("tempfile.gettempdir", return_value=mocked_tempdir):
+                reloaded = importlib.reload(logging_module)
+                self.assertEqual(reloaded.DEBUG_LOG_DIR, Path(mocked_tempdir) / "orc")
+        finally:
+            importlib.reload(logging_module)
 
 
 class CrashStdoutPayloadTest(unittest.TestCase):

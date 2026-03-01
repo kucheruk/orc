@@ -19,21 +19,22 @@ uv run python /path/to/orc/orc.py --workspace /path/to/repo --debug
 
 2. Через стартовый TUI:
 - запустите ORC без явного `--mode`;
-- в окне `Дополнительные опции` включите пункт `Включить debug logging в /tmp/orc`.
+- в окне `Дополнительные опции` включите пункт `Включить debug logging в системный temp-каталог`.
 
-При включенном debug ORC пишет отдельный JSONL-файл в `/tmp/orc`.
+При включенном debug ORC пишет отдельный JSONL-файл в системный temp-каталог: `Path(tempfile.gettempdir()) / "orc"`.
 
 ## Где лежат логи
 
 - Основной лог ORC: `.orc/orc.log`
 - Лог хуков Cursor: `.orc/orc-hook.log`
-- Debug-лог запуска ORC: `/tmp/orc/orc-debug-<YYYYMMDD-HHMMSS>-<pid>.jsonl`
+- Debug-лог запуска ORC: `<system-temp>/orc/orc-debug-<YYYYMMDD-HHMMSS>-<pid>.jsonl`
 - Crash-диагностика в stdout: JSON-события с `event="orc_crash_report"` во время фатального падения `orc`
 
 ## Как найти актуальный debug-файл
 
 ```bash
-ls -1t /tmp/orc/orc-debug-*.jsonl | head -n 5
+DEBUG_DIR="$(python -c 'import tempfile; from pathlib import Path; print(Path(tempfile.gettempdir()) / \"orc\")')"
+ls -1t "$DEBUG_DIR"/orc-debug-*.jsonl | head -n 5
 ```
 
 Берите самый верхний файл как самый свежий запуск.
@@ -42,17 +43,17 @@ ls -1t /tmp/orc/orc-debug-*.jsonl | head -n 5
 
 Быстрый просмотр конца файла:
 ```bash
-tail -n 50 /tmp/orc/orc-debug-<...>.jsonl
+tail -n 50 "$DEBUG_DIR"/orc-debug-<...>.jsonl
 ```
 
 Фильтрация по этапу/локации:
 ```bash
-rg "task_execution.py|supervisor_lifecycle.py|runner.py" /tmp/orc/orc-debug-<...>.jsonl
+rg "task_execution.py|supervisor_lifecycle.py|runner.py" "$DEBUG_DIR"/orc-debug-<...>.jsonl
 ```
 
 Читаемый JSON через jq:
 ```bash
-jq -c '. | {timestamp, location, message, hypothesisId}' /tmp/orc/orc-debug-<...>.jsonl
+jq -c '. | {timestamp, location, message, hypothesisId}' "$DEBUG_DIR"/orc-debug-<...>.jsonl
 ```
 
 ## Crash-диагностика в stdout (для coding agent)

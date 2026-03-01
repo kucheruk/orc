@@ -4,6 +4,7 @@
 import json
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +14,7 @@ ORC_ROOT = Path(__file__).resolve().parents[1]
 ORC_LOG_DIR = ORC_ROOT / ".orc"
 ORC_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-DEBUG_LOG_DIR = Path("/tmp/orc")
+DEBUG_LOG_DIR = Path(tempfile.gettempdir()) / "orc"
 DEBUG_LOG_PREFIX = "orc-debug"
 DEBUG_ENV_TRUE_VALUES = {"1", "true", "yes"}
 _DEBUG_ENABLED = False

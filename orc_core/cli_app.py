@@ -89,11 +89,15 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--mode", choices=["backlog", "single", "prompt"], default="", help="Execution mode")
     ap.add_argument("--task-id", default="", help="Run exactly one backlog task by ID")
     ap.add_argument("--prompt", default="", help="Run one arbitrary prompt without requiring backlog")
-    ap.add_argument("--debug", action="store_true", help="Enable debug logging to /tmp/orc")
+    ap.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging to the system temp directory (/.../orc)",
+    )
     ap.add_argument(
         "--agent-output-log",
         action="store_true",
-        help="Write complete agent stdout/stderr to /tmp/orc-agent-output-<timestamp>.log",
+        help="Write complete agent stdout/stderr to the system temp directory (/.../orc-agent-output-<timestamp>.log)",
     )
     return ap
 
