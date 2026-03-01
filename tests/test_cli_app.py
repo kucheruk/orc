@@ -3,6 +3,7 @@
 
 import tempfile
 import unittest
+import io
 from argparse import Namespace
 import json
 from pathlib import Path
@@ -258,6 +259,152 @@ class CliAppTuiMouseReportingTest(unittest.TestCase):
 
         self.assertEqual(result, 0)
         orc_app_instance.run.assert_called_once_with(mouse=False)
+
+
+class CliAppCrashStdoutDiagnosticsTest(unittest.TestCase):
+    @patch("sys.stderr", new_callable=io.StringIO)
+    @patch("sys.stdout", new_callable=io.StringIO)
+    @patch("orc_core.cli_app.ui_error")
+    @patch("orc_core.cli_app.release_lock")
+    @patch("orc_core.cli_app.acquire_lock")
+    @patch("orc_core.cli_app.load_prompt", return_value="template")
+    @patch("orc_core.cli_app._cleanup_stale_task_file")
+    @patch("orc_core.cli_app._validate_inputs", return_value=True)
+    @patch("orc_core.cli_app._resolve_backlog")
+    @patch("orc_core.cli_app.init_debug_logging", return_value=None)
+    @patch("orc_core.cli_app._resolve_model")
+    @patch("orc_core.cli_app.ensure_agent_installed")
+    @patch("orc_core.cli_app.OrcApp")
+    @patch("orc_core.cli_app.BacklogOrchestrator")
+    @patch("orc_core.cli_app.TaskExecutionEngine")
+    @patch("orc_core.cli_app.build_parser")
+    def test_main_emits_crash_json_to_stdout_when_orchestrator_worker_fails(
+        self,
+        build_parser_mock,
+        _engine_mock,
+        orchestrator_cls_mock,
+        orc_app_cls_mock,
+        _ensure_agent_installed_mock,
+        _resolve_model_mock,
+        _init_debug_logging_mock,
+        resolve_backlog_mock,
+        _validate_inputs_mock,
+        _cleanup_stale_task_file_mock,
+        _load_prompt_mock,
+        _acquire_lock_mock,
+        _release_lock_mock,
+        _ui_error_mock,
+        stdout_mock: io.StringIO,
+        stderr_mock: io.StringIO,
+    ) -> None:
+        args = Namespace(
+            backlog="BACKLOG.md",
+            task="",
+            workspace=".",
+            model="gpt-5.3-codex",
+            prompt_template="",
+            continue_template="",
+            commit_template="",
+            commit_model="",
+            commit_phase=False,
+            allow_fallback_commits=False,
+            commit_stall_timeout=300.0,
+            commit_ttl=1800.0,
+            poll=1.0,
+            stall_timeout=600.0,
+            task_ttl=21600.0,
+            max_restarts=2,
+            report_interval=2.0,
+            summary_lines=25,
+            nudge_after=10,
+            nudge_cooldown=300.0,
+            nudge_text="continue",
+            telegram_test=None,
+            reinit_hooks=False,
+            drop=False,
+            mode="backlog",
+            task_id="",
+            prompt="",
+            debug=False,
+            agent_output_log=False,
+        )
+        build_parser_mock.return_value = SimpleNamespace(parse_args=lambda: args)
+        resolve_backlog_mock.return_value = (Path("BACKLOG.md"), None)
+        orchestrator_cls_mock.return_value = SimpleNamespace(last_failure_reason="", run_async=lambda: None)
+        orc_app_instance = orc_app_cls_mock.return_value
+        orc_app_instance.run.return_value = 1
+        orc_app_instance.last_error = "Traceback worker crash"
+
+        result = cli_app.main()
+
+        self.assertEqual(result, 1)
+        crash_line = next((line for line in stdout_mock.getvalue().splitlines() if '"event": "orc_crash_report"' in line), "")
+        self.assertTrue(crash_line)
+        crash_payload = json.loads(crash_line)
+        self.assertEqual(crash_payload.get("entrypoint"), "orc_core.cli_app:main")
+        self.assertEqual(crash_payload.get("phase"), "orchestrator.run_async")
+        self.assertEqual(crash_payload.get("exception_type"), "OrchestratorUnhandledException")
+        self.assertIn("Traceback worker crash", crash_payload.get("traceback", ""))
+        self.assertIn("Traceback worker crash", stderr_mock.getvalue())
+
+    @patch("sys.stderr", new_callable=io.StringIO)
+    @patch("sys.stdout", new_callable=io.StringIO)
+    @patch("orc_core.cli_app.ui_error")
+    @patch("orc_core.cli_app.build_parser")
+    @patch("orc_core.cli_app.ensure_agent_installed", side_effect=RuntimeError("boom"))
+    def test_main_emits_crash_json_to_stdout_on_unhandled_exception(
+        self,
+        _ensure_agent_installed_mock,
+        build_parser_mock,
+        _ui_error_mock,
+        stdout_mock: io.StringIO,
+        stderr_mock: io.StringIO,
+    ) -> None:
+        args = Namespace(
+            backlog="BACKLOG.md",
+            task="",
+            workspace=".",
+            model="gpt-5.3-codex",
+            prompt_template="",
+            continue_template="",
+            commit_template="",
+            commit_model="",
+            commit_phase=False,
+            allow_fallback_commits=False,
+            commit_stall_timeout=300.0,
+            commit_ttl=1800.0,
+            poll=1.0,
+            stall_timeout=600.0,
+            task_ttl=21600.0,
+            max_restarts=2,
+            report_interval=2.0,
+            summary_lines=25,
+            nudge_after=10,
+            nudge_cooldown=300.0,
+            nudge_text="continue",
+            telegram_test=None,
+            reinit_hooks=False,
+            drop=False,
+            mode="backlog",
+            task_id="",
+            prompt="",
+            debug=False,
+            agent_output_log=False,
+        )
+        build_parser_mock.return_value = SimpleNamespace(parse_args=lambda: args)
+
+        result = cli_app.main()
+
+        self.assertEqual(result, 1)
+        crash_line = next((line for line in stdout_mock.getvalue().splitlines() if '"event": "orc_crash_report"' in line), "")
+        self.assertTrue(crash_line)
+        crash_payload = json.loads(crash_line)
+        self.assertEqual(crash_payload.get("entrypoint"), "orc_core.cli_app:main")
+        self.assertEqual(crash_payload.get("phase"), "main")
+        self.assertEqual(crash_payload.get("exception_type"), "RuntimeError")
+        self.assertEqual(crash_payload.get("error"), "boom")
+        self.assertIn("RuntimeError: boom", crash_payload.get("traceback", ""))
+        self.assertIn("RuntimeError: boom", stderr_mock.getvalue())
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ uv run python /path/to/orc/orc.py --workspace /path/to/repo --debug
 - Основной лог ORC: `.orc/orc.log`
 - Лог хуков Cursor: `.orc/orc-hook.log`
 - Debug-лог запуска ORC: `/tmp/orc/orc-debug-<YYYYMMDD-HHMMSS>-<pid>.jsonl`
+- Crash-диагностика в stdout: JSON-события с `event="orc_crash_report"` во время фатального падения `orc`
 
 ## Как найти актуальный debug-файл
 
@@ -52,6 +53,31 @@ rg "task_execution.py|supervisor_lifecycle.py|runner.py" /tmp/orc/orc-debug-<...
 Читаемый JSON через jq:
 ```bash
 jq -c '. | {timestamp, location, message, hypothesisId}' /tmp/orc/orc-debug-<...>.jsonl
+```
+
+## Crash-диагностика в stdout (для coding agent)
+
+При необработанном падении в основном CLI-пути `orc` ORC печатает в `stdout` одну JSON-строку с `event="orc_crash_report"`.
+
+Минимальные поля отчёта:
+- `event`
+- `entrypoint`
+- `phase`
+- `exception_type`
+- `error`
+- `traceback`
+- `workspace`
+- `pid`
+- `ts`
+
+Быстрый фильтр по событию:
+```bash
+rg '"event":"orc_crash_report"|"event": "orc_crash_report"' /path/to/orc-output.log
+```
+
+Извлечение ключевых полей:
+```bash
+jq -c 'select(.event=="orc_crash_report") | {ts, exception_type, error, phase, workspace}' /path/to/orc-output.log
 ```
 
 ## Минимальный triage

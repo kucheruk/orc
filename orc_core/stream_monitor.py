@@ -277,8 +277,12 @@ class StreamJsonMonitor:
 
     def stop(self) -> None:
         self._stop.set()
-        if self._loop is not None:
-            self._loop.call_soon_threadsafe(lambda: None)
+        loop = self._loop
+        if loop is not None and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(lambda: None)
+            except RuntimeError:
+                pass
         if self._runner_thread.is_alive():
             self._runner_thread.join(timeout=1.0)
         if self._agent_output_file is not None:

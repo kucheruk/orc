@@ -138,6 +138,20 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         monitor._snapshot_publisher.assert_called_once_with(snapshot)
 
+    def test_stop_skips_threadsafe_wakeup_when_loop_closed(self) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        monitor._stop = MagicMock()
+        monitor._runner_thread = MagicMock()
+        monitor._runner_thread.is_alive.return_value = False
+        monitor._agent_output_file = None
+        monitor._loop = MagicMock()
+        monitor._loop.is_closed.return_value = True
+
+        monitor.stop()
+
+        monitor._stop.set.assert_called_once()
+        monitor._loop.call_soon_threadsafe.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

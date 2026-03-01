@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import sys
 import tempfile
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -12,7 +13,7 @@ from typing import Callable, Optional
 from .agent_preflight import AgentNotInstalledError, ensure_agent_installed
 from .backlog_orchestrator import BacklogOrchestrator
 from .backlog_status import inspect_backlog
-from .logging import ORC_LOG_NAME, ORC_ROOT, init_debug_logging, log_event, set_log_context
+from .logging import ORC_LOG_NAME, ORC_ROOT, emit_crash_stdout_payload, init_debug_logging, log_event, set_log_context
 from .model_selector import (
     DEFAULT_MODEL,
     ModelListLoader,
@@ -199,107 +200,138 @@ def main() -> int:
     log_path = ORC_ROOT / ".orc" / ORC_LOG_NAME
     task_path = Path(workdir) / ".cursor" / TASK_FILE_NAME
     temp_backlog_path: Optional[Path] = None
-
-    if args.telegram_test is not None:
-        send_telegram_message(args.telegram_test, log_path)
-        return 0
+    lock_acquired = False
 
     try:
-        ensure_agent_installed()
-    except AgentNotInstalledError as exc:
-        ui_error(str(exc))
-        return 2
+        if args.telegram_test is not None:
+            send_telegram_message(args.telegram_test, log_path)
+            return 0
 
-    interactive_requested = _should_use_interactive_flow(args)
-    model_loader = start_model_list_loading() if interactive_requested else None
-
-    initial_backlog_path = Path(workdir) / args.backlog
-    if interactive_requested:
-        last_model = str(args.model).strip() or load_last_selected_model(workdir) or DEFAULT_MODEL
-        models = model_loader.result(timeout=30.0) if model_loader is not None else [DEFAULT_MODEL]
-        _resolve_mode(
-            args,
-            initial_backlog_path,
-            models=models,
-            default_model=last_model,
-            task_path=task_path,
-        )
-    else:
-        _resolve_mode(args, initial_backlog_path)
-    try:
-        _resolve_model(args, workdir, interactive_requested=interactive_requested, model_loader=model_loader)
-    except ModelSelectionError as exc:
-        ui_error(f"❌ {exc}")
-        return 2
-    debug_log_path = init_debug_logging(enabled=bool(args.debug), workdir=workdir)
-    if debug_log_path is not None:
-        ui_info(f"[orc] debug log: {debug_log_path}")
-        log_event(log_path, "INFO", "debug logging enabled", debug_log_path=str(debug_log_path))
-    args.agent_output_log_path = ""
-    if bool(args.agent_output_log):
-        transcript_path = _build_agent_output_log_path()
-        args.agent_output_log_path = str(transcript_path)
-        ui_info(f"[orc] agent output log: {transcript_path}")
-        log_event(log_path, "INFO", "agent output logging enabled", agent_output_log_path=str(transcript_path))
-    backlog_path, temp_backlog_path = _resolve_backlog(args, workdir, log_path)
-    if not _validate_inputs(args, backlog_path):
-        return 2
-
-    _cleanup_stale_task_file(task_path, log_path, allowed_backlog=backlog_path)
-    acquire_lock(lock_path, log_path)
-    try:
         try:
-            template = load_prompt(Path(args.prompt_template)) if args.prompt_template else load_prompt(DEFAULT_PROMPT_PATH)
-            continue_template = load_prompt(Path(args.continue_template)) if args.continue_template else load_prompt(CONTINUE_PROMPT_PATH)
-            commit_template = ""
-            if args.commit_phase:
-                commit_template = load_prompt(Path(args.commit_template)) if args.commit_template else load_prompt(COMMIT_PROMPT_PATH)
-        except FileNotFoundError as exc:
-            log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
+            ensure_agent_installed()
+        except AgentNotInstalledError as exc:
+            ui_error(str(exc))
             return 2
 
-        run_root = Path(workdir) / ".orc" / "backlog-run"
-        engine = TaskExecutionEngine(log_path=log_path)
-        orchestrator = BacklogOrchestrator(
-            workdir=workdir,
-            backlog_path=backlog_path,
-            args=args,
-            task_path=task_path,
-            run_root=run_root,
-            log_path=log_path,
-            prompt_template=template,
-            continue_template=continue_template,
-            commit_template=commit_template,
-            engine=engine,
-        )
-        def _run_orchestrator(snapshot_publisher: Callable[[MonitorSnapshot], None]) -> int:
-            orchestrator.snapshot_publisher = snapshot_publisher
-            return asyncio.run(orchestrator.run_async())
+        interactive_requested = _should_use_interactive_flow(args)
+        model_loader = start_model_list_loading() if interactive_requested else None
 
-        app = OrcApp(_run_orchestrator)
-        result = app.run(mouse=False)
-        exit_code = int(result if result is not None else 1)
-        if app.last_error:
-            log_event(log_path, "ERROR", "orchestrator crashed", traceback=app.last_error)
-            ui_error("❌ ORC завершился из-за необработанной ошибки. Traceback:")
-            print(app.last_error, file=sys.stderr, flush=True)
-        elif exit_code != 0:
-            ui_error(f"❌ {_failure_message(orchestrator.last_failure_reason)}")
-        return exit_code
+        initial_backlog_path = Path(workdir) / args.backlog
+        if interactive_requested:
+            last_model = str(args.model).strip() or load_last_selected_model(workdir) or DEFAULT_MODEL
+            models = model_loader.result(timeout=30.0) if model_loader is not None else [DEFAULT_MODEL]
+            _resolve_mode(
+                args,
+                initial_backlog_path,
+                models=models,
+                default_model=last_model,
+                task_path=task_path,
+            )
+        else:
+            _resolve_mode(args, initial_backlog_path)
+        try:
+            _resolve_model(args, workdir, interactive_requested=interactive_requested, model_loader=model_loader)
+        except ModelSelectionError as exc:
+            ui_error(f"❌ {exc}")
+            return 2
+        debug_log_path = init_debug_logging(enabled=bool(args.debug), workdir=workdir)
+        if debug_log_path is not None:
+            ui_info(f"[orc] debug log: {debug_log_path}")
+            log_event(log_path, "INFO", "debug logging enabled", debug_log_path=str(debug_log_path))
+        args.agent_output_log_path = ""
+        if bool(args.agent_output_log):
+            transcript_path = _build_agent_output_log_path()
+            args.agent_output_log_path = str(transcript_path)
+            ui_info(f"[orc] agent output log: {transcript_path}")
+            log_event(log_path, "INFO", "agent output logging enabled", agent_output_log_path=str(transcript_path))
+        backlog_path, temp_backlog_path = _resolve_backlog(args, workdir, log_path)
+        if not _validate_inputs(args, backlog_path):
+            return 2
+
+        _cleanup_stale_task_file(task_path, log_path, allowed_backlog=backlog_path)
+        acquire_lock(lock_path, log_path)
+        lock_acquired = True
+        try:
+            try:
+                template = load_prompt(Path(args.prompt_template)) if args.prompt_template else load_prompt(DEFAULT_PROMPT_PATH)
+                continue_template = load_prompt(Path(args.continue_template)) if args.continue_template else load_prompt(CONTINUE_PROMPT_PATH)
+                commit_template = ""
+                if args.commit_phase:
+                    commit_template = load_prompt(Path(args.commit_template)) if args.commit_template else load_prompt(COMMIT_PROMPT_PATH)
+            except FileNotFoundError as exc:
+                log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
+                return 2
+
+            run_root = Path(workdir) / ".orc" / "backlog-run"
+            engine = TaskExecutionEngine(log_path=log_path)
+            orchestrator = BacklogOrchestrator(
+                workdir=workdir,
+                backlog_path=backlog_path,
+                args=args,
+                task_path=task_path,
+                run_root=run_root,
+                log_path=log_path,
+                prompt_template=template,
+                continue_template=continue_template,
+                commit_template=commit_template,
+                engine=engine,
+            )
+
+            def _run_orchestrator(snapshot_publisher: Callable[[MonitorSnapshot], None]) -> int:
+                orchestrator.snapshot_publisher = snapshot_publisher
+                return asyncio.run(orchestrator.run_async())
+
+            app = OrcApp(_run_orchestrator)
+            result = app.run(mouse=False)
+            exit_code = int(result if result is not None else 1)
+            if app.last_error:
+                crash_payload = emit_crash_stdout_payload(
+                    entrypoint="orc_core.cli_app:main",
+                    phase="orchestrator.run_async",
+                    exception_type="OrchestratorUnhandledException",
+                    error="orchestrator crashed",
+                    traceback_text=app.last_error,
+                    workspace=workdir,
+                )
+                log_event(log_path, "ERROR", "orchestrator crashed", **crash_payload)
+                ui_error("❌ ORC завершился из-за необработанной ошибки. Traceback:")
+                print(app.last_error, file=sys.stderr, flush=True)
+            elif exit_code != 0:
+                ui_error(f"❌ {_failure_message(orchestrator.last_failure_reason)}")
+            return exit_code
+        except KeyboardInterrupt:
+            log_event(log_path, "WARN", "keyboard interrupt")
+            ui_warn("⏹️ Прервано. Состояние сохранено.")
+            return 130
+        finally:
+            if lock_acquired:
+                release_lock(lock_path, log_path)
+            if temp_backlog_path is not None and task_path.exists():
+                payload = _load_task_payload(task_path)
+                task_backlog = str(payload.get("backlog_path") or "").strip()
+                if not task_backlog or Path(task_backlog) == temp_backlog_path or not Path(task_backlog).exists():
+                    _delete_task_file(task_path, log_path, reason="one_off_final_cleanup")
+            if temp_backlog_path is not None and temp_backlog_path.exists():
+                try:
+                    temp_backlog_path.unlink()
+                    log_event(log_path, "INFO", "temporary backlog removed", backlog_path=str(temp_backlog_path))
+                except Exception as exc:
+                    log_event(log_path, "WARN", "failed to remove temporary backlog", error=str(exc), backlog_path=str(temp_backlog_path))
     except KeyboardInterrupt:
         log_event(log_path, "WARN", "keyboard interrupt")
         ui_warn("⏹️ Прервано. Состояние сохранено.")
         return 130
-    finally:
-        release_lock(lock_path, log_path)
-        if temp_backlog_path is not None and task_path.exists():
-            payload = _load_task_payload(task_path)
-            task_backlog = str(payload.get("backlog_path") or "").strip()
-            if not task_backlog or Path(task_backlog) == temp_backlog_path or not Path(task_backlog).exists():
-                _delete_task_file(task_path, log_path, reason="one_off_final_cleanup")
-        if temp_backlog_path is not None and temp_backlog_path.exists():
-            try:
-                temp_backlog_path.unlink()
-                log_event(log_path, "INFO", "temporary backlog removed", backlog_path=str(temp_backlog_path))
-            except Exception as exc:
-                log_event(log_path, "WARN", "failed to remove temporary backlog", error=str(exc), backlog_path=str(temp_backlog_path))
+    except Exception as exc:
+        traceback_text = traceback.format_exc()
+        crash_payload = emit_crash_stdout_payload(
+            entrypoint="orc_core.cli_app:main",
+            phase="main",
+            exception_type=type(exc).__name__,
+            error=str(exc),
+            traceback_text=traceback_text,
+            workspace=workdir,
+        )
+        log_event(log_path, "ERROR", "cli main crashed", **crash_payload)
+        ui_error("❌ ORC завершился из-за необработанной ошибки.")
+        print(traceback_text, file=sys.stderr, flush=True)
+        return 1

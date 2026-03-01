@@ -3,6 +3,7 @@
 
 import json
 import os
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -110,6 +111,56 @@ def log_event(log_path: Path, level: str, message: str, **fields: object) -> Non
     }
     with log_path.open("a", encoding="utf-8", errors="replace") as log:
         log.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def build_crash_stdout_payload(
+    *,
+    entrypoint: str,
+    phase: str,
+    exception_type: str,
+    error: str,
+    traceback_text: str,
+    workspace: str,
+) -> Dict[str, object]:
+    resolved_workspace = str(workspace or "").strip()
+    if resolved_workspace:
+        try:
+            resolved_workspace = str(Path(resolved_workspace).resolve())
+        except Exception:
+            pass
+    payload: Dict[str, object] = {
+        "event": "orc_crash_report",
+        "entrypoint": entrypoint,
+        "phase": phase,
+        "exception_type": exception_type,
+        "error": error,
+        "traceback": traceback_text,
+        "workspace": resolved_workspace,
+        "pid": os.getpid(),
+        "ts": now_iso(),
+    }
+    return payload
+
+
+def emit_crash_stdout_payload(
+    *,
+    entrypoint: str,
+    phase: str,
+    exception_type: str,
+    error: str,
+    traceback_text: str,
+    workspace: str,
+) -> Dict[str, object]:
+    payload = build_crash_stdout_payload(
+        entrypoint=entrypoint,
+        phase=phase,
+        exception_type=exception_type,
+        error=error,
+        traceback_text=traceback_text,
+        workspace=workspace,
+    )
+    print(json.dumps(payload, ensure_ascii=False), file=sys.stdout, flush=True)
+    return payload
 
 
 def debug_log(hypothesis_id: str, location: str, message: str, data: Dict[str, object]) -> None:
