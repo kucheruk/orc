@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import asyncio
 from pathlib import Path
 from typing import Optional
 
@@ -31,6 +32,7 @@ from .supervisor import (
     load_prompt,
 )
 from .task_execution import TaskExecutionEngine
+from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn
 
 TASK_FILE_NAME = "orc-task.json"
@@ -213,7 +215,9 @@ def main() -> int:
             commit_template=commit_template,
             engine=engine,
         )
-        return orchestrator.run()
+        app = OrcApp(lambda: asyncio.run(orchestrator.run_async()))
+        result = app.run()
+        return int(result if result is not None else 1)
     except KeyboardInterrupt:
         log_event(log_path, "WARN", "keyboard interrupt")
         ui_warn("⏹️ Прервано. Состояние сохранено.")

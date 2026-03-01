@@ -1,0 +1,58 @@
+#menu_root {
+    padding: 1 2;
+}
+
+#menu_cols {
+    height: auto;
+    margin: 1 0;
+}
+
+.col {
+    width: 1fr;
+    padding: 0 1;
+}
+
+#menu_actions {
+    margin-top: 1;
+    height: auto;
+}
+
+#error_text {
+    height: 1;
+    margin-top: 1;
+}
+
+#exec_root {
+    padding: 1 2;
+}
+
+#recent_grid {
+    grid-size: 2;
+    grid-columns: 1fr 1fr;
+    margin: 1 0;
+}
+
+.section {
+    margin-top: 1;
+}
+
+#reasoning_log {
+    height: 9;
+}
+
+#events_log {
+    height: 9;
+}
+
+#quit_modal {
+    width: 60;
+    height: auto;
+    padding: 1 2;
+    border: round $primary;
+    background: $background;
+}
+
+#quit_actions {
+    height: auto;
+    margin-top: 1;
+}

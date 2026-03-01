@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import asyncio
 import json
 import subprocess
 import threading
@@ -9,28 +10,38 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
-from .execution_screen import PromptToolkitExecutionScreen
 from .logging import log_event
 from .stream_monitor_state import StreamMonitorState
+from .tui.bus import publish_snapshot
+
+
+class _ProcessProxy:
+    def __init__(self) -> None:
+        self.pid: Optional[int] = None
+        self.returncode: Optional[int] = None
+
+    def poll(self) -> Optional[int]:
+        return self.returncode
 
 
 class StreamJsonMonitor:
     def __init__(
         self,
-        proc,
+        agent_cmd: list[str],
         log_path: Path,
         report_interval: float,
         summary_lines: int,
         task_id: str,
         workdir: str,
     ) -> None:
-        self.proc = proc
+        self._agent_cmd = list(agent_cmd)
+        self.proc = _ProcessProxy()
         self.log_path = log_path
         self.task_id = task_id
         self.workdir = workdir
         self.started_at = time.time()
         self.last_output_time = time.time()
-        self.init_pid: Optional[int] = proc.pid
+        self.init_pid: Optional[int] = None
         self.stderr_count = 0
         self.last_stderr_line = ""
         self.last_nudge_time = 0.0
@@ -45,17 +56,20 @@ class StreamJsonMonitor:
         self._last_report_time = 0.0
         self._last_git_stats_time = 0.0
         self._stop = threading.Event()
-        self._screen = PromptToolkitExecutionScreen(self._state.build_snapshot, refresh_interval=0.2)
-        self._screen.start()
-
-        self._stdout_thread = threading.Thread(target=self._read_stdout, daemon=True)
-        self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
-        self._stdout_thread.start()
-        self._stderr_thread.start()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._proc: Optional[asyncio.subprocess.Process] = None
+        self._spawned = threading.Event()
+        self._spawn_error: Optional[BaseException] = None
+        self._runner_thread = threading.Thread(target=self._run_event_loop, daemon=True)
+        self._runner_thread.start()
+        if not self._spawned.wait(timeout=20.0):
+            raise RuntimeError("Failed to start async monitor process")
+        if self._spawn_error is not None:
+            raise self._spawn_error
 
     def set_progress(self, done: int, total: int) -> None:
         self._state.set_progress(done, total)
-        self._screen.request_render()
+        self._publish_snapshot()
 
     # Backward-compatible wrappers for tests/helpers.
     def _append_reasoning_fragment(self, fragment: str) -> None:
@@ -80,43 +94,68 @@ class StreamJsonMonitor:
         if "add a follow-up" in raw.lower():
             self.ui_followup_prompt = True
         log_event(self.log_path, "INFO", "stream_json_event", event_type=event_type, subtype=subtype, size=len(raw))
-        self._screen.request_render()
+        self._publish_snapshot()
 
-    def _read_stdout(self) -> None:
-        if self.proc.stdout is None:
-            return
+    def _run_event_loop(self) -> None:
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
         try:
-            for line in self.proc.stdout:
-                if self._stop.is_set():
-                    break
-                raw = line.strip()
-                if not raw:
-                    continue
-                try:
-                    event = json.loads(raw)
-                except Exception as exc:
-                    log_event(self.log_path, "WARN", "stream_json_bad_line", error=str(exc), raw=raw[:500])
-                    continue
-                if isinstance(event, dict):
-                    self._record_event(event)
-        except Exception as exc:
-            log_event(self.log_path, "ERROR", "stream_stdout_reader_failed", error=str(exc))
+            self._loop.run_until_complete(self._spawn_and_monitor())
+        finally:
+            self._loop.close()
 
-    def _read_stderr(self) -> None:
-        if self.proc.stderr is None:
-            return
+    async def _spawn_and_monitor(self) -> None:
         try:
-            for line in self.proc.stderr:
-                if self._stop.is_set():
-                    break
-                raw = line.strip()
-                if not raw:
-                    continue
-                self.last_stderr_line = raw[:500]
-                self.stderr_count += 1
-                log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)
+            self._proc = await asyncio.create_subprocess_exec(
+                *self._agent_cmd,
+                cwd=self.workdir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
         except Exception as exc:
-            log_event(self.log_path, "ERROR", "stream_stderr_reader_failed", error=str(exc))
+            self._spawn_error = exc
+            self._spawned.set()
+            log_event(self.log_path, "ERROR", "failed to spawn async subprocess", error=str(exc))
+            raise
+        self.proc.pid = self._proc.pid
+        self.init_pid = self._proc.pid
+        self._spawned.set()
+        if self._proc.stdout is None or self._proc.stderr is None:
+            self.proc.returncode = 1
+            return
+        stdout_task = asyncio.create_task(self._read_stdout(self._proc.stdout))
+        stderr_task = asyncio.create_task(self._read_stderr(self._proc.stderr))
+        await self._proc.wait()
+        self.proc.returncode = self._proc.returncode
+        await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+
+    async def _read_stdout(self, stream: asyncio.StreamReader) -> None:
+        while not self._stop.is_set():
+            line = await stream.readline()
+            if not line:
+                return
+            raw = line.decode("utf-8", errors="replace").strip()
+            if not raw:
+                continue
+            try:
+                event = json.loads(raw)
+            except Exception as exc:
+                log_event(self.log_path, "WARN", "stream_json_bad_line", error=str(exc), raw=raw[:500])
+                continue
+            if isinstance(event, dict):
+                self._record_event(event)
+
+    async def _read_stderr(self, stream: asyncio.StreamReader) -> None:
+        while not self._stop.is_set():
+            line = await stream.readline()
+            if not line:
+                return
+            raw = line.decode("utf-8", errors="replace").strip()
+            if not raw:
+                continue
+            self.last_stderr_line = raw[:500]
+            self.stderr_count += 1
+            log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)
 
     def _update_git_stats(self) -> None:
         try:
@@ -178,7 +217,7 @@ class StreamJsonMonitor:
             self._update_git_stats()
         self._write_metrics_snapshot()
         self._state.tick_spinner()
-        self._screen.request_render()
+        self._publish_snapshot()
         log_event(
             self.log_path,
             "INFO",
@@ -199,4 +238,10 @@ class StreamJsonMonitor:
 
     def stop(self) -> None:
         self._stop.set()
-        self._screen.stop()
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(lambda: None)
+        if self._runner_thread.is_alive():
+            self._runner_thread.join(timeout=1.0)
+
+    def _publish_snapshot(self) -> None:
+        publish_snapshot(self._state.build_snapshot())

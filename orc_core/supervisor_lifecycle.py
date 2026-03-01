@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -244,3 +245,11 @@ def wait_for_process_exit(
             log_event(log_path, "ERROR", "phase ttl exceeded", label=label, task_ttl=task_ttl)
             return "ttl_exceeded"
         time.sleep(max(poll, 0.2))
+
+
+async def async_wait_for_completion(**kwargs) -> str:
+    return await asyncio.to_thread(wait_for_completion, **kwargs)
+
+
+async def async_wait_for_process_exit(**kwargs) -> str:
+    return await asyncio.to_thread(wait_for_process_exit, **kwargs)

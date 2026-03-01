@@ -2,29 +2,33 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import json
-import re
 import subprocess
-import time
-from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 from .backlog_orchestrator import BacklogOrchestrator
-from .backlog import render_progress
 from .hooks import (
     ensure_repo_hooks,
     ensure_repo_hooks_config,
-    update_task_restart_count,
-    write_task_file,
 )
 from .logging import ORC_LOG_NAME, ORC_ROOT, debug_log, log_event
 from .notify import send_telegram_message
 from .process import acquire_lock, kill_process_tree, release_lock
 from .runner import launch_agent_stream_json
+from .supervisor_fallback import (
+    cleanup_stale_task_file as _cleanup_stale_task_file,
+    create_temp_backlog as _create_temp_backlog,
+    delete_task_file as _delete_task_file,
+    get_resume_id_from_agent_ls as _get_resume_id_from_agent_ls,
+    invoke_stop_hook_fallback as _invoke_stop_hook_fallback,
+    load_task_payload as _load_task_payload,
+    update_task_conversation_id as _update_task_conversation_id,
+)
+from .supervisor_lifecycle import (
+    wait_for_completion as lifecycle_wait_for_completion,
+    wait_for_process_exit as lifecycle_wait_for_process_exit,
+)
 from .task_execution import TaskExecutionEngine
-from .task_source import MarkdownTaskSource, Task
-from .text_parse import clean_summary_lines
 from .ui import ui_error, ui_info, ui_warn
 
 TASK_FILE_NAME = "orc-task.json"
@@ -42,94 +46,6 @@ def load_prompt(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _create_temp_backlog(workdir: str, task_text: str, log_path: Path) -> tuple[Path, str]:
-    run_dir = Path(workdir) / ".orc" / "tmp"
-    run_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backlog_path = run_dir / f"BACKLOG.temp.{ts}.md"
-    normalized = " ".join(task_text.strip().split())
-    task_id = "ORC-SMOKE-001"
-    backlog_path.write_text(f"- [ ] {task_id} {normalized}\n", encoding="utf-8")
-    rel_backlog = str(backlog_path.relative_to(Path(workdir)))
-    log_event(log_path, "INFO", "temporary backlog created", backlog_path=str(backlog_path), task_id=task_id)
-    return backlog_path, rel_backlog
-
-
-def _load_task_payload(task_path: Path) -> dict:
-    try:
-        payload = json.loads(task_path.read_text(encoding="utf-8"))
-        return payload if isinstance(payload, dict) else {}
-    except Exception:
-        return {}
-
-
-def _delete_task_file(
-    task_path: Path,
-    log_path: Path,
-    reason: str,
-    expected_task_id: Optional[str] = None,
-    expected_backlog: Optional[Path] = None,
-) -> bool:
-    if not task_path.exists():
-        return False
-    payload = _load_task_payload(task_path)
-    if expected_task_id and str(payload.get("task_id") or "").strip() != expected_task_id:
-        log_event(
-            log_path,
-            "WARN",
-            "skip task file remove: task_id mismatch",
-            reason=reason,
-            expected_task_id=expected_task_id,
-            actual_task_id=str(payload.get("task_id") or ""),
-        )
-        return False
-    if expected_backlog is not None:
-        actual_backlog = str(payload.get("backlog_path") or "").strip()
-        if actual_backlog and Path(actual_backlog) != expected_backlog:
-            log_event(
-                log_path,
-                "WARN",
-                "skip task file remove: backlog mismatch",
-                reason=reason,
-                expected_backlog=str(expected_backlog),
-                actual_backlog=actual_backlog,
-            )
-            return False
-    try:
-        task_path.unlink()
-        log_event(log_path, "WARN", "task file removed", reason=reason, task_path=str(task_path))
-        return True
-    except Exception as exc:
-        log_event(log_path, "ERROR", "failed to remove task file", reason=reason, error=str(exc), task_path=str(task_path))
-        return False
-
-
-def _cleanup_stale_task_file(task_path: Path, log_path: Path, allowed_backlog: Optional[Path] = None) -> bool:
-    """
-    Remove broken or stale task state that can block orchestrator startup/resume.
-    """
-    if not task_path.exists():
-        return False
-    payload = _load_task_payload(task_path)
-    if not payload:
-        return _delete_task_file(task_path, log_path, reason="invalid_task_json")
-    backlog_path_raw = str(payload.get("backlog_path") or "").strip()
-    if not backlog_path_raw:
-        return _delete_task_file(task_path, log_path, reason="missing_backlog_path")
-    backlog_path = Path(backlog_path_raw)
-    if not backlog_path.exists():
-        return _delete_task_file(task_path, log_path, reason="backlog_missing")
-    if allowed_backlog is not None and backlog_path.resolve() != allowed_backlog.resolve():
-        log_event(
-            log_path,
-            "WARN",
-            "task file references another backlog; keeping state",
-            task_backlog=str(backlog_path),
-            allowed_backlog=str(allowed_backlog),
-        )
-    return False
-
-
 class SafeDict(dict):
     def __missing__(self, key: str) -> str:
         return "{" + key + "}"
@@ -141,114 +57,6 @@ def _write_prompt_file(run_root: Path, prompt: str, tag: str) -> Path:
     prompt_path = prompt_dir / f"{tag}.txt"
     prompt_path.write_text(prompt, encoding="utf-8")
     return prompt_path
-
-
-def _update_task_conversation_id(task_path: Path, log_path: Path, conversation_id: str) -> None:
-    try:
-        payload = json.loads(task_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        log_event(log_path, "ERROR", "failed to read task file for conversation_id update", error=str(exc))
-        return
-    if payload.get("conversation_id") == conversation_id:
-        return
-    payload["conversation_id"] = conversation_id
-    try:
-        task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        log_event(log_path, "INFO", "stored conversation_id from agent ls", conversation_id=conversation_id)
-    except Exception as exc:
-        log_event(log_path, "ERROR", "failed to update conversation_id", error=str(exc))
-
-
-def _parse_agent_ls_output(output: str) -> Optional[str]:
-    uuid_re = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
-    generic_re = re.compile(r"\b[A-Za-z0-9_-]{8,}\b")
-    lines = [line.strip() for line in output.splitlines() if line.strip()]
-    for line in reversed(lines):
-        lower = line.lower()
-        if lower.startswith(("id", "title", "name")):
-            continue
-        uuid_match = uuid_re.search(line)
-        if uuid_match:
-            return uuid_match.group(0)
-        for token in generic_re.findall(line):
-            token_lower = token.lower()
-            if token_lower in {"id", "title", "name", "today", "yesterday"}:
-                continue
-            if ":" in token and all(part.isdigit() for part in token.split(":") if part):
-                continue
-            if not any(ch.isdigit() for ch in token):
-                continue
-            return token
-    return None
-
-
-def _get_resume_id_from_agent_ls(workdir: str, log_path: Path) -> Optional[str]:
-    try:
-        result = subprocess.run(
-            ["agent", "ls"],
-            cwd=workdir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-        )
-    except Exception as exc:
-        log_event(log_path, "ERROR", "agent ls failed", error=str(exc))
-        return None
-    if result.returncode != 0:
-        log_event(
-            log_path,
-            "ERROR",
-            "agent ls returned non-zero",
-            returncode=result.returncode,
-            stderr=result.stderr[:500],
-        )
-        return None
-    resume_id = _parse_agent_ls_output(result.stdout)
-    if resume_id:
-        log_event(log_path, "INFO", "agent ls resume id", conversation_id=resume_id)
-    else:
-        log_event(log_path, "WARN", "agent ls returned no resume id")
-    return resume_id
-
-
-def _invoke_stop_hook_fallback(workdir: str, task_path: Path, log_path: Path) -> bool:
-    stop_hook = Path(workdir) / ".cursor" / "hooks" / "orc_stop.py"
-    if not stop_hook.exists():
-        log_event(log_path, "WARN", "fallback stop skipped: hook missing", hook=str(stop_hook))
-        return False
-    try:
-        payload = json.loads(task_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        log_event(log_path, "ERROR", "fallback stop: failed to read task file", error=str(exc))
-        return False
-    stdin_payload = {
-        "status": "completed",
-        "loop_count": 0,
-        "conversation_id": payload.get("conversation_id") or "",
-    }
-    try:
-        result = subprocess.run(
-            ["python3", str(stop_hook)],
-            cwd=workdir,
-            input=json.dumps(stdin_payload),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-        )
-    except Exception as exc:
-        log_event(log_path, "ERROR", "fallback stop: hook invocation failed", error=str(exc))
-        return False
-    log_event(
-        log_path,
-        "WARN" if result.returncode != 0 else "INFO",
-        "fallback stop invoked",
-        returncode=result.returncode,
-        stdout=(result.stdout or "")[:500],
-        stderr=(result.stderr or "")[:500],
-    )
-    return result.returncode == 0
 
 
 def wait_for_completion(
@@ -266,181 +74,21 @@ def wait_for_completion(
     escape_requested: Optional[Callable[[], bool]] = None,
     confirm_exit: Optional[Callable[[], bool]] = None,
 ) -> str:
-    start_time = time.time()
-    last_stats_key: Optional[Tuple[int, int, int, int]] = None
-    same_count = 0
-    last_tokens_value: Optional[int] = None
-    last_tokens_time = time.time()
-    last_stuck_notice_time = 0.0
-    followup_seen_at: Optional[float] = None
-    fallback_invoked = False
-    fallback_last_attempt = 0.0
-    #region agent log
-    debug_log(
-        "H3",
-        "orc_core/supervisor.py:wait_for_completion:start",
-        "wait loop start",
-        {
-            "task_path": str(task_path),
-            "exists": task_path.exists(),
-            "stall_timeout": stall_timeout,
-            "task_ttl": task_ttl,
-            "poll": poll,
-        },
+    return lifecycle_wait_for_completion(
+        task_path=task_path,
+        monitor=monitor,
+        poll=poll,
+        stall_timeout=stall_timeout,
+        task_ttl=task_ttl,
+        log_path=log_path,
+        nudge_after=nudge_after,
+        nudge_cooldown=nudge_cooldown,
+        nudge_text=nudge_text,
+        task_id=task_id,
+        task_text=task_text,
+        escape_requested=escape_requested,
+        confirm_exit=confirm_exit,
     )
-    #endregion
-    while True:
-        if escape_requested is not None and escape_requested():
-            if confirm_exit is None or confirm_exit():
-                log_event(log_path, "WARN", "escape interrupt confirmed", task_id=task_id)
-                raise KeyboardInterrupt
-            log_event(log_path, "INFO", "escape interrupt cancelled", task_id=task_id)
-        if not task_path.exists():
-            log_event(log_path, "INFO", "task file removed; completion observed")
-            #region agent log
-            debug_log(
-                "H3",
-                "orc_core/supervisor.py:wait_for_completion:done",
-                "task file removed",
-                {"task_path": str(task_path)},
-            )
-            #endregion
-            return "completed"
-        monitor.maybe_report()
-        stats_key = (
-            monitor.metrics.total_lines,
-            monitor.metrics.command_count,
-            monitor.metrics.total_output_chars,
-            int(monitor.metrics.tokens_total or 0),
-        )
-        tokens_value = monitor.metrics.tokens_total
-        if tokens_value is not None:
-            if last_tokens_value is None or tokens_value != last_tokens_value:
-                last_tokens_value = tokens_value
-                last_tokens_time = time.time()
-            else:
-                since_tokens = time.time() - last_tokens_time
-                if since_tokens >= 300 and (time.time() - last_stuck_notice_time) >= 300:
-                    last_stuck_notice_time = time.time()
-                    stuck_msg = f"{task_id} — agent stuck (tokens unchanged 5m)"
-                    if task_text:
-                        stuck_msg = f"{task_id} — {task_text}\nagent stuck (tokens unchanged 5m)"
-                    send_telegram_message(stuck_msg, log_path)
-        if stats_key == last_stats_key:
-            same_count += 1
-        else:
-            same_count = 0
-            last_stats_key = stats_key
-        if monitor.ui_followup_prompt:
-            if followup_seen_at is None:
-                followup_seen_at = time.time()
-            # Cursor can stay on "Add a follow-up" despite task completion.
-            # If backlog already has [x], invoke stop-hook fallback to clear stale task file.
-            if not fallback_invoked and (time.time() - followup_seen_at) >= 20.0:
-                try:
-                    payload = json.loads(task_path.read_text(encoding="utf-8"))
-                except Exception as exc:
-                    log_event(log_path, "ERROR", "fallback stop: failed to parse task json", error=str(exc))
-                    payload = {}
-                backlog_path = payload.get("backlog_path")
-                current_task_id = payload.get("task_id")
-                if backlog_path and current_task_id and MarkdownTaskSource(Path(backlog_path)).is_task_done(str(current_task_id)):
-                    log_event(
-                        log_path,
-                        "WARN",
-                        "follow-up prompt stuck with done task; invoking fallback stop",
-                        task_id=current_task_id,
-                    )
-                    fallback_invoked = _invoke_stop_hook_fallback(monitor.workdir, task_path, log_path)
-                else:
-                    log_event(
-                        log_path,
-                        "INFO",
-                        "follow-up prompt visible but task not marked done yet",
-                        task_id=current_task_id,
-                    )
-        else:
-            followup_seen_at = None
-        # Auto-continue removed (was unreliable and noisy).
-        if getattr(monitor, "result_status", None) == "success":
-            if not task_path.exists():
-                return "completed"
-            if getattr(monitor, "result_seen_at", None) and (time.time() - monitor.result_seen_at) >= 10.0:
-                if not fallback_invoked or (time.time() - fallback_last_attempt) >= 5.0:
-                    log_event(log_path, "WARN", "result success observed; invoking stop-hook fallback")
-                    fallback_last_attempt = time.time()
-                    fallback_invoked = _invoke_stop_hook_fallback(monitor.workdir, task_path, log_path)
-                if not task_path.exists():
-                    return "completed"
-                # Hard safety-net: if backlog is already done (or missing), clear stale task file.
-                payload = _load_task_payload(task_path)
-                backlog_path_raw = str(payload.get("backlog_path") or "").strip()
-                current_task_id = str(payload.get("task_id") or "").strip()
-                if backlog_path_raw and current_task_id:
-                    backlog_path = Path(backlog_path_raw)
-                    if not backlog_path.exists():
-                        _delete_task_file(
-                            task_path,
-                            log_path,
-                            reason="result_success_backlog_missing",
-                            expected_task_id=current_task_id,
-                        )
-                        return "completed"
-                    if MarkdownTaskSource(backlog_path).is_task_done(current_task_id):
-                        _delete_task_file(
-                            task_path,
-                            log_path,
-                            reason="result_success_backlog_already_done",
-                            expected_task_id=current_task_id,
-                            expected_backlog=backlog_path,
-                        )
-                        return "completed"
-
-        if monitor.proc.poll() is not None:
-            log_event(log_path, "ERROR", "agent process exited while task still active", returncode=monitor.proc.returncode)
-            #region agent log
-            debug_log(
-                "H4",
-                "orc_core/supervisor.py:wait_for_completion:exit",
-                "agent process exited early",
-                {
-                    "returncode": monitor.proc.returncode,
-                    "task_exists": task_path.exists(),
-                    "stderr_count": monitor.stderr_count,
-                    "last_stderr_line": monitor.last_stderr_line,
-                },
-            )
-            #endregion
-            return "process_exited"
-        if time.time() - monitor.last_output_time > stall_timeout:
-            log_event(log_path, "ERROR", "stall detected", stall_seconds=stall_timeout)
-            #region agent log
-            debug_log(
-                "H5",
-                "orc_core/supervisor.py:wait_for_completion:stall",
-                "stall detected",
-                {
-                    "stall_seconds": stall_timeout,
-                    "since_last_output": time.time() - monitor.last_output_time,
-                    "lines": monitor.metrics.total_lines,
-                    "task_exists": task_path.exists(),
-                },
-            )
-            #endregion
-            return "stalled"
-        if time.time() - start_time > task_ttl:
-            log_event(log_path, "ERROR", "task ttl exceeded", task_ttl=task_ttl)
-            #region agent log
-            debug_log(
-                "H6",
-                "orc_core/supervisor.py:wait_for_completion:ttl",
-                "task ttl exceeded",
-                {"task_ttl": task_ttl, "elapsed": time.time() - start_time},
-            )
-            #endregion
-            return "ttl_exceeded"
-        time.sleep(max(poll, 0.2))
-    return "completed"
 
 
 def wait_for_process_exit(
@@ -454,67 +102,17 @@ def wait_for_process_exit(
     escape_requested: Optional[Callable[[], bool]] = None,
     confirm_exit: Optional[Callable[[], bool]] = None,
 ) -> str:
-    """
-    Wait for the agent process to exit (used for non-task phases, e.g. commit).
-    """
-    start_time = time.time()
-    followup_seen_at: Optional[float] = None
-    followup_enter_sent = False
-    followup_ctrlc_sent = False
-    #region agent log
-    debug_log(
-        "H3",
-        "orc_core/supervisor.py:wait_for_process_exit:start",
-        "wait process exit loop start",
-        {
-            "stall_timeout": stall_timeout,
-            "task_ttl": task_ttl,
-            "poll": poll,
-            "label": label,
-            "stop_on_followup_prompt": stop_on_followup_prompt,
-        },
+    return lifecycle_wait_for_process_exit(
+        monitor=monitor,
+        poll=poll,
+        stall_timeout=stall_timeout,
+        task_ttl=task_ttl,
+        log_path=log_path,
+        label=label,
+        stop_on_followup_prompt=stop_on_followup_prompt,
+        escape_requested=escape_requested,
+        confirm_exit=confirm_exit,
     )
-    #endregion
-    while True:
-        if escape_requested is not None and escape_requested():
-            if confirm_exit is None or confirm_exit():
-                log_event(log_path, "WARN", "escape interrupt confirmed", label=label)
-                raise KeyboardInterrupt
-            log_event(log_path, "INFO", "escape interrupt cancelled", label=label)
-        monitor.maybe_report()
-        if stop_on_followup_prompt and getattr(monitor, "ui_followup_prompt", False):
-            if followup_seen_at is None:
-                followup_seen_at = time.time()
-                log_event(log_path, "WARN", "follow-up prompt visible during phase", label=label)
-            seen_for = time.time() - followup_seen_at
-            # In Cursor this screen can be "sticky" even after work is complete. Nudge it.
-            if seen_for >= 10.0 and not followup_enter_sent:
-                followup_enter_sent = True
-                monitor.send_keys(["Enter"], label=f"{label}:followup:enter")
-            if seen_for >= 20.0 and not followup_ctrlc_sent:
-                followup_ctrlc_sent = True
-                monitor.send_keys(["C-C"], label=f"{label}:followup:ctrlc")
-            if seen_for >= 40.0:
-                log_event(log_path, "WARN", "follow-up prompt stuck; forcing phase end", label=label)
-                return "followup_stuck"
-        else:
-            followup_seen_at = None
-        if monitor.proc.poll() is not None:
-            log_event(
-                log_path,
-                "INFO" if monitor.proc.returncode == 0 else "ERROR",
-                "phase process exited",
-                label=label,
-                returncode=monitor.proc.returncode,
-            )
-            return "completed" if monitor.proc.returncode == 0 else "process_exited"
-        if time.time() - monitor.last_output_time > stall_timeout:
-            log_event(log_path, "ERROR", "stall detected", label=label, stall_seconds=stall_timeout)
-            return "stalled"
-        if time.time() - start_time > task_ttl:
-            log_event(log_path, "ERROR", "phase ttl exceeded", label=label, task_ttl=task_ttl)
-            return "ttl_exceeded"
-        time.sleep(max(poll, 0.2))
 
 
 def _git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:

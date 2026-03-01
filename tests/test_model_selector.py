@@ -71,20 +71,15 @@ class ModelSelectorCommandTest(unittest.TestCase):
 
 
 class ModelSelectorUiTest(unittest.TestCase):
-    @patch("orc_core.model_selector.radiolist_dialog")
-    def test_choose_model_interactive_prefers_requested_default(self, dialog_mock) -> None:
-        dialog_mock.return_value.run.return_value = "sonnet-4.5"
+    def test_choose_model_interactive_prefers_requested_default(self) -> None:
         selected = choose_model_interactive(["gpt-5.3-codex", "sonnet-4.5"], "sonnet-4.5")
         self.assertEqual(selected, "sonnet-4.5")
 
-    @patch("orc_core.model_selector.radiolist_dialog")
-    def test_choose_model_interactive_raises_on_cancel(self, dialog_mock) -> None:
-        dialog_mock.return_value.run.return_value = None
-        with self.assertRaises(KeyboardInterrupt):
-            choose_model_interactive(["gpt-5.3-codex"], "gpt-5.3-codex")
+    def test_choose_model_interactive_falls_back_to_first_when_default_missing(self) -> None:
+        selected = choose_model_interactive(["gpt-5.3-codex", "sonnet-4.5"], "missing-model")
+        self.assertEqual(selected, "gpt-5.3-codex")
 
-    @patch("orc_core.model_selector.radiolist_dialog")
-    def test_choose_model_interactive_raises_on_empty_models(self, _dialog_mock) -> None:
+    def test_choose_model_interactive_raises_on_empty_models(self) -> None:
         with self.assertRaises(ModelSelectionError):
             choose_model_interactive([], "gpt-5.3-codex")
 

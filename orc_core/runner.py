@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import asyncio
 import shlex
-import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +11,39 @@ from .stream_monitor import StreamJsonMonitor
 
 
 def launch_agent_stream_json(
+    workdir: str,
+    prompt_path: Optional[Path],
+    model: str,
+    log_path: Path,
+    report_interval: float,
+    summary_lines: int,
+    task_id: str,
+    progress_done: int = 0,
+    progress_total: int = 1,
+    resume_id: Optional[str] = None,
+    resume_latest: bool = False,
+    resume_prompt: Optional[str] = None,
+) -> StreamJsonMonitor:
+    return asyncio.run(
+        launch_agent_stream_json_async(
+            workdir=workdir,
+            prompt_path=prompt_path,
+            model=model,
+            log_path=log_path,
+            report_interval=report_interval,
+            summary_lines=summary_lines,
+            task_id=task_id,
+            progress_done=progress_done,
+            progress_total=progress_total,
+            resume_id=resume_id,
+            resume_latest=resume_latest,
+            resume_prompt=resume_prompt,
+        )
+    )
+
+
+async def launch_agent_stream_json_async(
+    *,
     workdir: str,
     prompt_path: Optional[Path],
     model: str,
@@ -74,34 +107,19 @@ def launch_agent_stream_json(
     )
     #endregion
     log_event(log_path, "INFO", "launch agent stream-json", command=" ".join(shlex.quote(part) for part in agent_cmd))
-    try:
-        proc = subprocess.Popen(
-            agent_cmd,
-            cwd=workdir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except FileNotFoundError as exc:
-        log_event(log_path, "ERROR", "agent executable not found", error=str(exc))
-        raise
-    #region agent log
-    debug_log(
-        "H1",
-        "orc_core/runner.py:launch_agent_stream_json:spawned",
-        "agent spawned",
-        {"pid": proc.pid},
-    )
-    #endregion
     monitor = StreamJsonMonitor(
-        proc,
-        log_path,
+        agent_cmd=agent_cmd,
+        log_path=log_path,
         report_interval=report_interval,
         summary_lines=summary_lines,
         task_id=task_id,
         workdir=workdir,
     )
     monitor.set_progress(progress_done, progress_total)
+    debug_log(
+        "H1",
+        "orc_core/runner.py:launch_agent_stream_json:spawned",
+        "agent spawned",
+        {"pid": monitor.proc.pid},
+    )
     return monitor

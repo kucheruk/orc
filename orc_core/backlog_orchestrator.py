@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import asyncio
 import time
 from argparse import Namespace
 from pathlib import Path
@@ -161,3 +162,6 @@ class BacklogOrchestrator:
         before_path, stop_path = ensure_repo_hooks(self.workdir)
         hooks_path = ensure_repo_hooks_config(self.workdir, before_path, stop_path, self.log_path)
         log_event(self.log_path, "INFO", "hooks ready", hooks_config=str(hooks_path))
+
+    async def run_async(self) -> int:
+        return await asyncio.to_thread(self.run)

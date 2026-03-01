@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import asyncio
 import re
 import subprocess
 from dataclasses import dataclass
@@ -9,10 +10,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Protocol
 
-from .escape_exit import EscapeExitWatcher
 from .hooks import update_task_restart_count, write_task_file
 from .logging import debug_log, log_event
 from .process import kill_process_tree
+from .quit_signal import is_stop_requested
 from .runner import launch_agent_stream_json
 from .supervisor_fallback import get_resume_id_from_agent_ls, update_task_conversation_id
 from .supervisor_lifecycle import wait_for_completion, wait_for_process_exit
@@ -240,18 +241,16 @@ def _run_commit_phase(
         task_id=f"{task_id}::commit",
     )
     try:
-        with EscapeExitWatcher() as escape_watcher:
-            result = wait_for_process_exit(
-                monitor=monitor,
-                poll=request.poll,
-                stall_timeout=request.commit_stall_timeout,
-                task_ttl=request.commit_ttl,
-                log_path=log_path,
-                label="commit_phase",
-                stop_on_followup_prompt=True,
-                escape_requested=escape_watcher.poll_escape,
-                confirm_exit=escape_watcher.confirm_exit,
-            )
+        result = wait_for_process_exit(
+            monitor=monitor,
+            poll=request.poll,
+            stall_timeout=request.commit_stall_timeout,
+            task_ttl=request.commit_ttl,
+            log_path=log_path,
+            label="commit_phase",
+            stop_on_followup_prompt=True,
+            escape_requested=is_stop_requested,
+        )
     finally:
         monitor.stop()
         kill_process_tree(monitor.init_pid or monitor.proc.pid, log_path, label="commit-phase")
@@ -411,22 +410,20 @@ class TaskExecutionEngine:
                 ui_error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
                 return TaskExecutionResult(status="failed", reason="agent_not_found")
 
-            with EscapeExitWatcher() as escape_watcher:
-                result = wait_for_completion(
-                    task_path=request.task_path,
-                    monitor=active_monitor,
-                    poll=request.poll,
-                    stall_timeout=request.stall_timeout,
-                    task_ttl=request.task_ttl,
-                    log_path=self.log_path,
-                    nudge_after=request.nudge_after,
-                    nudge_cooldown=request.nudge_cooldown,
-                    nudge_text=request.nudge_text,
-                    task_id=task_id,
-                    task_text=task_text,
-                    escape_requested=escape_watcher.poll_escape,
-                    confirm_exit=escape_watcher.confirm_exit,
-                )
+            result = wait_for_completion(
+                task_path=request.task_path,
+                monitor=active_monitor,
+                poll=request.poll,
+                stall_timeout=request.stall_timeout,
+                task_ttl=request.task_ttl,
+                log_path=self.log_path,
+                nudge_after=request.nudge_after,
+                nudge_cooldown=request.nudge_cooldown,
+                nudge_text=request.nudge_text,
+                task_id=task_id,
+                task_text=task_text,
+                escape_requested=is_stop_requested,
+            )
             active_monitor.stop()
             kill_process_tree(active_monitor.init_pid or active_monitor.proc.pid, self.log_path, label="agent")
 
@@ -485,3 +482,6 @@ class TaskExecutionEngine:
             log_event(self.log_path, "WARN", "restarting task", task_id=task_id, restart_count=restart_count, reason=result)
             prompt = request.continue_template.format_map(prompt_vars)
             prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}__r{restart_count}")
+
+    async def execute_async(self, request: TaskExecutionRequest) -> TaskExecutionResult:
+        return await asyncio.to_thread(self.execute, request)

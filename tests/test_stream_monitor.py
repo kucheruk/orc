@@ -65,14 +65,14 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         monitor._last_report_time = 0.0
         monitor._last_git_stats_time = 0.0
         monitor._state = MagicMock()
-        monitor._screen = MagicMock()
         monitor._update_git_stats = lambda: None
         monitor._write_metrics_snapshot = lambda: None
+        monitor._publish_snapshot = MagicMock()
         monitor.task_id = "TASK-1"
 
         monitor.maybe_report()
         monitor._state.tick_spinner.assert_called_once()
-        monitor._screen.request_render.assert_called_once()
+        monitor._publish_snapshot.assert_called_once()
 
 
 if __name__ == "__main__":

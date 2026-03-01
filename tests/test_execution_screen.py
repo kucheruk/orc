@@ -4,7 +4,9 @@
 import time
 import unittest
 
-from orc_core.execution_screen import PromptToolkitExecutionScreen
+from textual.app import App
+
+from orc_core.tui.screens.execution import ExecutionScreen
 from orc_core.stream_monitor_state import MetricsStore, MonitorSnapshot
 
 
@@ -25,14 +27,24 @@ class ExecutionScreenRenderTest(unittest.TestCase):
             reasoning_lines=["planning step one"],
             spinner_idx=1,
         )
-        screen = PromptToolkitExecutionScreen(lambda: snapshot, refresh_interval=0.2)
+        screen = ExecutionScreen()
 
-        text = screen._render_text(snapshot)
+        class _TestApp(App[None]):
+            def compose(self):
+                yield screen
 
-        self.assertIn("Task: TASK-1", text)
-        self.assertIn("Recent Commands | Files", text)
-        self.assertIn("Reasoning (latest)", text)
-        self.assertIn("Event Feed", text)
+        async def _run() -> None:
+            async with _TestApp().run_test() as pilot:
+                _ = pilot
+                screen.update_from_snapshot(snapshot)
+                self.assertEqual(screen.task_title, "Task: TASK-1")
+                self.assertEqual(screen.progress_done, 1)
+                self.assertEqual(screen.progress_total, 4)
+                self.assertEqual(screen.total_lines, 10)
+
+        import asyncio
+
+        asyncio.run(_run())
 
 
 if __name__ == "__main__":

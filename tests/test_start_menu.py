@@ -10,10 +10,10 @@ from orc_core.start_menu import StartMenuChoice, show_start_menu
 from orc_core.task_source import Task
 
 
-class StartMenuSingleScreenTest(unittest.TestCase):
-    @patch("orc_core.start_menu._pick_start_options")
-    def test_show_start_menu_returns_mode_debug_and_model(self, pick_start_options) -> None:
-        pick_start_options.return_value = ("backlog", "gpt-5.3-codex", True)
+class StartMenuBridgeTest(unittest.TestCase):
+    @patch("orc_core.tui_app.run_start_menu")
+    def test_show_start_menu_returns_choice_from_textual(self, run_start_menu) -> None:
+        run_start_menu.return_value = StartMenuChoice(mode="backlog", debug_enabled=True, model="gpt-5.3-codex")
         task = Task(task_id="TASK-001", text="test", done=False)
         status = BacklogStatus(path=Path("BACKLOG.md"), exists=True, tasks=[task], open_tasks=[task])
 
@@ -21,34 +21,9 @@ class StartMenuSingleScreenTest(unittest.TestCase):
 
         self.assertEqual(choice, StartMenuChoice(mode="backlog", debug_enabled=True, model="gpt-5.3-codex"))
 
-    @patch("orc_core.start_menu._read_prompt_textarea")
-    @patch("orc_core.start_menu.message_dialog")
-    @patch("orc_core.start_menu._pick_start_options")
-    def test_show_start_menu_retries_when_backlog_mode_unavailable(
-        self,
-        pick_start_options,
-        message_dialog,
-        read_prompt_textarea,
-    ) -> None:
-        pick_start_options.side_effect = [
-            ("single", "gpt-5.3-codex", False),
-            ("prompt", "gpt-5.3-codex", False),
-        ]
-        message_dialog.return_value.run.return_value = None
-        read_prompt_textarea.return_value = "manual task"
+    @patch("orc_core.tui_app.run_start_menu", return_value=None)
+    def test_show_start_menu_raises_keyboard_interrupt_on_cancel(self, _run_start_menu) -> None:
         status = BacklogStatus(path=Path("BACKLOG.md"), exists=True, tasks=[], open_tasks=[])
-
-        choice = show_start_menu(status, models=["gpt-5.3-codex"], default_model="gpt-5.3-codex")
-
-        self.assertEqual(choice.mode, "prompt")
-        self.assertEqual(choice.model, "gpt-5.3-codex")
-        self.assertEqual(choice.prompt_text, "manual task")
-        self.assertEqual(pick_start_options.call_count, 2)
-
-    @patch("orc_core.start_menu._pick_start_options", return_value=(None, None, False))
-    def test_show_start_menu_raises_keyboard_interrupt_on_cancel(self, _pick_start_options) -> None:
-        task = Task(task_id="TASK-001", text="test", done=False)
-        status = BacklogStatus(path=Path("BACKLOG.md"), exists=True, tasks=[task], open_tasks=[task])
 
         with self.assertRaises(KeyboardInterrupt):
             show_start_menu(status, models=["gpt-5.3-codex"], default_model="gpt-5.3-codex")
