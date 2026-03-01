@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import threading
+import traceback
 from typing import Callable, Optional
 
 from textual.app import App
@@ -51,6 +52,7 @@ class OrcApp(App[int]):
         self._run_orchestrator = run_orchestrator
         self._execution_screen = ExecutionScreen()
         self._runner_thread: threading.Thread | None = None
+        self._last_error: str | None = None
 
     def on_mount(self) -> None:
         clear_stop_request()
@@ -66,8 +68,13 @@ class OrcApp(App[int]):
         except KeyboardInterrupt:
             code = 130
         except Exception:
+            self._last_error = traceback.format_exc()
             code = 1
         self.call_from_thread(self.exit, code)
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
 
     def _drain_snapshot_updates(self) -> None:
         snapshot = consume_latest_snapshot()
@@ -85,4 +92,4 @@ class OrcApp(App[int]):
 
 def run_start_menu(backlog_status: BacklogStatus, *, models: list[str], default_model: str) -> Optional[StartMenuChoice]:
     app = _StartMenuApp(backlog_status, models=models, default_model=default_model)
-    return app.run()
+    return app.run(mouse=False)

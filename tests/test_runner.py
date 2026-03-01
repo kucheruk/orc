@@ -24,6 +24,7 @@ class RunnerLaunchTest(unittest.TestCase):
             task_id="TASK-1",
             progress_done=1,
             progress_total=2,
+            agent_output_log_path="/tmp/orc-agent-output.log",
             resume_latest=True,
             resume_prompt="continue",
         )
@@ -32,6 +33,10 @@ class RunnerLaunchTest(unittest.TestCase):
         self.assertIn("--continue", cmd)
         self.assertNotIn("--resume", cmd)
         self.assertEqual(cmd[-1], "continue")
+        self.assertEqual(
+            monitor_cls_mock.call_args.kwargs["agent_output_log_path"],
+            "/tmp/orc-agent-output.log",
+        )
         monitor_instance.set_progress.assert_called_once_with(1, 2)
 
     @patch("orc_core.runner.StreamJsonMonitor")

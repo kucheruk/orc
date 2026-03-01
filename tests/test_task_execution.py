@@ -84,6 +84,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             commit_ttl=1.0,
             progress_done=0,
             progress_total=1,
+            agent_output_log_path=None,
         )
 
     @patch("orc_core.task_execution.kill_process_tree")

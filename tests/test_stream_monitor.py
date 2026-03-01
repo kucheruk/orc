@@ -4,6 +4,7 @@
 import time
 from pathlib import Path
 from types import SimpleNamespace
+import tempfile
 import unittest
 from unittest.mock import MagicMock
 
@@ -94,6 +95,19 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         monitor.maybe_report()
         monitor._state.tick_spinner.assert_called_once()
         monitor._publish_snapshot.assert_called_once()
+
+    def test_append_agent_output_writes_to_log_file(self) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "agent-output.log"
+            monitor._agent_output_file = output_path.open("a", encoding="utf-8")
+            monitor._append_agent_output("stdout", '{"type":"result"}\n')
+            monitor._append_agent_output("stderr", "warning")
+            monitor._agent_output_file.close()
+            content = output_path.read_text(encoding="utf-8")
+
+        self.assertIn('[stdout] {"type":"result"}', content)
+        self.assertIn("[stderr] warning", content)
 
 
 if __name__ == "__main__":

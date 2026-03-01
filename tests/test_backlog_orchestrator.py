@@ -23,6 +23,14 @@ class _FakeEngine:
         return TaskExecutionResult(status="completed")
 
 
+class _FailingEngine:
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+
+    def execute(self, request):
+        return TaskExecutionResult(status="failed", reason=self.reason)
+
+
 def _args(backlog: str) -> Namespace:
     return Namespace(
         mode="backlog",
@@ -173,6 +181,36 @@ class BacklogOrchestratorTest(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual([call.task.task_id for call in engine.calls], ["TASK-002"])
+
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    @patch("orc_core.backlog_orchestrator.ui_error")
+    def test_failed_execution_exposes_failure_reason(self, ui_error, hooks_config, hooks) -> None:
+        hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
+        hooks_config.return_value = Path("/tmp/hooks.json")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [ ] TASK-001 first\n", encoding="utf-8")
+            orchestrator = BacklogOrchestrator(
+                workdir=tmpdir,
+                backlog_path=backlog_path,
+                args=_args("BACKLOG.md"),
+                task_path=Path(tmpdir) / ".cursor" / "orc-task.json",
+                run_root=Path(tmpdir) / ".orc" / "run",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+                prompt_template="{task_id}",
+                continue_template="{task_id}",
+                commit_template="{task_id}",
+                engine=_FailingEngine(reason="missing_conversation_id"),
+                sleep_fn=lambda _seconds: None,
+            )
+
+            rc = orchestrator.run()
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(orchestrator.last_failure_reason, "missing_conversation_id")
+        ui_error.assert_called_once()
+        self.assertIn("missing_conversation_id", ui_error.call_args.args[0])
 
 
 if __name__ == "__main__":

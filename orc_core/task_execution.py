@@ -53,6 +53,7 @@ class TaskExecutionRequest:
     commit_ttl: float
     progress_done: int
     progress_total: int
+    agent_output_log_path: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ class TaskWorker(Protocol):
         task_id: str,
         progress_done: int,
         progress_total: int,
+        agent_output_log_path: Optional[str] = None,
         resume_id: Optional[str] = None,
         resume_latest: bool = False,
         resume_prompt: Optional[str] = None,
@@ -95,6 +97,7 @@ class AgentTaskWorker:
         task_id: str,
         progress_done: int,
         progress_total: int,
+        agent_output_log_path: Optional[str] = None,
         resume_id: Optional[str] = None,
         resume_latest: bool = False,
         resume_prompt: Optional[str] = None,
@@ -109,6 +112,7 @@ class AgentTaskWorker:
             task_id=task_id,
             progress_done=progress_done,
             progress_total=progress_total,
+            agent_output_log_path=agent_output_log_path,
             resume_id=resume_id,
             resume_latest=resume_latest,
             resume_prompt=resume_prompt,
@@ -214,6 +218,7 @@ def _run_commit_phase(
         report_interval=15.0,
         summary_lines=25,
         task_id=f"{task_id}::commit",
+            agent_output_log_path=request.agent_output_log_path,
     )
     try:
         result = wait_for_process_exit(
@@ -349,6 +354,7 @@ class TaskExecutionEngine:
                     task_id=task_id,
                     progress_done=request.progress_done,
                     progress_total=request.progress_total,
+                    agent_output_log_path=request.agent_output_log_path,
                     resume_id=resume_id if resume_existing else None,
                     resume_latest=False,
                     resume_prompt=request.nudge_text if resume_existing else None,

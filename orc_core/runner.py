@@ -20,6 +20,7 @@ def launch_agent_stream_json(
     task_id: str,
     progress_done: int = 0,
     progress_total: int = 1,
+    agent_output_log_path: Optional[str] = None,
     resume_id: Optional[str] = None,
     resume_latest: bool = False,
     resume_prompt: Optional[str] = None,
@@ -35,6 +36,7 @@ def launch_agent_stream_json(
             task_id=task_id,
             progress_done=progress_done,
             progress_total=progress_total,
+            agent_output_log_path=agent_output_log_path,
             resume_id=resume_id,
             resume_latest=resume_latest,
             resume_prompt=resume_prompt,
@@ -53,6 +55,7 @@ async def launch_agent_stream_json_async(
     task_id: str,
     progress_done: int = 0,
     progress_total: int = 1,
+    agent_output_log_path: Optional[str] = None,
     resume_id: Optional[str] = None,
     resume_latest: bool = False,
     resume_prompt: Optional[str] = None,
@@ -68,6 +71,7 @@ async def launch_agent_stream_json_async(
             "model": model,
             "progress_done": progress_done,
             "progress_total": progress_total,
+            "agent_output_log_path": agent_output_log_path,
             "resume_id": resume_id,
             "resume_latest": resume_latest,
             "resume_prompt": resume_prompt,
@@ -114,6 +118,7 @@ async def launch_agent_stream_json_async(
         summary_lines=summary_lines,
         task_id=task_id,
         workdir=workdir,
+        agent_output_log_path=agent_output_log_path,
     )
     monitor.set_progress(progress_done, progress_total)
     debug_log(

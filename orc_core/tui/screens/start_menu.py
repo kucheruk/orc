@@ -37,9 +37,11 @@ class StartMenuScreen(Screen[StartMenuChoice]):
                     with RadioSet(id="mode_set"):
                         for idx, (_value, title) in enumerate(self._mode_values):
                             yield RadioButton(title, value=idx == 0, id=f"mode_{idx}")
-                    yield Label("Task ID (для single, опционально)")
+                    yield Label("Task ID (для single)")
+                    yield Label(self._available_task_ids_hint(), id="task_ids_hint", classes="help")
                     default_task = self._backlog_status.open_tasks[0].task_id if self._backlog_status.open_tasks else ""
                     yield Input(value=default_task, id="task_id")
+                    yield Label("Нажмите Enter в поле Task ID или Prompt, чтобы запустить.", id="submit_hint", classes="help")
                     yield Label("Prompt (для prompt)")
                     yield Input(placeholder="Введите prompt", id="prompt_text")
                     yield Label("Debug logging")
@@ -66,6 +68,17 @@ class StartMenuScreen(Screen[StartMenuChoice]):
             f"Backlog: {self._backlog_status.path.name} | "
             f"Backlog-пункты disabled: {self._backlog_status.disabled_reason}"
         )
+
+    def _available_task_ids_hint(self) -> str:
+        open_tasks = self._backlog_status.open_tasks
+        if not open_tasks:
+            return "Нет открытых задач. Для режимов backlog/single нужен backlog с незавершёнными задачами."
+        preview_limit = 8
+        task_ids = ", ".join(task.task_id for task in open_tasks[:preview_limit])
+        remaining = len(open_tasks) - preview_limit
+        if remaining > 0:
+            return f"Открытые ID: {task_ids} (+{remaining})"
+        return f"Открытые ID: {task_ids}"
 
     def _selected_mode(self) -> str:
         selected = self.query_one("#mode_set", RadioSet).pressed_index

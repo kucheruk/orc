@@ -47,6 +47,7 @@ class BacklogOrchestrator:
         self.engine = engine
         self.task_source_factory = task_source_factory
         self.sleep_fn = sleep_fn
+        self.last_failure_reason = ""
 
     def run(self) -> int:
         mode = str(getattr(self.args, "mode", "backlog") or "backlog").strip().lower()
@@ -144,10 +145,14 @@ class BacklogOrchestrator:
                     commit_ttl=self.args.commit_ttl,
                     progress_done=done,
                     progress_total=total,
+                    agent_output_log_path=str(getattr(self.args, "agent_output_log_path", "") or "").strip() or None,
                 )
             )
 
             if result.status == "failed":
+                self.last_failure_reason = result.reason or "execution_failed"
+                log_event(self.log_path, "ERROR", "task execution failed", reason=self.last_failure_reason, task_id=open_task.task_id)
+                ui_error(f"❌ Задача завершилась с ошибкой: {self.last_failure_reason}")
                 return 1
             if result.delay_seconds > 0:
                 self.sleep_fn(result.delay_seconds)

@@ -17,6 +17,16 @@
     height: auto;
 }
 
+#task_ids_hint {
+    margin-top: 1;
+    height: auto;
+}
+
+#submit_hint {
+    margin-top: 1;
+    height: auto;
+}
+
 #error_text {
     height: 1;
     margin-top: 1;

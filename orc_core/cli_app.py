@@ -3,6 +3,9 @@
 
 import argparse
 import asyncio
+import sys
+import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -39,6 +42,11 @@ TASK_FILE_NAME = "orc-task.json"
 LOCK_FILE_NAME = "orc.lock"
 
 
+def _build_agent_output_log_path() -> Path:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return Path(tempfile.gettempdir()) / f"orc-agent-output-{stamp}.log"
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backlog", default="BACKLOG.md")
@@ -73,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--task-id", default="", help="Run exactly one backlog task by ID")
     ap.add_argument("--prompt", default="", help="Run one arbitrary prompt without requiring backlog")
     ap.add_argument("--debug", action="store_true", help="Enable debug logging to /tmp/orc")
+    ap.add_argument(
+        "--agent-output-log",
+        action="store_true",
+        help="Write complete agent stdout/stderr to /tmp/orc-agent-output-<timestamp>.log",
+    )
     return ap
 
 
@@ -147,6 +160,18 @@ def _validate_inputs(args, backlog_path: Path) -> bool:
     return True
 
 
+def _failure_message(reason: str) -> str:
+    normalized = str(reason or "").strip()
+    if normalized == "missing_conversation_id":
+        return (
+            "Resume state повреждён: в `.cursor/orc-task.json` отсутствует `conversation_id`."
+            " Запустите с `--drop` для чистого старта или удалите файл состояния вручную."
+        )
+    if normalized:
+        return f"ORC завершился с ошибкой: {normalized}"
+    return "ORC завершился с ошибкой без детали причины. Проверьте `.orc/orc.log`."
+
+
 def main() -> int:
     args = build_parser().parse_args()
     workdir = str(Path(args.workspace).resolve())
@@ -184,6 +209,12 @@ def main() -> int:
     if debug_log_path is not None:
         ui_info(f"[orc] debug log: {debug_log_path}")
         log_event(log_path, "INFO", "debug logging enabled", debug_log_path=str(debug_log_path))
+    args.agent_output_log_path = ""
+    if bool(args.agent_output_log):
+        transcript_path = _build_agent_output_log_path()
+        args.agent_output_log_path = str(transcript_path)
+        ui_info(f"[orc] agent output log: {transcript_path}")
+        log_event(log_path, "INFO", "agent output logging enabled", agent_output_log_path=str(transcript_path))
     backlog_path, temp_backlog_path = _resolve_backlog(args, workdir, log_path)
     if not _validate_inputs(args, backlog_path):
         return 2
@@ -216,8 +247,15 @@ def main() -> int:
             engine=engine,
         )
         app = OrcApp(lambda: asyncio.run(orchestrator.run_async()))
-        result = app.run()
-        return int(result if result is not None else 1)
+        result = app.run(mouse=False)
+        exit_code = int(result if result is not None else 1)
+        if app.last_error:
+            log_event(log_path, "ERROR", "orchestrator crashed", traceback=app.last_error)
+            ui_error("❌ ORC завершился из-за необработанной ошибки. Traceback:")
+            print(app.last_error, file=sys.stderr, flush=True)
+        elif exit_code != 0:
+            ui_error(f"❌ {_failure_message(orchestrator.last_failure_reason)}")
+        return exit_code
     except KeyboardInterrupt:
         log_event(log_path, "WARN", "keyboard interrupt")
         ui_warn("⏹️ Прервано. Состояние сохранено.")

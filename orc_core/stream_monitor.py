@@ -8,7 +8,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, TextIO
 
 from .logging import log_event
 from .stream_monitor_state import StreamMonitorState
@@ -33,6 +33,7 @@ class StreamJsonMonitor:
         summary_lines: int,
         task_id: str,
         workdir: str,
+        agent_output_log_path: Optional[str] = None,
     ) -> None:
         self._agent_cmd = list(agent_cmd)
         self.proc = _ProcessProxy()
@@ -49,6 +50,14 @@ class StreamJsonMonitor:
         self.ui_followup_prompt = False
         self.result_status: Optional[str] = None
         self.result_seen_at: Optional[float] = None
+        self._agent_output_log_path = str(agent_output_log_path or "").strip() or None
+        self._agent_output_file: Optional[TextIO] = None
+        if self._agent_output_log_path:
+            path = Path(self._agent_output_log_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._agent_output_file = path.open("a", encoding="utf-8")
+            self._agent_output_file.write(f"# stream start task_id={self.task_id}\n")
+            self._agent_output_file.flush()
 
         self._state = StreamMonitorState(task_id=task_id, started_at=self.started_at, summary_lines=summary_lines)
         self.metrics = self._state.metrics
@@ -129,12 +138,22 @@ class StreamJsonMonitor:
         self.proc.returncode = self._proc.returncode
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
+    def _append_agent_output(self, stream_name: str, payload: str) -> None:
+        if self._agent_output_file is None:
+            return
+        self._agent_output_file.write(f"[{stream_name}] {payload}")
+        if not payload.endswith("\n"):
+            self._agent_output_file.write("\n")
+        self._agent_output_file.flush()
+
     async def _read_stdout(self, stream: asyncio.StreamReader) -> None:
         while not self._stop.is_set():
             line = await stream.readline()
             if not line:
                 return
-            raw = line.decode("utf-8", errors="replace").strip()
+            decoded = line.decode("utf-8", errors="replace")
+            self._append_agent_output("stdout", decoded)
+            raw = decoded.strip()
             if not raw:
                 continue
             try:
@@ -150,7 +169,9 @@ class StreamJsonMonitor:
             line = await stream.readline()
             if not line:
                 return
-            raw = line.decode("utf-8", errors="replace").strip()
+            decoded = line.decode("utf-8", errors="replace")
+            self._append_agent_output("stderr", decoded)
+            raw = decoded.strip()
             if not raw:
                 continue
             self.last_stderr_line = raw[:500]
@@ -241,6 +262,9 @@ class StreamJsonMonitor:
             self._loop.call_soon_threadsafe(lambda: None)
         if self._runner_thread.is_alive():
             self._runner_thread.join(timeout=1.0)
+        if self._agent_output_file is not None:
+            self._agent_output_file.close()
+            self._agent_output_file = None
 
     def _publish_snapshot(self) -> None:
         publish_snapshot(self._state.build_snapshot())
