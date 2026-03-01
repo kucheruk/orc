@@ -67,6 +67,17 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         self.assertIn("Собираю", state.reasoning_lines_for_panel()[-1])
 
+    def test_assistant_update_preserves_whitespace_only_tokens(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": "Понял"}]}})
+        state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": " "}]}})
+        state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": "задачу"}]}})
+        state.record_event({"type": "assistant", "subtype": "completed"})
+
+        self.assertIn("Понял задачу", state.reasoning_lines_for_panel()[-1])
+
     def test_assistant_update_delta_is_hidden_from_event_feed(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 

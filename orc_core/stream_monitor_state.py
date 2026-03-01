@@ -152,9 +152,42 @@ class StreamMonitorState:
 
     def _extract_reasoning_fragment(self, event: Dict[str, object], fallback_text: str) -> str:
         value = event.get("text")
-        if isinstance(value, str) and value:
+        if isinstance(value, str):
             return value
+        message = event.get("message")
+        if isinstance(message, dict):
+            for key in ("content", "text", "delta", "value"):
+                extracted = self._extract_reasoning_text_fragment(message.get(key))
+                if extracted is not None:
+                    return extracted
+        for key in ("content", "delta", "value"):
+            extracted = self._extract_reasoning_text_fragment(event.get(key))
+            if extracted is not None:
+                return extracted
         return fallback_text
+
+    def _extract_reasoning_text_fragment(self, value: object) -> Optional[str]:
+        parts: list[str] = []
+        has_text = False
+
+        def visit(inner: object) -> None:
+            nonlocal has_text
+            if isinstance(inner, str):
+                has_text = True
+                parts.append(inner)
+                return
+            if isinstance(inner, dict):
+                for key in ("text", "content", "delta", "value"):
+                    visit(inner.get(key))
+                return
+            if isinstance(inner, list):
+                for item in inner:
+                    visit(item)
+
+        visit(value)
+        if not has_text:
+            return None
+        return "".join(parts)
 
     def _remember_reasoning_from_stream(
         self,
