@@ -60,7 +60,7 @@ class ExecutionScreen(Screen[None]):
         return f"{mins:02d}:{secs:02d}"
 
     def _activity_markup(self, idle_seconds: float) -> str:
-        if idle_seconds < 2.0:
+        if idle_seconds < 15.0:
             return "[green]Agent activity: active now[/green]"
         if idle_seconds < 60.0:
             return f"[yellow]Agent activity: waiting {self._format_duration(idle_seconds)}[/yellow]"
