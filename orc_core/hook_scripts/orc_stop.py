@@ -40,13 +40,19 @@ def main() -> int:
         lib.log_event(log_path, "ERROR", "stop: bad task file")
         return 0
 
-    conv_id = data.get("conversation_id")
-    if task.get("conversation_id") and conv_id and task["conversation_id"] != conv_id:
+    conv_id = str(data.get("conversation_id") or "").strip()
+    task_conversation_id = str(task.get("conversation_id") or "").strip()
+    if conv_id and not task_conversation_id:
+        task["conversation_id"] = conv_id
+        task_conversation_id = conv_id
+        lib.write_json(task_file, task)
+        lib.log_event(log_path, "INFO", "stop: backfilled conversation_id", conversation_id=conv_id)
+    if task_conversation_id and conv_id and task_conversation_id != conv_id:
         lib.log_event(
             log_path,
             "WARN",
             "stop: conversation_id mismatch (continuing)",
-            task_conversation_id=task.get("conversation_id"),
+            task_conversation_id=task_conversation_id,
             got_conversation_id=conv_id,
         )
 

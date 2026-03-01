@@ -29,13 +29,22 @@ def main() -> int:
         return 0
 
     task = lib.read_json(task_file, {})
-    conv_id = data.get("conversation_id")
-    if conv_id and not task.get("conversation_id"):
+    if not isinstance(task, dict):
+        lib.log_event(log_path, "ERROR", "beforeSubmitPrompt: invalid task payload type", payload_type=type(task).__name__)
+        task = {}
+    conv_id = str(data.get("conversation_id") or "").strip()
+    existing_conv_id = str(task.get("conversation_id") or "").strip()
+    task_changed = False
+    if conv_id and existing_conv_id != conv_id:
         task["conversation_id"] = conv_id
-        lib.write_json(task_file, task)
+        task_changed = True
         lib.log_event(log_path, "INFO", "beforeSubmitPrompt: stored conversation_id", conversation_id=conv_id)
+    elif not conv_id:
+        lib.log_event(log_path, "WARN", "beforeSubmitPrompt: payload conversation_id missing")
     else:
         lib.log_event(log_path, "INFO", "beforeSubmitPrompt: conversation_id unchanged")
+    if task_changed:
+        lib.write_json(task_file, task)
 
     if not task.get("start_notified"):
         backlog_path = task.get("backlog_path")

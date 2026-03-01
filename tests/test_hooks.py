@@ -29,6 +29,40 @@ def _git(args: list[str], cwd: Path) -> None:
 
 
 class HooksStopBehaviorTest(unittest.TestCase):
+    def test_stop_backfills_conversation_id_from_payload_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir_str:
+            tmpdir = Path(tmpdir_str)
+            backlog = tmpdir / "BACKLOG.md"
+            log_path = tmpdir / ".orc" / "orc.log"
+            backlog.write_text("- [ ] TASK-001 test task\n", encoding="utf-8")
+
+            _, stop_path = ensure_repo_hooks(str(tmpdir))
+            write_task_file(
+                str(tmpdir),
+                Task(task_id="TASK-001", text="test task", done=False),
+                backlog,
+                log_path,
+            )
+            task_path = tmpdir / ".cursor" / "orc-task.json"
+
+            payload = {"status": "error", "loop_count": 0, "conversation_id": "conv-123"}
+            env = os.environ.copy()
+            env["ORC_TELEGRAM_DISABLE"] = "1"
+            result = subprocess.run(
+                ["python3", str(stop_path)],
+                cwd=tmpdir,
+                env=env,
+                input=json.dumps(payload),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            task_payload = json.loads(task_path.read_text(encoding="utf-8"))
+            self.assertEqual(task_payload.get("conversation_id"), "conv-123")
+
     def test_stop_does_not_mark_task_done_on_clean_tree_without_recent_commit(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir_str:
             tmpdir = Path(tmpdir_str)

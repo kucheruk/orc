@@ -107,10 +107,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = engine.execute(self._request(tmpdir, max_restarts=2))
+            retry_prompt = worker.launch_kwargs[1]["prompt_path"].read_text(encoding="utf-8")
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 2)
-        retry_prompt = worker.launch_kwargs[1]["prompt_path"].read_text(encoding="utf-8")
         self.assertIn("Ты перестал выдавать результат", retry_prompt)
 
     @patch("orc_core.task_execution.kill_process_tree")

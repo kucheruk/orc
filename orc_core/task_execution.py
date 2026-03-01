@@ -381,7 +381,8 @@ class TaskExecutionEngine:
                 active_task_id = active.get("task_id")
                 active_task_text = active.get("task_text")
                 active_backlog_raw = str(active.get("backlog_path") or "").strip()
-                resume_id = (active.get("conversation_id") or "").strip() or None
+                raw_conversation_id = active.get("conversation_id", None)
+                resume_id = str(raw_conversation_id or "").strip() or None
             except Exception as exc:
                 log_event(self.log_path, "ERROR", "failed to read task file", error=str(exc))
                 ui_warn(
@@ -426,6 +427,16 @@ class TaskExecutionEngine:
                 log_event(self.log_path, "INFO", "resume existing task", task_id=task_id)
                 ui_info(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
                 if not resume_id:
+                    missing_kind = "missing_key" if "conversation_id" not in active else "blank_value"
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "resume state invalid: conversation_id unavailable",
+                        task_id=task_id,
+                        missing_kind=missing_kind,
+                        has_conversation_id_key=("conversation_id" in active),
+                        raw_conversation_id_repr=repr(raw_conversation_id)[:120],
+                    )
                     ui_error(
                         "❌ Resume state поврежден: отсутствует conversation_id в task file. "
                         "Запусти с --drop для намеренного перезапуска без resume."

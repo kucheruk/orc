@@ -343,13 +343,22 @@ def main() -> int:
         return 0
 
     task = lib.read_json(task_file, {})
-    conv_id = data.get("conversation_id")
-    if conv_id and not task.get("conversation_id"):
+    if not isinstance(task, dict):
+        lib.log_event(log_path, "ERROR", "beforeSubmitPrompt: invalid task payload type", payload_type=type(task).__name__)
+        task = {}
+    conv_id = str(data.get("conversation_id") or "").strip()
+    existing_conv_id = str(task.get("conversation_id") or "").strip()
+    task_changed = False
+    if conv_id and existing_conv_id != conv_id:
         task["conversation_id"] = conv_id
-        lib.write_json(task_file, task)
+        task_changed = True
         lib.log_event(log_path, "INFO", "beforeSubmitPrompt: stored conversation_id", conversation_id=conv_id)
+    elif not conv_id:
+        lib.log_event(log_path, "WARN", "beforeSubmitPrompt: payload conversation_id missing")
     else:
         lib.log_event(log_path, "INFO", "beforeSubmitPrompt: conversation_id unchanged")
+    if task_changed:
+        lib.write_json(task_file, task)
 
     if not task.get("start_notified"):
         backlog_path = task.get("backlog_path")
@@ -419,13 +428,19 @@ def main() -> int:
         lib.log_event(log_path, "ERROR", "stop: bad task file")
         return 0
 
-    conv_id = data.get("conversation_id")
-    if task.get("conversation_id") and conv_id and task["conversation_id"] != conv_id:
+    conv_id = str(data.get("conversation_id") or "").strip()
+    task_conversation_id = str(task.get("conversation_id") or "").strip()
+    if conv_id and not task_conversation_id:
+        task["conversation_id"] = conv_id
+        task_conversation_id = conv_id
+        lib.write_json(task_file, task)
+        lib.log_event(log_path, "INFO", "stop: backfilled conversation_id", conversation_id=conv_id)
+    if task_conversation_id and conv_id and task_conversation_id != conv_id:
         lib.log_event(
             log_path,
             "WARN",
             "stop: conversation_id mismatch (continuing)",
-            task_conversation_id=task.get("conversation_id"),
+            task_conversation_id=task_conversation_id,
             got_conversation_id=conv_id,
         )
 
