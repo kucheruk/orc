@@ -368,6 +368,47 @@ class TaskExecutionEngine:
         resume_existing = request.task_path.exists()
         resume_id: Optional[str] = None
 
+        def _finalize_completed(current_task_id: str, current_task_text: str, current_tag: str, monitor) -> TaskExecutionResult:
+            log_event(self.log_path, "INFO", "task completed", task_id=current_task_id)
+            raw_summary_text = monitor.get_summary_text()
+            raw_lines = raw_summary_text.splitlines() if raw_summary_text else []
+            cleaned_lines = clean_summary_lines(raw_lines)
+            summary_text = "\n".join(cleaned_lines[-request.summary_lines :])
+            tokens = monitor.metrics.tokens_total if monitor.metrics.tokens_total is not None else "-"
+            files_edited = monitor.metrics.files_edited if monitor.metrics.files_edited is not None else "-"
+            ui_info(
+                f"[orc] completed stats tokens={tokens} lines={monitor.metrics.total_lines} "
+                f"commands={monitor.metrics.command_count} files_edited={files_edited}"
+            )
+            debug_log(
+                "H8",
+                "orc_core/task_execution.py:execute:summary",
+                "summary prepared",
+                {
+                    "summary_len": len(summary_text),
+                    "summary_lines": summary_text.count("\n") + 1 if summary_text else 0,
+                },
+            )
+            if not summary_text.strip():
+                log_event(self.log_path, "WARN", "telegram summary empty", task_id=current_task_id)
+            prompt_vars = SafeDict(
+                task_text=current_task_text,
+                task_id=current_task_id,
+                backlog=request.backlog_arg,
+                workspace=request.workdir,
+            )
+            if request.commit_phase and not _run_commit_phase(
+                self.worker,
+                request,
+                prompt_vars,
+                current_task_id,
+                current_tag,
+                self.log_path,
+            ):
+                ui_error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
+                return TaskExecutionResult(status="failed", reason="commit_phase_failed")
+            return TaskExecutionResult(status="completed")
+
         debug_log(
             "H2",
             "orc_core/task_execution.py:execute:task_state",
@@ -517,36 +558,37 @@ class TaskExecutionEngine:
             )
 
             if result == "completed":
-                log_event(self.log_path, "INFO", "task completed", task_id=task_id)
-                raw_summary_text = active_monitor.get_summary_text()
-                raw_lines = raw_summary_text.splitlines() if raw_summary_text else []
-                cleaned_lines = clean_summary_lines(raw_lines)
-                summary_text = "\n".join(cleaned_lines[-request.summary_lines :])
-                tokens = active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-"
-                files_edited = active_monitor.metrics.files_edited if active_monitor.metrics.files_edited is not None else "-"
-                ui_info(
-                    f"[orc] completed stats tokens={tokens} lines={active_monitor.metrics.total_lines} "
-                    f"commands={active_monitor.metrics.command_count} files_edited={files_edited}"
-                )
-                debug_log(
-                    "H8",
-                    "orc_core/task_execution.py:execute:summary",
-                    "summary prepared",
-                    {
-                        "summary_len": len(summary_text),
-                        "summary_lines": summary_text.count("\n") + 1 if summary_text else 0,
-                    },
-                )
-                if not summary_text.strip():
-                    log_event(self.log_path, "WARN", "telegram summary empty", task_id=task_id)
-                if request.commit_phase and not _run_commit_phase(self.worker, request, prompt_vars, task_id, tag, self.log_path):
-                    ui_error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
-                    return TaskExecutionResult(status="failed", reason="commit_phase_failed")
-                return TaskExecutionResult(status="completed")
+                return _finalize_completed(task_id, task_text, tag, active_monitor)
             if result == "waiting_for_input":
                 log_event(self.log_path, "INFO", "agent waiting for follow-up input", task_id=task_id)
                 delay = max(request.nudge_cooldown, request.poll, 1.0)
                 return TaskExecutionResult(status="continue", reason="waiting_for_input", delay_seconds=delay)
+            try:
+                from .task_source import MarkdownTaskSource
+
+                if MarkdownTaskSource(request.backlog_path).is_task_done(task_id):
+                    log_event(
+                        self.log_path,
+                        "WARN",
+                        "task marked done after non-completed monitor result; treating as completed",
+                        task_id=task_id,
+                        monitor_result=result,
+                    )
+                    if request.task_path.exists():
+                        try:
+                            request.task_path.unlink()
+                        except Exception as exc:
+                            log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
+                    return _finalize_completed(task_id, task_text, tag, active_monitor)
+            except Exception as exc:
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "failed to inspect backlog completion after non-completed monitor result",
+                    task_id=task_id,
+                    monitor_result=result,
+                    error=str(exc),
+                )
 
             restart_count += 1
             if restart_count > request.max_restarts:

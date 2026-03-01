@@ -117,6 +117,69 @@ class TaskExecutionEngineTest(unittest.TestCase):
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
+    def test_done_task_on_stall_finishes_without_restart(self, wait_for_completion, *_mocks) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir, max_restarts=2)
+
+            def _mark_done_then_stall(*_args, **_kwargs):
+                request.backlog_path.write_text("- [x] TASK-001 test task\n", encoding="utf-8")
+                return "stalled"
+
+            wait_for_completion.side_effect = _mark_done_then_stall
+            request.task_path.parent.mkdir(parents=True, exist_ok=True)
+            request.task_path.write_text(
+                '{"task_id":"TASK-001","task_text":"test task","backlog_path":"%s","conversation_id":"conv-1"}'
+                % str(request.backlog_path),
+                encoding="utf-8",
+            )
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 1)
+
+    @patch("orc_core.task_execution._run_commit_phase", return_value=True)
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_done_task_on_stall_triggers_commit_phase(
+        self,
+        wait_for_completion,
+        _write_task_file,
+        _update_task_restart_count,
+        _kill_process_tree,
+        run_commit_phase,
+    ) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir, max_restarts=2, commit_phase=True)
+
+            def _mark_done_then_stall(*_args, **_kwargs):
+                request.backlog_path.write_text("- [x] TASK-001 test task\n", encoding="utf-8")
+                return "stalled"
+
+            wait_for_completion.side_effect = _mark_done_then_stall
+            request.task_path.parent.mkdir(parents=True, exist_ok=True)
+            request.task_path.write_text(
+                '{"task_id":"TASK-001","task_text":"test task","backlog_path":"%s","conversation_id":"conv-1"}'
+                % str(request.backlog_path),
+                encoding="utf-8",
+            )
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 1)
+        run_commit_phase.assert_called_once()
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
     def test_restart_loop_fails_after_max_restarts(self, wait_for_completion, *_mocks) -> None:
         wait_for_completion.side_effect = ["stalled", "stalled"]
         worker = _FakeWorker()
