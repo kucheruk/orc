@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -25,7 +26,7 @@ def _git(args: list[str], cwd: Path) -> None:
 
 
 class HooksStopBehaviorTest(unittest.TestCase):
-    def test_stop_marks_task_done_without_forced_retry_on_clean_tree(self) -> None:
+    def test_stop_does_not_mark_task_done_on_clean_tree_without_recent_commit(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir_str:
             tmpdir = Path(tmpdir_str)
             backlog = tmpdir / "BACKLOG.md"
@@ -47,11 +48,18 @@ class HooksStopBehaviorTest(unittest.TestCase):
                 backlog,
                 log_path,
             )
+            task_path = tmpdir / ".cursor" / "orc-task.json"
+            task_payload = json.loads(task_path.read_text(encoding="utf-8"))
+            task_payload["created_at"] = "2999-01-01T00:00:00Z"
+            task_path.write_text(json.dumps(task_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
             payload = {"status": "completed", "loop_count": 0, "conversation_id": ""}
+            env = os.environ.copy()
+            env["ORC_TELEGRAM_DISABLE"] = "1"
             result = subprocess.run(
                 ["python3", str(stop_path)],
                 cwd=tmpdir,
+                env=env,
                 input=json.dumps(payload),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -59,8 +67,8 @@ class HooksStopBehaviorTest(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertTrue(MarkdownTaskSource(backlog).is_task_done("TASK-001"))
-            self.assertFalse((tmpdir / ".cursor" / "orc-task.json").exists())
+            self.assertFalse(MarkdownTaskSource(backlog).is_task_done("TASK-001"))
+            self.assertTrue(task_path.exists())
 
 
 if __name__ == "__main__":

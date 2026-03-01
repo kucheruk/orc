@@ -27,7 +27,7 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -89,9 +89,21 @@ def git_has_changes(repo_root: Path, log_path: Optional[Path] = None) -> bool:
 def git_has_recent_commit(repo_root: Path, since_iso: str, log_path: Optional[Path] = None) -> bool:
     if not since_iso:
         return False
+    normalized = str(since_iso).strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        since_dt = datetime.fromisoformat(normalized)
+    except Exception as exc:
+        if log_path:
+            log_event(log_path, "ERROR", "invalid created_at for recent commit check", value=since_iso, error=str(exc))
+        return False
+    local_tz = datetime.now().astimezone().tzinfo or timezone.utc
+    if since_dt.tzinfo is None:
+        since_dt = since_dt.replace(tzinfo=local_tz)
     try:
         result = subprocess.run(
-            ["git", "log", "--since", since_iso, "-n", "1", "--pretty=oneline"],
+            ["git", "log", "-n", "1", "--pretty=%ct"],
             cwd=repo_root,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -112,7 +124,16 @@ def git_has_recent_commit(repo_root: Path, since_iso: str, log_path: Optional[Pa
                 stderr=result.stderr[:500],
             )
         return False
-    return bool(result.stdout.strip())
+    raw_ts = str(result.stdout or "").strip()
+    if not raw_ts:
+        return False
+    try:
+        commit_ts = int(raw_ts)
+    except Exception as exc:
+        if log_path:
+            log_event(log_path, "ERROR", "git log timestamp parse failed", raw=raw_ts[:120], error=str(exc))
+        return False
+    return commit_ts >= int(since_dt.timestamp())
 
 def is_task_marked(path: Path, task_id: str) -> bool:
     return MarkdownTaskSource(path).is_task_done(task_id)
@@ -157,6 +178,10 @@ def _truncate_message(message: str, max_len: int = 3800) -> tuple[str, bool]:
     return message[:cutoff] + suffix, True
 
 def send_telegram_message(message: str, log_path: Path) -> None:
+    disabled = os.environ.get("ORC_TELEGRAM_DISABLE", "").strip().lower()
+    if disabled in {"1", "true", "yes", "on"}:
+        log_event(log_path, "INFO", "telegram send disabled by env")
+        return
     token, chat_id = _resolve_telegram_credentials(log_path)
     if not token or not chat_id:
         log_event(log_path, "ERROR", "telegram credentials missing")
@@ -414,6 +439,7 @@ def main() -> int:
             lib.log_event(log_path, "INFO", "stop: recent commit detected; proceeding", task_id=task_id)
         else:
             lib.log_event(log_path, "WARN", "stop: completed without new commit or local changes", task_id=task_id)
+            return 0
 
     if lib.mark_task_done(Path(backlog_path), task_id):
         lib.log_event(log_path, "INFO", "stop: marked task", task_id=task_id)

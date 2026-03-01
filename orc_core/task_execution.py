@@ -218,7 +218,7 @@ def _run_commit_phase(
         report_interval=15.0,
         summary_lines=25,
         task_id=f"{task_id}::commit",
-            agent_output_log_path=request.agent_output_log_path,
+        agent_output_log_path=request.agent_output_log_path,
     )
     try:
         result = wait_for_process_exit(

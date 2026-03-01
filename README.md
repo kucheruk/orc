@@ -52,12 +52,18 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
      ```
    - Каждый task ID должен быть уникальным (заглавные буквы, цифры, дефисы, подчёркивания)
 
-5. **Проверить Cursor CLI:**
+5. **Отключить Telegram для тестов/локальной отладки (опционально):**
+   ```bash
+   export ORC_TELEGRAM_DISABLE=1
+   ```
+   При этом hook-скрипты не отправляют сообщения в Telegram.
+
+6. **Проверить Cursor CLI:**
    ```bash
    agent --version
    ```
 
-6. **Запустить оркестратор:**
+7. **Запустить оркестратор:**
    ```bash
    # можно запускать из любой директории
    uv run python /path/to/orc/orc.py
@@ -144,6 +150,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 3. Проверьте, что строка в `BACKLOG.md` содержит тот же `task_id` в формате `- [ ]`.
 4. Убедитесь, что `.cursor/hooks.json` ссылается на repo‑hooks.
 5. Для расширенной диагностики (включая debug-логи в `/tmp/orc`) используйте [docs/diagnostics-runbook.md](docs/diagnostics-runbook.md).
+
+Для безопасного прогона хуков и unit-тестов без реальных уведомлений используйте
+`ORC_TELEGRAM_DISABLE=1`.
 
 ## Использование
 
