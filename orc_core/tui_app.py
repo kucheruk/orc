@@ -19,6 +19,7 @@ from .tui.screens.start_menu import StartMenuScreen
 
 class _StartMenuApp(App[Optional[StartMenuChoice]]):
     CSS_PATH = "tui/orc.tcss"
+    TITLE = "ORC"
     BINDINGS = [("escape", "request_quit", "Quit"), ("t", "toggle_dark", "Theme")]
 
     def __init__(
@@ -61,6 +62,7 @@ class _StartMenuApp(App[Optional[StartMenuChoice]]):
 
 class OrcApp(App[int]):
     CSS_PATH = "tui/orc.tcss"
+    TITLE = "ORC"
     BINDINGS = [("escape", "request_quit", "Stop ORC"), ("t", "toggle_dark", "Theme")]
 
     def __init__(self, run_orchestrator: Callable[[Callable[[MonitorSnapshot], None]], int]) -> None:
