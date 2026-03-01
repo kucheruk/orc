@@ -7,6 +7,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import Button, Label, Switch, TextArea
 
 from ...role_config import ALL_ROLE_IDS, RoleProfileRegistry
@@ -43,7 +44,13 @@ class PromptEditorModal(ModalScreen[Optional[str]]):
 
 
 class RoleSettingsModal(ModalScreen[bool]):
-    BINDINGS = [("escape", "cancel", "Close")]
+    BINDINGS = [
+        ("tab", "focus_next", "Next"),
+        ("shift+tab", "focus_previous", "Previous"),
+        ("down", "focus_next", "Next"),
+        ("up", "focus_previous", "Previous"),
+        ("escape", "cancel", "Close"),
+    ]
 
     def __init__(self, workdir: str, models: list[str], registry: Optional[RoleProfileRegistry] = None) -> None:
         super().__init__()
@@ -75,6 +82,35 @@ class RoleSettingsModal(ModalScreen[bool]):
     @on(Button.Pressed, "#close_roles")
     def _on_close(self) -> None:
         self.dismiss(True)
+
+    def _focusable_controls(self) -> list[Widget]:
+        focusable: list[Widget] = []
+        for control in self.query("Switch, Button").results(Widget):
+            if not control.can_focus:
+                continue
+            if getattr(control, "disabled", False):
+                continue
+            focusable.append(control)
+        return focusable
+
+    def _cycle_focus(self, forward: bool) -> None:
+        controls = self._focusable_controls()
+        if not controls:
+            return
+        focused = self.app.focused
+        if focused not in controls:
+            target = controls[0] if forward else controls[-1]
+            self.set_focus(target)
+            return
+        index = controls.index(focused)
+        target = controls[(index + 1) % len(controls)] if forward else controls[(index - 1) % len(controls)]
+        self.set_focus(target)
+
+    def action_focus_next(self) -> None:
+        self._cycle_focus(forward=True)
+
+    def action_focus_previous(self) -> None:
+        self._cycle_focus(forward=False)
 
     @on(Button.Pressed)
     def _on_button_pressed(self, event: Button.Pressed) -> None:
