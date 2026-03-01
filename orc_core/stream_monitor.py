@@ -100,10 +100,26 @@ class StreamJsonMonitor:
             status = subtype or str(event.get("status") or "")
             self.result_status = status.lower() if status else "success"
             self.result_seen_at = time.time()
-        if "add a follow-up" in raw.lower():
+        if self._is_followup_prompt_event(event_type, subtype, raw):
             self.ui_followup_prompt = True
         log_event(self.log_path, "INFO", "stream_json_event", event_type=event_type, subtype=subtype, size=len(raw))
         self._publish_snapshot()
+
+    def _is_followup_prompt_event(self, event_type: str, subtype: str, raw: str) -> bool:
+        if event_type != "result":
+            return False
+        status = (subtype or "").strip().lower()
+        if status not in {"error", "failed", "failure"}:
+            return False
+        normalized = raw.lower()
+        markers = (
+            "add a follow-up",
+            "follow-up",
+            "follow up",
+            "need your input",
+            "waiting for your input",
+        )
+        return any(marker in normalized for marker in markers)
 
     def _run_event_loop(self) -> None:
         self._loop = asyncio.new_event_loop()
@@ -156,6 +172,7 @@ class StreamJsonMonitor:
             raw = decoded.strip()
             if not raw:
                 continue
+            self.last_output_time = time.time()
             try:
                 event = json.loads(raw)
             except Exception as exc:
@@ -174,6 +191,7 @@ class StreamJsonMonitor:
             raw = decoded.strip()
             if not raw:
                 continue
+            self.last_output_time = time.time()
             self.last_stderr_line = raw[:500]
             self.stderr_count += 1
             log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)

@@ -9,6 +9,7 @@ from typing import Callable, Optional, Tuple
 from .logging import debug_log, log_event
 from .notify import send_telegram_message
 
+PROCESS_EXIT_GRACE_SECONDS = 3.0
 
 def wait_for_completion(
     task_path: Path,
@@ -91,6 +92,13 @@ def wait_for_completion(
             returncode = int(monitor.proc.returncode or 0)
             if returncode == 0 and not task_path.exists():
                 return "completed"
+            if returncode == 0 and task_path.exists():
+                grace_deadline = time.time() + PROCESS_EXIT_GRACE_SECONDS
+                while time.time() < grace_deadline:
+                    if not task_path.exists():
+                        log_event(log_path, "INFO", "task file removed during exit grace window")
+                        return "completed"
+                    time.sleep(max(min(poll, 0.2), 0.05))
             log_event(log_path, "ERROR", "agent process exited while task still active", returncode=monitor.proc.returncode)
             debug_log(
                 "H4",
@@ -104,6 +112,9 @@ def wait_for_completion(
                 },
             )
             return "process_exited"
+        if getattr(monitor, "ui_followup_prompt", False):
+            log_event(log_path, "WARN", "follow-up input requested by agent", task_id=task_id)
+            return "waiting_for_input"
         if time.time() - monitor.last_output_time > stall_timeout:
             log_event(log_path, "ERROR", "stall detected", stall_seconds=stall_timeout)
             debug_log(
@@ -164,6 +175,7 @@ def wait_for_process_exit(
         monitor.maybe_report()
         if stop_on_followup_prompt and getattr(monitor, "ui_followup_prompt", False):
             log_event(log_path, "WARN", "follow-up prompt visible during phase", label=label)
+            return "waiting_for_input"
         if monitor.proc.poll() is not None:
             log_event(
                 log_path,

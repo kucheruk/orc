@@ -68,7 +68,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             model="gpt-5.2-codex",
             commit_model="gpt-5.2-codex",
             prompt_template="{task_id} {task_text}",
-            continue_template="continue {task_id}",
+            continue_template="continue {task_id} :: {reason}",
             commit_template="commit {task_id}",
             commit_phase=commit_phase,
             poll=0.01,
@@ -101,6 +101,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 2)
+        retry_prompt = worker.launch_kwargs[1]["prompt_path"].read_text(encoding="utf-8")
+        self.assertIn("Ты перестал выдавать результат", retry_prompt)
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
@@ -155,6 +157,80 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.reason, "missing_conversation_id")
         self.assertEqual(worker.launch_calls, 0)
         write_task_file.assert_not_called()
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    @patch("orc_core.task_execution.write_task_file")
+    def test_existing_task_file_with_other_backlog_starts_new_task(
+        self,
+        write_task_file,
+        *_mocks,
+    ) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            request.task_path.parent.mkdir(parents=True, exist_ok=True)
+            other_backlog = Path(tmpdir) / "OTHER_BACKLOG.md"
+            other_backlog.write_text("- [ ] TASK-999 old\n", encoding="utf-8")
+            request.task_path.write_text(
+                '{"task_id":"TASK-999","task_text":"old task","backlog_path":"%s","conversation_id":"conv-1"}'
+                % str(other_backlog),
+                encoding="utf-8",
+            )
+
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 1)
+        launch_kwargs = worker.launch_kwargs[0]
+        self.assertIsNone(launch_kwargs["resume_id"])
+        self.assertIsNone(launch_kwargs["resume_prompt"])
+        write_task_file.assert_called_once()
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_resume_flow_uses_reasoned_resume_prompt_on_restart(self, wait_for_completion, *_mocks) -> None:
+        wait_for_completion.side_effect = ["ttl_exceeded", "completed"]
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir, max_restarts=2)
+            request.task_path.parent.mkdir(parents=True, exist_ok=True)
+            request.task_path.write_text(
+                '{"task_id":"TASK-001","task_text":"test task","backlog_path":"%s","conversation_id":"conv-1"}'
+                % str(request.backlog_path),
+                encoding="utf-8",
+            )
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 2)
+        self.assertEqual(worker.launch_kwargs[0]["resume_prompt"], "continue")
+        self.assertIn("Ты превысил лимит времени", worker.launch_kwargs[1]["resume_prompt"])
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="waiting_for_input")
+    def test_waiting_for_input_returns_continue_without_restart(self, *_mocks) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            request = TaskExecutionRequest(**{**request.__dict__, "nudge_cooldown": 7.0})
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "continue")
+        self.assertEqual(result.reason, "waiting_for_input")
+        self.assertEqual(result.delay_seconds, 7.0)
+        self.assertEqual(worker.launch_calls, 1)
 
 
 if __name__ == "__main__":

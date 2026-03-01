@@ -5,6 +5,7 @@ import json
 import asyncio
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -117,6 +118,18 @@ class AgentTaskWorker:
             resume_latest=resume_latest,
             resume_prompt=resume_prompt,
         )
+
+
+RESTART_REASON_TEXT = {
+    "stalled": "Ты перестал выдавать результат (завис). Переоцени свой подход.",
+    "ttl_exceeded": "Ты превысил лимит времени. Сделай коммит текущего прогресса или выбери более простой путь.",
+    "process_exited": "Твой процесс неожиданно завершился (возможно, ошибка синтаксиса в bash).",
+}
+
+
+def _restart_backoff_seconds(restart_count: int) -> float:
+    # Deterministic capped backoff prevents rapid restart storms.
+    return float(min(2 ** max(restart_count - 1, 0), 30))
 
 
 def _write_prompt_file(run_root: Path, prompt: str, tag: str) -> Path:
@@ -290,6 +303,7 @@ class TaskExecutionEngine:
                 active = json.loads(request.task_path.read_text(encoding="utf-8"))
                 active_task_id = active.get("task_id")
                 active_task_text = active.get("task_text")
+                active_backlog_raw = str(active.get("backlog_path") or "").strip()
                 resume_id = (active.get("conversation_id") or "").strip() or None
             except Exception as exc:
                 log_event(self.log_path, "ERROR", "failed to read task file", error=str(exc))
@@ -299,7 +313,25 @@ class TaskExecutionEngine:
                 )
                 return TaskExecutionResult(status="continue", reason="task_file_read_failed", delay_seconds=max(request.poll, 0.2))
 
-            if active_task_id and request.task_path.exists():
+            same_backlog = True
+            if active_backlog_raw:
+                try:
+                    same_backlog = Path(active_backlog_raw).resolve() == request.backlog_path.resolve()
+                except Exception:
+                    same_backlog = active_backlog_raw == str(request.backlog_path)
+
+            if not same_backlog:
+                log_event(
+                    self.log_path,
+                    "WARN",
+                    "resume state ignored: backlog mismatch",
+                    task_backlog=active_backlog_raw,
+                    expected_backlog=str(request.backlog_path),
+                )
+                resume_existing = False
+                resume_id = None
+
+            if resume_existing and active_task_id and request.task_path.exists():
                 from .task_source import MarkdownTaskSource
 
                 if MarkdownTaskSource(request.backlog_path).is_task_done(active_task_id):
@@ -311,23 +343,24 @@ class TaskExecutionEngine:
                         log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
                     return TaskExecutionResult(status="continue", reason="stale_done_task_file")
 
-            task_id = active_task_id or task_id
-            task_text = active_task_text or task_text
-            log_event(self.log_path, "INFO", "resume existing task", task_id=task_id)
-            ui_info(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
-            if not resume_id:
-                ui_error(
-                    "❌ Resume state поврежден: отсутствует conversation_id в task file. "
-                    "Запусти с --drop для намеренного перезапуска без resume."
+            if resume_existing:
+                task_id = active_task_id or task_id
+                task_text = active_task_text or task_text
+                log_event(self.log_path, "INFO", "resume existing task", task_id=task_id)
+                ui_info(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
+                if not resume_id:
+                    ui_error(
+                        "❌ Resume state поврежден: отсутствует conversation_id в task file. "
+                        "Запусти с --drop для намеренного перезапуска без resume."
+                    )
+                    return TaskExecutionResult(status="failed", reason="missing_conversation_id")
+                log_event(
+                    self.log_path,
+                    "INFO",
+                    "resume selection",
+                    conversation_id=resume_id or "",
+                    resume_from_latest=False,
                 )
-                return TaskExecutionResult(status="failed", reason="missing_conversation_id")
-            log_event(
-                self.log_path,
-                "INFO",
-                "resume selection",
-                conversation_id=resume_id or "",
-                resume_from_latest=False,
-            )
 
         if not resume_existing:
             write_task_file(request.workdir, request.task, request.backlog_path, self.log_path, restart_count=0)
@@ -338,6 +371,7 @@ class TaskExecutionEngine:
         safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", task_text)[:60]
         tag = f"{ts}__{safe_name}"
         prompt_path = _write_prompt_file(request.run_root, prompt, tag)
+        resume_prompt_text = request.nudge_text if resume_existing else None
 
         restart_count = 0
         while True:
@@ -357,7 +391,7 @@ class TaskExecutionEngine:
                     agent_output_log_path=request.agent_output_log_path,
                     resume_id=resume_id if resume_existing else None,
                     resume_latest=False,
-                    resume_prompt=request.nudge_text if resume_existing else None,
+                    resume_prompt=resume_prompt_text if resume_existing else None,
                 )
             except FileNotFoundError:
                 ui_error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
@@ -420,6 +454,10 @@ class TaskExecutionEngine:
                     ui_error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
                     return TaskExecutionResult(status="failed", reason="commit_phase_failed")
                 return TaskExecutionResult(status="completed")
+            if result == "waiting_for_input":
+                log_event(self.log_path, "INFO", "agent waiting for follow-up input", task_id=task_id)
+                delay = max(request.nudge_cooldown, request.poll, 1.0)
+                return TaskExecutionResult(status="continue", reason="waiting_for_input", delay_seconds=delay)
 
             restart_count += 1
             if restart_count > request.max_restarts:
@@ -433,8 +471,22 @@ class TaskExecutionEngine:
                 ui_error("❌ Агент не завершил задачу. Проверь логи.")
                 return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")
             log_event(self.log_path, "WARN", "restarting task", task_id=task_id, restart_count=restart_count, reason=result)
-            prompt = request.continue_template.format_map(prompt_vars)
+            reason_text = RESTART_REASON_TEXT.get(result, result)
+            continue_vars = SafeDict(
+                task_text=task_text,
+                task_id=task_id,
+                backlog=request.backlog_arg,
+                workspace=request.workdir,
+                reason=reason_text,
+                restart_count=restart_count,
+                max_restarts=request.max_restarts,
+            )
+            prompt = request.continue_template.format_map(continue_vars)
             prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}__r{restart_count}")
+            resume_prompt_text = prompt
+            delay = _restart_backoff_seconds(restart_count)
+            log_event(self.log_path, "INFO", "restart backoff", task_id=task_id, restart_count=restart_count, delay_seconds=delay)
+            time.sleep(delay)
 
     async def execute_async(self, request: TaskExecutionRequest) -> TaskExecutionResult:
         return await asyncio.to_thread(self.execute, request)

@@ -3,12 +3,13 @@
 
 import tempfile
 import time
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from orc_core.supervisor_lifecycle import wait_for_completion, wait_for_process_exit
+from orc_core.supervisor_lifecycle import PROCESS_EXIT_GRACE_SECONDS, wait_for_completion, wait_for_process_exit
 
 
 class _ExitedProc:
@@ -63,6 +64,62 @@ class SupervisorLifecycleTest(unittest.TestCase):
             )
 
         self.assertEqual(result, "process_exited")
+
+    def test_wait_for_completion_waiting_for_input_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text("{}", encoding="utf-8")
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.ui_followup_prompt = True
+            monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
+
+            result = wait_for_completion(
+                task_path=task_path,
+                monitor=monitor,
+                poll=0.01,
+                stall_timeout=30.0,
+                task_ttl=30.0,
+                log_path=Path(tmpdir) / "orc.log",
+                nudge_after=10,
+                nudge_cooldown=300.0,
+                nudge_text="continue",
+                task_id="REFACT-021",
+                task_text="repro",
+            )
+
+        self.assertEqual(result, "waiting_for_input")
+
+    def test_wait_for_completion_exit_zero_grace_window_allows_task_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text("{}", encoding="utf-8")
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+
+            def _remove_task_file() -> None:
+                time.sleep(0.05)
+                if task_path.exists():
+                    task_path.unlink()
+
+            thread = threading.Thread(target=_remove_task_file)
+            thread.start()
+            started = time.time()
+            result = wait_for_completion(
+                task_path=task_path,
+                monitor=monitor,
+                poll=0.05,
+                stall_timeout=30.0,
+                task_ttl=30.0,
+                log_path=Path(tmpdir) / "orc.log",
+                nudge_after=10,
+                nudge_cooldown=300.0,
+                nudge_text="continue",
+                task_id="REFACT-021",
+                task_text="repro",
+            )
+            thread.join(timeout=1.0)
+
+        self.assertEqual(result, "completed")
+        self.assertLess(time.time() - started, PROCESS_EXIT_GRACE_SECONDS + 1.0)
 
     def test_wait_for_completion_raises_on_confirmed_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
