@@ -2,9 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import unittest
+import tempfile
 from pathlib import Path
 
 from orc_core.backlog_status import BacklogStatus
+from orc_core.role_config import ROLE_CODER, RoleProfileRegistry
 from orc_core.task_source import Task
 from orc_core.tui.screens.start_menu import StartMenuScreen
 
@@ -50,7 +52,7 @@ class StartMenuScreenTaskHintsTest(unittest.TestCase):
 
         self.assertEqual(
             screen._focus_cycle_for_mode("single"),
-            ["mode_set", "task_id", "start_btn", "cancel_btn"],
+            ["mode_set", "task_id", "roles_btn", "start_btn", "cancel_btn"],
         )
 
     def test_focus_cycle_for_prompt_mode(self) -> None:
@@ -59,7 +61,7 @@ class StartMenuScreenTaskHintsTest(unittest.TestCase):
 
         self.assertEqual(
             screen._focus_cycle_for_mode("prompt"),
-            ["mode_set", "prompt_text", "start_btn", "cancel_btn"],
+            ["mode_set", "prompt_text", "roles_btn", "start_btn", "cancel_btn"],
         )
 
     def test_focus_cycle_for_backlog_mode(self) -> None:
@@ -68,7 +70,7 @@ class StartMenuScreenTaskHintsTest(unittest.TestCase):
 
         self.assertEqual(
             screen._focus_cycle_for_mode("backlog"),
-            ["mode_set", "start_btn", "cancel_btn"],
+            ["mode_set", "roles_btn", "start_btn", "cancel_btn"],
         )
 
     def test_selected_model_defaults_to_default_model(self) -> None:
@@ -87,6 +89,20 @@ class StartMenuScreenTaskHintsTest(unittest.TestCase):
         self.assertTrue(screen._is_prompt_input_visible("prompt"))
         self.assertFalse(screen._is_prompt_input_visible("single"))
         self.assertFalse(screen._is_prompt_input_visible("backlog"))
+
+    def test_model_is_synced_from_coder_role_override(self) -> None:
+        status = BacklogStatus(path=Path("BACKLOG.md"), exists=True, tasks=[], open_tasks=[])
+        registry = RoleProfileRegistry()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            registry.update_override(tmpdir, ROLE_CODER, model="sonnet-4.5")
+            screen = StartMenuScreen(
+                status,
+                models=["gpt-5.3-codex", "sonnet-4.5"],
+                default_model="gpt-5.3-codex",
+                workdir=tmpdir,
+                role_registry=registry,
+            )
+        self.assertEqual(screen._selected_model(), "sonnet-4.5")
 
 
 if __name__ == "__main__":

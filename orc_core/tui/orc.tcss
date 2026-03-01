@@ -82,3 +82,49 @@
     border: round $primary;
     background: $background;
 }
+
+#role_settings_modal {
+    width: 120;
+    height: auto;
+    max-height: 38;
+    padding: 1 2;
+    border: round $primary;
+    background: $background;
+}
+
+.role_row {
+    height: auto;
+    margin-top: 1;
+}
+
+.role_title {
+    width: 36;
+}
+
+.role_model {
+    width: 28;
+}
+
+#role_settings_actions {
+    height: auto;
+    margin-top: 1;
+}
+
+#role_prompt_modal {
+    width: 120;
+    height: auto;
+    max-height: 38;
+    padding: 1 2;
+    border: round $primary;
+    background: $background;
+}
+
+#role_prompt_editor {
+    height: 20;
+    margin-top: 1;
+}
+
+#role_prompt_actions {
+    height: auto;
+    margin-top: 1;
+}

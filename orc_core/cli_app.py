@@ -49,6 +49,11 @@ TASK_FILE_NAME = "orc-task.json"
 LOCK_FILE_NAME = "orc.lock"
 
 
+def load_prompt(path: Path) -> str:
+    # Backward-compatible shim for tests and legacy imports.
+    return RoleProfileRegistry().load_prompt(path)
+
+
 def _build_agent_output_log_path() -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return Path(tempfile.gettempdir()) / f"orc-agent-output-{stamp}.log"

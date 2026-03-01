@@ -114,6 +114,21 @@ class CliAppModeSelectionTest(unittest.TestCase):
         self.assertEqual(kwargs["status_line"], "Задача TASK-002 завершена успешно")
 
     @patch("orc_core.cli_app.show_start_menu")
+    def test_menu_receives_explicit_workdir(self, show_start_menu) -> None:
+        args = _args()
+        show_start_menu.return_value = StartMenuChoice(mode="backlog", model="gpt-5.3-codex")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _resolve_mode(
+                args,
+                Path(tmpdir) / "BACKLOG.md",
+                models=["gpt-5.3-codex"],
+                default_model="gpt-5.3-codex",
+                workdir=tmpdir,
+            )
+        _, kwargs = show_start_menu.call_args
+        self.assertEqual(kwargs["workdir"], tmpdir)
+
+    @patch("orc_core.cli_app.show_start_menu")
     def test_resume_mode_choice_maps_to_backlog_mode(self, show_start_menu) -> None:
         args = _args()
         show_start_menu.return_value = StartMenuChoice(mode="resume", task_id="TASK-002", model="gpt-5.3-codex")

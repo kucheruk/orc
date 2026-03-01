@@ -25,6 +25,7 @@ def show_start_menu(
     default_model: str,
     resume_task_id: str = "",
     status_line: str = "",
+    workdir: str = "",
 ) -> StartMenuChoice:
     from .tui_app import run_start_menu
 
@@ -34,6 +35,7 @@ def show_start_menu(
         default_model=default_model,
         resume_task_id=resume_task_id,
         status_line=status_line,
+        workdir=workdir,
     )
     if choice is None:
         raise KeyboardInterrupt

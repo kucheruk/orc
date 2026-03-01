@@ -13,8 +13,10 @@ from .hooks import (
 )
 from .logging import ORC_LOG_NAME, ORC_ROOT, debug_log, log_event, set_log_context
 from .notify import send_telegram_message
+from .model_selector import DEFAULT_MODEL
 from .process import build_process_tree, is_pid_alive, kill_orphan_project_processes, kill_process_tree, acquire_lock, release_lock
 from .process_groups import terminate_process_group
+from .role_config import ROLE_CODER, ROLE_HANDOFF, RoleProfileRegistry
 from .runner import launch_agent_stream_json
 from .task_state import (
     cleanup_stale_task_file as _cleanup_stale_task_file,
@@ -33,18 +35,6 @@ GIT_COMMAND_TIMEOUT_SECONDS = 20.0
 
 TASK_FILE_NAME = "orc-task.json"
 LOCK_FILE_NAME = "orc.lock"
-
-BASE_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_PROMPT_PATH = BASE_DIR / "prompts" / "default.txt"
-CONTINUE_PROMPT_PATH = BASE_DIR / "prompts" / "continue.txt"
-COMMIT_PROMPT_PATH = BASE_DIR / "prompts" / "commit.txt"
-
-
-def load_prompt(path: Path) -> str:
-    if not path.exists():
-        raise FileNotFoundError(f"Prompt file not found: {path}")
-    return path.read_text(encoding="utf-8")
-
 
 class SafeDict(dict):
     def __missing__(self, key: str) -> str:
@@ -380,7 +370,7 @@ def main() -> int:
     ap.add_argument("--backlog", default="BACKLOG.md")
     ap.add_argument("--task", default="", help="Run a one-off task by creating a temporary backlog")
     ap.add_argument("--workspace", default=".")
-    ap.add_argument("--model", default="gpt-5.2-codex")
+    ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--prompt-template", default="", help="Path to a custom prompt template file")
     ap.add_argument("--continue-template", default="", help="Path to a custom continue prompt file")
     ap.add_argument(
@@ -420,6 +410,7 @@ def main() -> int:
         help="Drop active task state (.cursor/orc-task.json) and restart task from scratch (no resume)",
     )
     args = ap.parse_args()
+    role_registry = RoleProfileRegistry()
 
     workdir = str(Path(args.workspace).resolve())
     set_log_context(workdir=workdir)
@@ -454,13 +445,25 @@ def main() -> int:
     acquire_lock(lock_path, orc_log_path)
     try:
         try:
-            template = load_prompt(Path(args.prompt_template)) if args.prompt_template else load_prompt(DEFAULT_PROMPT_PATH)
-            continue_prompt = load_prompt(Path(args.continue_template)) if args.continue_template else load_prompt(CONTINUE_PROMPT_PATH)
+            coder_config = role_registry.resolve_role(
+                workdir,
+                ROLE_CODER,
+                cli_model=str(args.model).strip(),
+                cli_prompt_path=str(args.prompt_template).strip(),
+            )
+            args.model = coder_config.model
+            template = coder_config.prompt
+            continue_prompt = role_registry.resolve_continue_prompt(str(args.continue_template).strip())
             commit_template = ""
             if args.commit_phase:
-                commit_template = (
-                    load_prompt(Path(args.commit_template)) if args.commit_template else load_prompt(COMMIT_PROMPT_PATH)
+                handoff_config = role_registry.resolve_role(
+                    workdir,
+                    ROLE_HANDOFF,
+                    cli_model=str(args.commit_model).strip(),
+                    cli_prompt_path=str(args.commit_template).strip(),
                 )
+                args.commit_model = handoff_config.model
+                commit_template = handoff_config.prompt
         except FileNotFoundError as exc:
             log_event(orc_log_path, "ERROR", "prompt file missing", error=str(exc))
             return 2
