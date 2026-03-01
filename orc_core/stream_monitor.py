@@ -198,36 +198,49 @@ class StreamJsonMonitor:
             log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)
 
     def _update_git_stats(self) -> None:
-        try:
-            result = subprocess.run(
-                ["git", "diff", "--numstat"],
-                cwd=self.workdir,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-            )
-        except Exception:
+        def read_numstat(args: list[str]) -> Optional[str]:
+            try:
+                result = subprocess.run(
+                    args,
+                    cwd=self.workdir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            except Exception:
+                return None
+            if result.returncode != 0:
+                return None
+            return result.stdout
+
+        unstaged = read_numstat(["git", "diff", "--numstat"])
+        staged = read_numstat(["git", "diff", "--numstat", "--cached"])
+        if unstaged is None and staged is None:
             return
-        if result.returncode != 0:
-            return
+
         added = 0
         deleted = 0
-        for line in result.stdout.splitlines():
-            parts = line.split("\t")
-            if len(parts) < 2:
-                continue
-            try:
-                added += int(parts[0])
-            except ValueError:
-                pass
-            try:
-                deleted += int(parts[1])
-            except ValueError:
-                pass
+        files: set[str] = set()
+        for output in (unstaged or "", staged or ""):
+            for line in output.splitlines():
+                parts = line.split("\t")
+                if len(parts) < 3:
+                    continue
+                try:
+                    added += int(parts[0])
+                except ValueError:
+                    pass
+                try:
+                    deleted += int(parts[1])
+                except ValueError:
+                    pass
+                path = parts[2].strip()
+                if path:
+                    files.add(path)
         self.metrics.git_added = added
         self.metrics.git_deleted = deleted
-        files_changed = len([line for line in result.stdout.splitlines() if line.strip()])
+        files_changed = len(files)
         if files_changed:
             self.metrics.files_edited = files_changed
 
@@ -240,6 +253,10 @@ class StreamJsonMonitor:
                 "lines": self.metrics.total_lines,
                 "commands": self.metrics.command_count,
                 "files_edited": self.metrics.files_edited,
+                "git_added": self.metrics.git_added,
+                "git_deleted": self.metrics.git_deleted,
+                "tokens_status": self.metrics.tokens_status,
+                "tokens_source": self.metrics.tokens_source,
             }
             path = Path(self.workdir) / ".orc" / "orc-metrics.json"
             path.parent.mkdir(parents=True, exist_ok=True)

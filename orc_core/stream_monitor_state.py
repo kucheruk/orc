@@ -15,6 +15,8 @@ from .text_parse import clean_summary_lines, extract_tokens_from_text
 @dataclass
 class MetricsStore:
     tokens_total: Optional[int] = None
+    tokens_status: str = "unknown"
+    tokens_source: str = "none"
     files_edited: Optional[int] = None
     command_count: int = 0
     total_lines: int = 0
@@ -56,6 +58,7 @@ class StreamMonitorState:
         self._progress_total = 1
         self._spinner_idx = 0
         self._last_event_at = started_at
+        self._seen_token_usage_keys: set[str] = set()
 
     def set_progress(self, done: int, total: int) -> None:
         self._progress_done = max(0, int(done))
@@ -85,82 +88,25 @@ class StreamMonitorState:
         return "\n".join(self._line_buffer)
 
     def normalize_reasoning_fragment(self, fragment: str) -> str:
-        text = fragment.replace("\r", "").replace("\n", " ")
+        text = fragment.replace("\r", "")
         text = re.sub(r"(\*\*|__|`)", "", text)
-        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text)
         return text
 
-    def should_stitch_reasoning(self, prev: str, chunk: str) -> bool:
-        if "\n" in prev or "\n" in chunk:
-            return False
-        chunk_stripped = chunk.lstrip()
-        if not chunk_stripped:
-            return False
-        if chunk_stripped[0] in {".", ",", "!", "?", ":", ";", ")", "]", "}", "%"}:
-            return True
-        if prev and prev[-1].isalnum() and chunk_stripped[0].islower():
-            return True
-        if len(chunk_stripped) <= 20 and " " not in chunk_stripped and not prev.endswith((".", "?", "!", ":", ";")):
-            return True
-        return False
-
-    def join_reasoning_chunks(self, prev: str, chunk: str) -> str:
-        chunk_stripped = chunk.lstrip()
-        if chunk_stripped in {"**", "__", "`", "*"}:
-            return f"{prev}{chunk}"
-        if prev and prev[-1] in {"(", "[", "{", "/", "-", "_", "`", "*"}:
-            return f"{prev}{chunk_stripped}"
-        if chunk_stripped and chunk_stripped[0] in {".", ",", "!", "?", ":", ";", ")", "]", "}", "%"}:
-            return f"{prev}{chunk_stripped}"
-        prev_last = prev.split(" ")[-1] if prev.strip() else ""
-        first_token = chunk_stripped.split(" ")[0] if chunk_stripped else ""
-        if prev_last.isalpha() and first_token.isalpha() and len(prev_last) <= 2 and len(first_token) >= 3:
-            return f"{prev}{chunk_stripped}"
-        if prev and prev[-1].isalnum() and first_token and first_token[0].islower():
-            if (
-                prev_last.isalpha()
-                and first_token.isalpha()
-                and len(prev_last) <= 6
-                and first_token.endswith(
-                    (
-                        "ing",
-                        "ed",
-                        "er",
-                        "est",
-                        "ly",
-                        "tion",
-                        "sion",
-                        "ment",
-                        "ness",
-                        "able",
-                        "ible",
-                        "ive",
-                        "ous",
-                        "al",
-                        "ize",
-                        "ized",
-                        "izing",
-                    )
-                )
-            ):
-                return f"{prev}{chunk_stripped}"
-            return f"{prev} {chunk_stripped}"
-        if chunk.startswith(" "):
-            return f"{prev}{chunk}"
-        return f"{prev} {chunk_stripped}"
+    def _trim_fragment(self, value: str, *, max_len: int = 220) -> str:
+        if len(value) <= max_len:
+            return value
+        candidate = value[:max_len]
+        split_at = candidate.rfind(" ")
+        if split_at >= 24:
+            return candidate[:split_at]
+        return candidate
 
     def append_reasoning_fragment(self, fragment: str) -> None:
         chunk = self.normalize_reasoning_fragment(fragment)
         if not chunk.strip():
             return
-        if not self._recent_reasoning:
-            self._recent_reasoning.append(chunk.strip())
-            return
-        prev = self._recent_reasoning[-1]
-        if self.should_stitch_reasoning(prev, chunk):
-            self._recent_reasoning[-1] = self.join_reasoning_chunks(prev, chunk)[:220]
-            return
-        self._recent_reasoning.append(chunk.strip()[:220])
+        self._recent_reasoning.append(self._trim_fragment(chunk.strip()))
 
     def reasoning_lines_for_panel(self, max_width: int = 90, max_lines: int = 5) -> list[str]:
         width = max(24, max_width)
@@ -219,17 +165,102 @@ class StreamMonitorState:
                 yield from self._iter_values(item)
 
     def _extract_text(self, event: Dict[str, object]) -> str:
-        pieces = []
+        pieces: list[str] = []
+
+        def append_piece(value: object) -> None:
+            if isinstance(value, str):
+                if value.strip():
+                    pieces.append(value)
+                return
+            if isinstance(value, dict):
+                for key in ("text", "content", "delta", "value"):
+                    append_piece(value.get(key))
+                return
+            if isinstance(value, list):
+                for item in value:
+                    append_piece(item)
+
         for key in ("text", "message", "content", "delta"):
-            value = event.get(key)
-            if isinstance(value, str) and value.strip():
-                pieces.append(value)
+            append_piece(event.get(key))
         msg = event.get("message")
         if isinstance(msg, dict):
-            content = msg.get("content")
-            if isinstance(content, str) and content.strip():
-                pieces.append(content)
-        return "\n".join(pieces).strip()
+            append_piece(msg.get("content"))
+            append_piece(msg.get("text"))
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for piece in pieces:
+            key = piece.strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(piece)
+        return "\n".join(deduped).strip()
+
+    def _extract_request_id(self, event: Dict[str, object]) -> Optional[str]:
+        for key in ("request_id", "requestId", "response_id", "responseId", "id"):
+            value = event.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    def _to_non_negative_int(self, value: object) -> Optional[int]:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            candidate = int(value)
+            if candidate >= 0:
+                return candidate
+        return None
+
+    def _extract_structured_token_entries(self, event: Dict[str, object]) -> list[tuple[str, int]]:
+        request_id = self._extract_request_id(event) or ""
+        entries: list[tuple[str, int]] = []
+
+        def visit(value: object) -> None:
+            if isinstance(value, dict):
+                total = (
+                    self._to_non_negative_int(value.get("total_tokens"))
+                    or self._to_non_negative_int(value.get("tokens_total"))
+                    or self._to_non_negative_int(value.get("token_count"))
+                    or self._to_non_negative_int(value.get("tokens"))
+                )
+                prompt = (
+                    self._to_non_negative_int(value.get("prompt_tokens"))
+                    or self._to_non_negative_int(value.get("input_tokens"))
+                    or self._to_non_negative_int(value.get("input"))
+                )
+                completion = (
+                    self._to_non_negative_int(value.get("completion_tokens"))
+                    or self._to_non_negative_int(value.get("output_tokens"))
+                    or self._to_non_negative_int(value.get("output"))
+                )
+                if total is None and (prompt is not None or completion is not None):
+                    total = (prompt or 0) + (completion or 0)
+                if total is not None:
+                    usage_payload = {
+                        "total_tokens": total,
+                        "prompt_tokens": prompt,
+                        "completion_tokens": completion,
+                    }
+                    signature = json.dumps(usage_payload, ensure_ascii=False, sort_keys=True)
+                    usage_key = f"{request_id}:{signature}" if request_id else signature
+                    entries.append((usage_key, total))
+                for inner in value.values():
+                    visit(inner)
+            elif isinstance(value, list):
+                for item in value:
+                    visit(item)
+
+        visit(event)
+        # stable de-duplication within one event
+        result: list[tuple[str, int]] = []
+        seen_local: set[str] = set()
+        for usage_key, total in entries:
+            if usage_key in seen_local:
+                continue
+            seen_local.add(usage_key)
+            result.append((usage_key, total))
+        return result
 
     def _remember_command(self, event: Dict[str, object]) -> None:
         for key, value in self._iter_values(event):
@@ -310,12 +341,26 @@ class StreamMonitorState:
             self.metrics.command_count += 1
 
         tokens = self.extract_tokens(event)
+        structured_entries = self._extract_structured_token_entries(event)
         text = self._extract_text(event)
         self._recent_events.append(self._summarize_event(event, text))
+        if structured_entries:
+            total_delta = 0
+            for usage_key, usage_tokens in structured_entries:
+                if usage_key in self._seen_token_usage_keys:
+                    continue
+                self._seen_token_usage_keys.add(usage_key)
+                total_delta += usage_tokens
+            if total_delta > 0:
+                self.metrics.tokens_total = (self.metrics.tokens_total or 0) + total_delta
+                self.metrics.tokens_status = "known"
+                self.metrics.tokens_source = "structured"
         if tokens is None and text:
             tokens = extract_tokens_from_text(text)
-        if tokens is not None:
+        if tokens is not None and not structured_entries:
             self.metrics.tokens_total = max(self.metrics.tokens_total or 0, tokens)
+            self.metrics.tokens_status = "known"
+            self.metrics.tokens_source = "heuristic"
 
         if text:
             for line in clean_summary_lines(text.splitlines()):

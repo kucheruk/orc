@@ -17,6 +17,8 @@ from ...stream_monitor_state import MonitorSnapshot
 class ExecutionScreen(Screen[None]):
     tokens_total = reactive("-")
     files_edited = reactive("-")
+    git_added = reactive("-")
+    git_deleted = reactive("-")
     commands_count = reactive(0)
     total_lines = reactive(0)
     task_title = reactive("")
@@ -70,11 +72,12 @@ class ExecutionScreen(Screen[None]):
     def _refresh_stats_and_activity(self) -> None:
         elapsed = int(max(time.time() - self.started_at, 0.0))
         debug_log_path = get_debug_log_path()
-        debug_part = f" | Debug log: {debug_log_path.name}" if debug_log_path is not None else ""
+        debug_part = f" | Debug log: {debug_log_path}" if debug_log_path is not None else ""
+        git_part = f" | Git: [green]+{self.git_added}[/green] [red]-{self.git_deleted}[/red]"
         self.query_one("#stats_label", Label).update(
             f"Elapsed: {self._format_duration(elapsed)} | "
             f"Lines: {self.total_lines} | Commands: {self.commands_count} | "
-            f"Files: {self.files_edited} | Tokens: {self.tokens_total} | Last: {self.last_event}{debug_part}"
+            f"Files: {self.files_edited}{git_part} | Tokens: {self.tokens_total} | Last: {self.last_event}{debug_part}"
         )
         idle_seconds = max(time.time() - self.last_event_at, 0.0)
         self.query_one("#activity_label", Label).update(self._activity_markup(idle_seconds))
@@ -86,8 +89,14 @@ class ExecutionScreen(Screen[None]):
         self.progress_total = snapshot.progress_total
         self.total_lines = snapshot.metrics.total_lines
         self.commands_count = snapshot.metrics.command_count
-        self.tokens_total = str(snapshot.metrics.tokens_total or "-")
+        if snapshot.metrics.tokens_total is None:
+            self.tokens_total = "unknown"
+        else:
+            token_value = str(snapshot.metrics.tokens_total)
+            self.tokens_total = f"~{token_value}" if snapshot.metrics.tokens_status == "estimated" else token_value
         self.files_edited = str(snapshot.metrics.files_edited or "-")
+        self.git_added = str(snapshot.metrics.git_added if snapshot.metrics.git_added is not None else "-")
+        self.git_deleted = str(snapshot.metrics.git_deleted if snapshot.metrics.git_deleted is not None else "-")
         self.last_event = f"{snapshot.last_event_type}:{snapshot.last_event_note[:80]}"
         self.last_event_at = snapshot.last_event_at
         self._update_recent(snapshot)

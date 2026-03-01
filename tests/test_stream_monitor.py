@@ -24,15 +24,16 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         updated_snapshot = state.build_snapshot()
         self.assertGreaterEqual(updated_snapshot.last_event_at, initial_snapshot.last_event_at)
 
-    def test_reasoning_chunks_are_coalesced_without_word_split(self) -> None:
+    def test_reasoning_chunks_are_kept_as_distinct_lines(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.append_reasoning_fragment("Prior")
         state.append_reasoning_fragment("itizing user commit preference")
 
-        self.assertEqual(len(state._recent_reasoning), 1)
-        self.assertEqual(state._recent_reasoning[-1], "Prioritizing user commit preference")
+        self.assertEqual(len(state._recent_reasoning), 2)
+        self.assertEqual(state._recent_reasoning[0], "Prior")
+        self.assertEqual(state._recent_reasoning[1], "itizing user commit preference")
 
     def test_reasoning_chunks_keep_spaces_between_words(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
@@ -41,7 +42,8 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         state.append_reasoning_fragment("Acknowledging")
         state.append_reasoning_fragment("task DB-005 and preparing initial steps")
 
-        self.assertEqual(state._recent_reasoning[-1], "Acknowledging task DB-005 and preparing initial steps")
+        self.assertEqual(state._recent_reasoning[-2], "Acknowledging")
+        self.assertEqual(state._recent_reasoning[-1], "task DB-005 and preparing initial steps")
 
     def test_reasoning_strips_basic_markdown(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
@@ -62,6 +64,40 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         lines = state.reasoning_lines_for_panel(max_width=40, max_lines=5)
         self.assertGreater(len(lines), 1)
+
+    def test_extract_text_reads_message_content_list(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        text = state._extract_text(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "Inspecting README"},
+                        {"type": "text", "text": "and ADR"},
+                    ]
+                },
+            }
+        )
+        self.assertIn("Inspecting README", text)
+        self.assertIn("and ADR", text)
+
+    def test_record_event_sums_structured_token_usage_once_per_request(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        event = {
+            "type": "result",
+            "request_id": "req-1",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        state.record_event(event)
+        state.record_event(event)
+
+        self.assertEqual(state.metrics.tokens_total, 15)
+        self.assertEqual(state.metrics.tokens_status, "known")
+        self.assertEqual(state.metrics.tokens_source, "structured")
 
     def test_event_summary_contains_useful_context(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState

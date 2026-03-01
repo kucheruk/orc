@@ -20,7 +20,15 @@ class ExecutionScreenRenderTest(unittest.TestCase):
         self.assertIn("idle", screen._activity_markup(75.0))
 
     def test_render_text_contains_key_sections(self) -> None:
-        metrics = MetricsStore(tokens_total=42, files_edited=3, command_count=5, total_lines=10, total_output_chars=999)
+        metrics = MetricsStore(
+            tokens_total=42,
+            files_edited=3,
+            command_count=5,
+            total_lines=10,
+            total_output_chars=999,
+            git_added=7,
+            git_deleted=2,
+        )
         snapshot = MonitorSnapshot(
             task_id="TASK-1",
             started_at=time.time() - 5,
@@ -52,6 +60,9 @@ class ExecutionScreenRenderTest(unittest.TestCase):
                 self.assertEqual(screen.total_lines, 10)
                 activity = screen.query_one("#activity_label")
                 self.assertIn("Agent activity", str(activity.render()))
+                stats = screen.query_one("#stats_label")
+                self.assertIn("+7", str(stats.render()))
+                self.assertIn("-2", str(stats.render()))
 
         import asyncio
 
@@ -89,7 +100,7 @@ class ExecutionScreenRenderTest(unittest.TestCase):
                     _ = pilot
                     screen.update_from_snapshot(snapshot)
                     stats = screen.query_one("#stats_label")
-                    self.assertIn("orc-debug-20260301-120000-123.jsonl", str(stats.render()))
+                    self.assertIn("/tmp/orc/orc-debug-20260301-120000-123.jsonl", str(stats.render()))
 
         import asyncio
 
