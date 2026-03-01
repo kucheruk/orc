@@ -266,7 +266,18 @@ def wait_for_process_exit(
                 log_event(log_path, "WARN", "escape interrupt confirmed", label=label)
                 raise KeyboardInterrupt
             log_event(log_path, "INFO", "escape interrupt cancelled", label=label)
-        monitor.maybe_report()
+        try:
+            monitor.maybe_report()
+        except Exception as exc:
+            log_event(
+                log_path,
+                "ERROR",
+                "phase monitor maybe_report crashed",
+                label=label,
+                error=str(exc),
+                exception_type=type(exc).__name__,
+            )
+            return "process_exited"
         if _monitor_pid_missing(monitor):
             log_event(log_path, "ERROR", "phase agent pid missing while still running", label=label)
             return "process_exited"

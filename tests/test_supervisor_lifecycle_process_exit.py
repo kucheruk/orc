@@ -20,6 +20,11 @@ class _FakeMonitor:
         return None
 
 
+class _BrokenMonitor(_FakeMonitor):
+    def maybe_report(self) -> None:
+        raise RuntimeError("monitor boom")
+
+
 class WaitForProcessExitPidMissingTest(unittest.TestCase):
     def test_wait_for_process_exit_returns_process_exited_when_pid_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -33,6 +38,23 @@ class WaitForProcessExitPidMissingTest(unittest.TestCase):
                 stop_on_followup_prompt=True,
             )
         self.assertEqual(result, "process_exited")
+
+    def test_wait_for_process_exit_returns_process_exited_when_maybe_report_crashes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "orc.log"
+            result = wait_for_process_exit(
+                monitor=_BrokenMonitor(),
+                poll=0.01,
+                stall_timeout=30.0,
+                task_ttl=30.0,
+                log_path=log_path,
+                label="commit_phase",
+                stop_on_followup_prompt=True,
+            )
+            self.assertEqual(result, "process_exited")
+            lines = [ln for ln in log_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            self.assertTrue(lines)
+            self.assertIn("phase monitor maybe_report crashed", lines[-1])
 
 
 if __name__ == "__main__":

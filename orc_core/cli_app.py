@@ -13,7 +13,15 @@ from typing import Callable, Optional
 from .agent_preflight import AgentNotInstalledError, ensure_agent_installed
 from .backlog_orchestrator import BacklogOrchestrator
 from .backlog_status import inspect_backlog
-from .logging import ORC_LOG_NAME, ORC_ROOT, emit_crash_stdout_payload, init_debug_logging, log_event, set_log_context
+from .logging import (
+    ORC_LOG_NAME,
+    ORC_ROOT,
+    emit_crash_stdout_payload,
+    init_debug_logging,
+    install_crash_handlers,
+    log_event,
+    set_log_context,
+)
 from .model_selector import (
     DEFAULT_MODEL,
     ModelListLoader,
@@ -204,6 +212,12 @@ def main() -> int:
     set_log_context(workdir=workdir)
     lock_path = Path(workdir) / ".orc" / LOCK_FILE_NAME
     log_path = ORC_ROOT / ".orc" / ORC_LOG_NAME
+    install_crash_handlers(
+        entrypoint="orc_core.cli_app:main",
+        phase="main",
+        workspace=workdir,
+        log_path=log_path,
+    )
     task_path = Path(workdir) / ".cursor" / TASK_FILE_NAME
     temp_backlog_path: Optional[Path] = None
     lock_acquired = False

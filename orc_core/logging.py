@@ -3,9 +3,12 @@
 
 import json
 import os
+import signal
 import sys
+import threading
 import tempfile
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -22,6 +25,8 @@ _DEBUG_LOG_PATH: Optional[Path] = None
 _DEBUG_SESSION_ID = f"{int(time.time() * 1000)}-{os.getpid()}"
 _DEBUG_WORKDIR = ""
 _LOG_WORKDIR = ""
+_CRASH_HANDLERS_INSTALLED = False
+_CRASH_HANDLER_LOCK = threading.Lock()
 
 ORC_LOG_NAME = "orc.log"
 ORC_DATA_DIR = ".orc"
@@ -162,6 +167,94 @@ def emit_crash_stdout_payload(
     )
     print(json.dumps(payload, ensure_ascii=False), file=sys.stdout, flush=True)
     return payload
+
+
+def report_fatal_exception(
+    *,
+    entrypoint: str,
+    phase: str,
+    exception_type: str,
+    error: str,
+    traceback_text: str,
+    workspace: str,
+    log_path: Path,
+    source: str,
+) -> Dict[str, object]:
+    payload = emit_crash_stdout_payload(
+        entrypoint=entrypoint,
+        phase=phase,
+        exception_type=exception_type,
+        error=error,
+        traceback_text=traceback_text,
+        workspace=workspace,
+    )
+    try:
+        log_event(log_path, "ERROR", "fatal crash captured", source=source, **payload)
+    except Exception:
+        # Best effort only: crash reporting must never recurse into another crash.
+        pass
+    return payload
+
+
+def install_crash_handlers(
+    *,
+    entrypoint: str,
+    phase: str,
+    workspace: str,
+    log_path: Path,
+) -> None:
+    global _CRASH_HANDLERS_INSTALLED
+    if _CRASH_HANDLERS_INSTALLED:
+        return
+
+    def _emit(exc_type: str, error: str, tb_text: str, source: str) -> None:
+        report_fatal_exception(
+            entrypoint=entrypoint,
+            phase=phase,
+            exception_type=exc_type,
+            error=error,
+            traceback_text=tb_text,
+            workspace=workspace,
+            log_path=log_path,
+            source=source,
+        )
+
+    def _sys_excepthook(exc_type, exc_value, exc_tb) -> None:
+        tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        _emit(getattr(exc_type, "__name__", "Exception"), str(exc_value), tb_text, "sys.excepthook")
+
+    def _threading_excepthook(args: threading.ExceptHookArgs) -> None:
+        exc_type = args.exc_type
+        exc_value = args.exc_value
+        exc_tb = args.exc_traceback
+        tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        type_name = getattr(exc_type, "__name__", "Exception")
+        _emit(type_name, str(exc_value), tb_text, "threading.excepthook")
+
+    def _signal_handler(signum, _frame) -> None:
+        if not _CRASH_HANDLER_LOCK.acquire(blocking=False):
+            return
+        try:
+            try:
+                sig_name = signal.Signals(signum).name
+            except Exception:
+                sig_name = str(signum)
+            _emit("SignalExit", f"terminated by signal {sig_name}", "", "signal.handler")
+        finally:
+            _CRASH_HANDLER_LOCK.release()
+        raise SystemExit(128 + int(signum))
+
+    sys.excepthook = _sys_excepthook
+    threading.excepthook = _threading_excepthook
+    for sig_name in ("SIGTERM", "SIGHUP", "SIGQUIT", "SIGABRT"):
+        sig = getattr(signal, sig_name, None)
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, _signal_handler)
+        except Exception:
+            continue
+    _CRASH_HANDLERS_INSTALLED = True
 
 
 def debug_log(hypothesis_id: str, location: str, message: str, data: Dict[str, object]) -> None:
