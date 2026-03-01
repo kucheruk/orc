@@ -72,7 +72,6 @@ def wait_for_completion(
     last_tokens_value: Optional[int] = None
     last_tokens_time = time.time()
     last_stuck_notice_time = 0.0
-    last_done_check_time = 0.0
     debug_log(
         "H3",
         "orc_core/supervisor_lifecycle.py:wait_for_completion:start",
@@ -101,14 +100,6 @@ def wait_for_completion(
             )
             return "completed"
         now = time.time()
-        if now - last_done_check_time >= 2.0 and _task_done_in_backlog(task_path):
-            last_done_check_time = now
-            log_event(log_path, "INFO", "task marked done in backlog; treating as completed", task_id=task_id)
-            try:
-                task_path.unlink()
-            except Exception:
-                pass
-            return "completed"
         if (now - last_heartbeat_time) >= 20.0:
             last_heartbeat_time = now
             #region agent log

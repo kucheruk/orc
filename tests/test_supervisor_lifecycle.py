@@ -43,7 +43,7 @@ class _FakeMonitor:
 
 
 class SupervisorLifecycleTest(unittest.TestCase):
-    def test_wait_for_completion_treats_done_backlog_task_as_completed_before_stall(self) -> None:
+    def test_wait_for_completion_does_not_finish_only_from_done_backlog_while_agent_running(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text("- [x] REFACT-005 done\n", encoding="utf-8")
@@ -70,7 +70,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
                 task_text="repro",
             )
 
-        self.assertEqual(result, "completed")
+        self.assertEqual(result, "stalled")
 
     def test_wait_for_completion_treats_done_backlog_task_as_completed_after_exit(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
