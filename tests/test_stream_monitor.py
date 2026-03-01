@@ -12,6 +12,19 @@ from orc_core.stream_monitor import StreamJsonMonitor
 
 
 class StreamMonitorFormattingTest(unittest.TestCase):
+    def test_set_progress_tracks_added_delta_and_remaining(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.set_progress(1, 4)
+        state.set_progress(2, 6)
+
+        snapshot = state.build_snapshot()
+        self.assertEqual(snapshot.progress_done, 2)
+        self.assertEqual(snapshot.progress_total, 6)
+        self.assertEqual(snapshot.progress_remaining, 4)
+        self.assertEqual(snapshot.progress_added_delta, 2)
+
     def test_snapshot_tracks_last_event_timestamp(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
@@ -248,6 +261,51 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_total, 15)
         self.assertEqual(state.metrics.tokens_source, "structured")
 
+    def test_record_event_accepts_string_token_values_in_structured_usage(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "result",
+                "request_id": "req-str",
+                "usage": {"inputTokens": "11", "outputTokens": "4"},
+            }
+        )
+
+        self.assertEqual(state.metrics.tokens_total, 15)
+        self.assertEqual(state.metrics.tokens_source, "structured")
+
+    def test_record_event_extracts_tokens_from_raw_when_text_keys_are_nonstandard(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "assistant",
+                "payload": {"stats": "usage inputTokens=9 outputTokens=6"},
+            }
+        )
+
+        self.assertEqual(state.metrics.tokens_total, 15)
+        self.assertEqual(state.metrics.tokens_source, "heuristic")
+
+    def test_text_fallback_can_apply_when_structured_entries_add_zero(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "result",
+                "request_id": "req-zero",
+                "usage": {"inputTokens": 0, "outputTokens": 0},
+                "message": {"content": [{"type": "text", "text": "42 tokens"}]},
+            }
+        )
+
+        self.assertEqual(state.metrics.tokens_total, 42)
+        self.assertEqual(state.metrics.tokens_source, "heuristic")
+
     def test_event_summary_contains_useful_context(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
@@ -385,7 +443,10 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         monitor._last_report_time = 0.0
         monitor._last_git_stats_time = 0.0
         monitor._state = MagicMock()
+        monitor._refresh_backlog_progress = lambda: None
         monitor._update_git_stats = lambda: None
+        monitor._update_task_runtime_state = lambda: None
+        monitor._update_eta_forecast = lambda: None
         monitor._write_metrics_snapshot = lambda: None
         monitor._publish_snapshot = MagicMock()
         monitor.task_id = "TASK-1"
@@ -393,6 +454,20 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         monitor.maybe_report()
         monitor._state.tick_spinner.assert_called_once()
         monitor._publish_snapshot.assert_called_once()
+
+    def test_refresh_backlog_progress_reads_counts_from_backlog_file(self) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            backlog_path = root / "BACKLOG.md"
+            backlog_path.write_text("- [x] TASK-001 done\n- [ ] TASK-002 open\n- [ ] TASK-003 open\n", encoding="utf-8")
+            monitor.workdir = str(root)
+            monitor.log_path = root / ".orc" / "orc.log"
+            monitor._task_state_path = root / ".cursor" / "orc-task.json"
+            monitor._state = MagicMock()
+            monitor._refresh_backlog_progress()
+
+        monitor._state.set_progress.assert_called_once_with(1, 3)
 
     def test_append_agent_output_writes_to_log_file(self) -> None:
         monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)

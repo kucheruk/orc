@@ -108,6 +108,8 @@ def main() -> int:
         stats = lib.load_stats(script_repo)
         task_tokens = lib.read_task_tokens(script_repo)
         stats = lib.update_tokens(stats, task_id, task_tokens)
+        task_active_seconds = float(task.get("active_seconds") or 0.0)
+        stats = lib.record_task_duration(stats, task_id, task_active_seconds)
         report = lib.build_report(stats, total, done)
         report_text = lib.format_report(report)
         tokens_line = f"spent_tokens={task_tokens}" if task_tokens is not None else "spent_tokens=unknown"

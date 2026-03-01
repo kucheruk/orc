@@ -13,6 +13,12 @@ from orc_core.stream_monitor_state import MetricsStore, MonitorSnapshot
 
 
 class ExecutionScreenRenderTest(unittest.TestCase):
+    def test_activity_markup_shows_starting_before_first_event(self) -> None:
+        screen = ExecutionScreen()
+        starting = screen._activity_markup(None)
+        self.assertIn("starting", starting)
+        self.assertIn("no messages yet", starting)
+
     def test_activity_markup_uses_expected_thresholds(self) -> None:
         screen = ExecutionScreen()
         self.assertIn("active now", screen._activity_markup(1.0))
@@ -43,6 +49,9 @@ class ExecutionScreenRenderTest(unittest.TestCase):
             reasoning_lines=["planning step one"],
             spinner_idx=1,
             last_event_at=time.time() - 3,
+            progress_remaining=3,
+            progress_added_delta=2,
+            eta_seconds=180.0,
         )
         screen = ExecutionScreen()
 
@@ -58,9 +67,18 @@ class ExecutionScreenRenderTest(unittest.TestCase):
                 self.assertEqual(screen.progress_done, 1)
                 self.assertEqual(screen.progress_total, 4)
                 self.assertEqual(screen.total_lines, 10)
+                self.assertEqual(screen.progress_remaining, 3)
+                self.assertEqual(screen.progress_added_delta, 2)
                 activity = screen.query_one("#activity_label")
                 self.assertIn("Agent activity", str(activity.render()))
+                task_label = screen.query_one("#task_label")
+                self.assertIn("Progress: 1/4", str(task_label.render()))
+                self.assertIn("(+2)", str(task_label.render()))
                 stats = screen.query_one("#stats_label")
+                self.assertIn("Done: 1", str(stats.render()))
+                self.assertIn("Ahead: 3", str(stats.render()))
+                self.assertIn("Total: 4", str(stats.render()))
+                self.assertIn("ETA: 03:00", str(stats.render()))
                 self.assertIn("+7", str(stats.render()))
                 self.assertIn("-2", str(stats.render()))
 
@@ -101,6 +119,43 @@ class ExecutionScreenRenderTest(unittest.TestCase):
                     screen.update_from_snapshot(snapshot)
                     stats = screen.query_one("#stats_label")
                     self.assertIn("/tmp/orc/orc-debug-20260301-120000-123.jsonl", str(stats.render()))
+
+        import asyncio
+
+        asyncio.run(_run())
+
+    def test_task_label_hides_backlog_delta_when_zero(self) -> None:
+        metrics = MetricsStore(tokens_total=1, files_edited=1, command_count=1, total_lines=1, total_output_chars=1)
+        snapshot = MonitorSnapshot(
+            task_id="TASK-1",
+            started_at=time.time() - 5,
+            progress_done=1,
+            progress_total=2,
+            metrics=metrics,
+            last_event_type="assistant",
+            last_event_note="ok",
+            recent_commands=[],
+            recent_files=[],
+            recent_events=[],
+            reasoning_lines=[],
+            spinner_idx=0,
+            last_event_at=time.time() - 1,
+            progress_remaining=1,
+            progress_added_delta=0,
+            eta_seconds=None,
+        )
+        screen = ExecutionScreen()
+
+        class _TestApp(App[None]):
+            def compose(self):
+                yield screen
+
+        async def _run() -> None:
+            async with _TestApp().run_test() as pilot:
+                _ = pilot
+                screen.update_from_snapshot(snapshot)
+                task_label = screen.query_one("#task_label")
+                self.assertNotIn("(+", str(task_label.render()))
 
         import asyncio
 

@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import time
+from typing import Optional
 
 from rich.table import Table
 from textual.app import ComposeResult
@@ -25,8 +26,11 @@ class ExecutionScreen(Screen[None]):
     last_event = reactive("")
     progress_done = reactive(0)
     progress_total = reactive(1)
+    progress_remaining = reactive(1)
+    progress_added_delta = reactive(0)
+    eta_seconds = reactive(None)
     started_at = reactive(0.0)
-    last_event_at = reactive(0.0)
+    last_event_at = reactive(None)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -45,15 +49,30 @@ class ExecutionScreen(Screen[None]):
         yield Footer()
 
     def watch_task_title(self, value: str) -> None:
-        self.query_one("#task_label", Label).update(value)
+        _ = value
+        self._refresh_task_label()
 
     def watch_progress_done(self, value: int) -> None:
         progress = self.query_one("#progress", ProgressBar)
         progress.update(total=max(1, self.progress_total), progress=max(0, value))
+        self._refresh_task_label()
+        self._refresh_stats_and_activity()
 
     def watch_progress_total(self, value: int) -> None:
         progress = self.query_one("#progress", ProgressBar)
         progress.update(total=max(1, value), progress=max(0, self.progress_done))
+        self._refresh_task_label()
+        self._refresh_stats_and_activity()
+
+    def watch_progress_remaining(self, _value: int) -> None:
+        self._refresh_stats_and_activity()
+
+    def watch_progress_added_delta(self, _value: int) -> None:
+        self._refresh_task_label()
+        self._refresh_stats_and_activity()
+
+    def watch_eta_seconds(self, _value: Optional[float]) -> None:
+        self._refresh_stats_and_activity()
 
     def watch_total_lines(self, _value: int) -> None:
         self._refresh_stats_and_activity()
@@ -62,24 +81,45 @@ class ExecutionScreen(Screen[None]):
         mins, secs = divmod(int(max(seconds, 0.0)), 60)
         return f"{mins:02d}:{secs:02d}"
 
-    def _activity_markup(self, idle_seconds: float) -> str:
+    def _activity_markup(self, idle_seconds: Optional[float]) -> str:
+        if idle_seconds is None:
+            return "[blue]Agent activity: starting, no messages yet[/blue]"
         if idle_seconds < 15.0:
             return "[green]Agent activity: active now[/green]"
         if idle_seconds < 60.0:
             return f"[yellow]Agent activity: waiting {self._format_duration(idle_seconds)}[/yellow]"
         return f"[red]Agent activity: idle {self._format_duration(idle_seconds)}[/red]"
 
+    def _format_eta(self, eta_seconds: Optional[float]) -> str:
+        if eta_seconds is None:
+            return "unknown"
+        return self._format_duration(eta_seconds)
+
+    def _progress_delta_markup(self) -> str:
+        if self.progress_added_delta <= 0:
+            return ""
+        return f" [yellow](+{self.progress_added_delta})[/yellow]"
+
+    def _refresh_task_label(self) -> None:
+        delta = self._progress_delta_markup()
+        progress_part = f" | Progress: {self.progress_done}/{self.progress_total}{delta}"
+        self.query_one("#task_label", Label).update(f"{self.task_title}{progress_part}")
+
     def _refresh_stats_and_activity(self) -> None:
         elapsed = int(max(time.time() - self.started_at, 0.0))
         debug_log_path = get_debug_log_path()
         debug_part = f" | Debug log: {debug_log_path}" if debug_log_path is not None else ""
         git_part = f" | Git: [green]+{self.git_added}[/green] [red]-{self.git_deleted}[/red]"
+        delta_part = f" [yellow](+{self.progress_added_delta})[/yellow]" if self.progress_added_delta > 0 else ""
+        eta_text = self._format_eta(self.eta_seconds)
         self.query_one("#stats_label", Label).update(
             f"Elapsed: {self._format_duration(elapsed)} | "
+            f"Done: {self.progress_done} | Ahead: {self.progress_remaining} | "
+            f"Total: {self.progress_total}{delta_part} | ETA: {eta_text} | "
             f"Lines: {self.total_lines} | Commands: {self.commands_count} | "
             f"Files: {self.files_edited}{git_part} | Tokens: {self.tokens_total}{debug_part}"
         )
-        idle_seconds = max(time.time() - self.last_event_at, 0.0)
+        idle_seconds = None if self.last_event_at is None else max(time.time() - self.last_event_at, 0.0)
         self.query_one("#activity_label", Label).update(self._activity_markup(idle_seconds))
 
     def update_from_snapshot(self, snapshot: MonitorSnapshot) -> None:
@@ -87,6 +127,9 @@ class ExecutionScreen(Screen[None]):
         self.started_at = snapshot.started_at
         self.progress_done = snapshot.progress_done
         self.progress_total = snapshot.progress_total
+        self.progress_remaining = snapshot.progress_remaining
+        self.progress_added_delta = snapshot.progress_added_delta
+        self.eta_seconds = snapshot.eta_seconds
         self.total_lines = snapshot.metrics.total_lines
         self.commands_count = snapshot.metrics.command_count
         if snapshot.metrics.tokens_total is None:
@@ -98,7 +141,7 @@ class ExecutionScreen(Screen[None]):
         self.git_added = str(snapshot.metrics.git_added if snapshot.metrics.git_added is not None else "-")
         self.git_deleted = str(snapshot.metrics.git_deleted if snapshot.metrics.git_deleted is not None else "-")
         self.last_event = f"{snapshot.last_event_type}:{snapshot.last_event_note[:80]}"
-        self.last_event_at = snapshot.last_event_at
+        self.last_event_at = snapshot.last_event_at if snapshot.last_event_at > 0 else None
         self._update_recent(snapshot)
         self._replace_log("reasoning_log", snapshot.reasoning_lines, empty="waiting for reasoning...")
         self._replace_log("events_log", snapshot.recent_events[-8:], empty="waiting for events...")

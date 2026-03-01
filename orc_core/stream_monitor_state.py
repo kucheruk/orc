@@ -40,6 +40,9 @@ class MonitorSnapshot:
     reasoning_lines: list[str]
     spinner_idx: int
     last_event_at: float
+    progress_remaining: int = 0
+    progress_added_delta: int = 0
+    eta_seconds: Optional[float] = None
 
 
 class StreamMonitorState:
@@ -59,6 +62,10 @@ class StreamMonitorState:
         "outputtokens",
         "output",
     }
+    _RAW_TOKEN_FIELD_RE = re.compile(
+        r'"?([a-zA-Z_]+tokens|tokens[a-zA-Z_]*|token_count)"?\s*[:=]\s*"?([0-9]+(?:\.[0-9]+)?)"?',
+        re.IGNORECASE,
+    )
 
     def __init__(self, task_id: str, started_at: float, summary_lines: int) -> None:
         self.task_id = task_id
@@ -75,6 +82,9 @@ class StreamMonitorState:
         self._reasoning_stream_kind = ""
         self._progress_done = 0
         self._progress_total = 1
+        self._progress_baseline_total: Optional[int] = None
+        self._progress_added_delta = 0
+        self._eta_seconds: Optional[float] = None
         self._spinner_idx = 0
         self._last_event_at = started_at
         self._seen_token_usage_keys: set[str] = set()
@@ -83,11 +93,21 @@ class StreamMonitorState:
     def set_progress(self, done: int, total: int) -> None:
         self._progress_done = max(0, int(done))
         self._progress_total = max(1, int(total))
+        if self._progress_baseline_total is None:
+            self._progress_baseline_total = self._progress_total
+        self._progress_added_delta = max(self._progress_total - self._progress_baseline_total, 0)
+
+    def set_eta_seconds(self, eta_seconds: Optional[float]) -> None:
+        if eta_seconds is None:
+            self._eta_seconds = None
+            return
+        self._eta_seconds = max(float(eta_seconds), 0.0)
 
     def tick_spinner(self) -> None:
         self._spinner_idx += 1
 
     def build_snapshot(self) -> MonitorSnapshot:
+        remaining = max(self._progress_total - self._progress_done, 0)
         return MonitorSnapshot(
             task_id=self.task_id,
             started_at=self.started_at,
@@ -102,6 +122,9 @@ class StreamMonitorState:
             reasoning_lines=self.reasoning_lines_for_panel(max_width=90, max_lines=5),
             spinner_idx=self._spinner_idx,
             last_event_at=self._last_event_at,
+            progress_remaining=remaining,
+            progress_added_delta=self._progress_added_delta,
+            eta_seconds=self._eta_seconds,
         )
 
     def summary_text(self) -> str:
@@ -332,6 +355,13 @@ class StreamMonitorState:
             candidate = int(value)
             if candidate >= 0:
                 return candidate
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", stripped):
+                candidate = int(float(stripped))
+                if candidate >= 0:
+                    return candidate
         return None
 
     def _normalize_token_key(self, key: str) -> str:
@@ -381,6 +411,32 @@ class StreamMonitorState:
             seen_local.add(usage_key)
             result.append((request_key, usage_key, total))
         return result
+
+    def _extract_tokens_from_raw(self, raw: str) -> Optional[int]:
+        total_tokens: Optional[int] = None
+        prompt_tokens: Optional[int] = None
+        completion_tokens: Optional[int] = None
+        unlabeled_tokens: Optional[int] = None
+
+        for key, value in self._RAW_TOKEN_FIELD_RE.findall(raw):
+            parsed = self._to_non_negative_int(value)
+            if parsed is None:
+                continue
+            normalized = self._normalize_token_key(key)
+            if normalized in self._TOTAL_TOKEN_KEYS:
+                total_tokens = max(total_tokens or 0, parsed)
+            elif normalized in self._PROMPT_TOKEN_KEYS:
+                prompt_tokens = max(prompt_tokens or 0, parsed)
+            elif normalized in self._COMPLETION_TOKEN_KEYS:
+                completion_tokens = max(completion_tokens or 0, parsed)
+            elif normalized == "tokens":
+                unlabeled_tokens = max(unlabeled_tokens or 0, parsed)
+
+        if total_tokens is not None:
+            return total_tokens
+        if prompt_tokens is not None or completion_tokens is not None:
+            return (prompt_tokens or 0) + (completion_tokens or 0)
+        return unlabeled_tokens
 
     def _string_arg(self, value: object) -> str:
         if isinstance(value, str):
@@ -566,6 +622,7 @@ class StreamMonitorState:
         text = self._extract_text(event)
         if not stream_kind:
             self._recent_events.append(self._summarize_event(event, text))
+        structured_applied = False
         if structured_entries:
             total_delta = 0
             for request_key, usage_key, usage_tokens in structured_entries:
@@ -583,9 +640,17 @@ class StreamMonitorState:
                 self.metrics.tokens_total = (self.metrics.tokens_total or 0) + total_delta
                 self.metrics.tokens_status = "known"
                 self.metrics.tokens_source = "structured"
-        if tokens is None and text:
-            tokens = extract_tokens_from_text(text)
-        if tokens is not None and not structured_entries:
+                structured_applied = True
+        if text:
+            text_tokens = extract_tokens_from_text(text)
+            if text_tokens is not None and (tokens is None or text_tokens > tokens):
+                tokens = text_tokens
+        raw_tokens = self._extract_tokens_from_raw(raw)
+        if raw_tokens is not None and (tokens is None or raw_tokens > tokens):
+            tokens = raw_tokens
+        if tokens is not None and (
+            not structured_entries or (not structured_applied and self.metrics.tokens_total is None)
+        ):
             self.metrics.tokens_total = max(self.metrics.tokens_total or 0, tokens)
             self.metrics.tokens_status = "known"
             self.metrics.tokens_source = "heuristic"

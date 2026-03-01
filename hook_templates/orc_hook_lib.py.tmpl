@@ -16,6 +16,7 @@ if str(ORC_ROOT) not in sys.path:
 from orc_core.task_source import MarkdownTaskSource
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
+ETA_WINDOW_SIZE = 3
 
 
 def now_iso() -> str:
@@ -165,6 +166,9 @@ def load_stats(repo_root: Path) -> Dict[str, object]:
     data.setdefault("started_at", data.get("started_at") or "")
     data.setdefault("tokens_total", int(data.get("tokens_total") or 0))
     data.setdefault("tokens_by_task", data.get("tokens_by_task") or {})
+    data.setdefault("durations_by_task", data.get("durations_by_task") or {})
+    data.setdefault("recent_durations", data.get("recent_durations") or [])
+    data.setdefault("active_seconds_total", float(data.get("active_seconds_total") or 0.0))
     return data
 
 
@@ -205,6 +209,25 @@ def update_tokens(stats: Dict[str, object], task_id: str, task_tokens: Optional[
     return stats
 
 
+def record_task_duration(stats: Dict[str, object], task_id: str, duration_seconds: float) -> Dict[str, object]:
+    task_key = str(task_id or "").strip()
+    if not task_key:
+        return stats
+    durations_by_task = stats.setdefault("durations_by_task", {})
+    if task_key in durations_by_task:
+        return stats
+    duration_int = max(int(duration_seconds), 0)
+    durations_by_task[task_key] = duration_int
+    recent = stats.setdefault("recent_durations", [])
+    if not isinstance(recent, list):
+        recent = []
+        stats["recent_durations"] = recent
+    recent.append(duration_int)
+    stats["recent_durations"] = recent[-ETA_WINDOW_SIZE:]
+    stats["active_seconds_total"] = float(stats.get("active_seconds_total") or 0.0) + float(duration_int)
+    return stats
+
+
 def format_duration(seconds: float) -> str:
     seconds = max(int(seconds), 0)
     hours = seconds // 3600
@@ -216,27 +239,21 @@ def format_duration(seconds: float) -> str:
 
 def build_report(stats: Dict[str, object], total_tasks: int, done_tasks: int) -> Dict[str, object]:
     stats = ensure_started(stats, done_tasks)
-    started_at = stats.get("started_at") or now_iso()
-    try:
-        started = datetime.fromisoformat(str(started_at))
-    except ValueError:
-        started = datetime.now()
-        stats["started_at"] = started.isoformat(timespec="seconds")
-    now = datetime.now()
-    elapsed = max((now - started).total_seconds(), 0.0)
-    minutes = max(elapsed / 60.0, 0.001)
-    hours = max(elapsed / 3600.0, 0.001)
+    active_seconds_total = max(float(stats.get("active_seconds_total") or 0.0), 0.0)
+    minutes = max(active_seconds_total / 60.0, 0.001)
     tokens_total = int(stats.get("tokens_total") or 0)
     tokens_per_min = tokens_total / minutes
-    start_done = int(stats.get("start_done") or 0)
-    completed_since_start = max(done_tasks - start_done, 0)
-    tasks_per_hour = (completed_since_start / hours) if completed_since_start else 0.0
+    recent_raw = stats.get("recent_durations") or []
+    recent = [max(int(value), 0) for value in recent_raw if isinstance(value, (int, float)) and value > 0]
+    window = recent[-ETA_WINDOW_SIZE:]
+    average_task_seconds = (sum(window) / len(window)) if window else 0.0
+    tasks_per_hour = (3600.0 / average_task_seconds) if average_task_seconds > 0 else 0.0
     remaining = max(total_tasks - done_tasks, 0)
     eta = "unknown"
-    if tasks_per_hour > 0:
-        eta = format_duration((remaining / tasks_per_hour) * 3600.0)
+    if average_task_seconds > 0:
+        eta = format_duration(average_task_seconds * remaining)
     return {
-        "running_time": format_duration(elapsed),
+        "running_time": format_duration(active_seconds_total),
         "tokens_total": tokens_total,
         "tokens_per_min": tokens_per_min,
         "tasks_per_hour": tasks_per_hour,

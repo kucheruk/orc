@@ -121,7 +121,11 @@ class HooksAtomicWriteTest(unittest.TestCase):
                 task_path = write_task_file(str(tmpdir), task, backlog, log_path)
 
             self.assertTrue(task_path.exists())
-            self.assertIn('"task_id": "TASK-001"', task_path.read_text(encoding="utf-8"))
+            payload = json.loads(task_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload.get("task_id"), "TASK-001")
+            self.assertEqual(payload.get("active_seconds"), 0.0)
+            self.assertIn("last_heartbeat_at", payload)
+            self.assertEqual(payload.get("run_id"), "")
 
     def test_update_task_restart_count_does_not_use_path_write_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir_str:

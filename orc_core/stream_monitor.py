@@ -10,9 +10,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, TextIO
 
+from .atomic_io import write_json_atomic
 from .logging import log_event
 from .process_groups import resolve_process_group_id, subprocess_group_spawn_kwargs
 from .stream_monitor_state import MonitorSnapshot, StreamMonitorState
+from .task_source import MarkdownTaskSource
 
 GIT_STATS_TIMEOUT_SECONDS = 10.0
 
@@ -70,6 +72,9 @@ class StreamJsonMonitor:
         self._report_interval = max(report_interval, 1.0)
         self._last_report_time = 0.0
         self._last_git_stats_time = 0.0
+        self._task_state_path = Path(self.workdir) / ".cursor" / "orc-task.json"
+        self._stats_path = Path(self.workdir) / ".orc" / "orc-stats.json"
+        self._run_id = f"{int(self.started_at)}-{self.task_id}"
         self._stop = threading.Event()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._proc: Optional[asyncio.subprocess.Process] = None
@@ -274,14 +279,83 @@ class StreamJsonMonitor:
         except Exception as exc:
             log_event(self.log_path, "ERROR", "metrics snapshot write failed", error=str(exc))
 
+    def _refresh_backlog_progress(self) -> None:
+        backlog_path = Path(self.workdir) / "BACKLOG.md"
+        if self._task_state_path.exists():
+            try:
+                payload = json.loads(self._task_state_path.read_text(encoding="utf-8"))
+                candidate = str(payload.get("backlog_path") or "").strip()
+                if candidate:
+                    backlog_path = Path(candidate)
+            except Exception:
+                pass
+        try:
+            tasks = MarkdownTaskSource(backlog_path).list_tasks()
+        except Exception as exc:
+            log_event(self.log_path, "WARN", "backlog progress refresh failed", error=str(exc))
+            return
+        total = len(tasks)
+        done = sum(1 for task in tasks if task.done)
+        self._state.set_progress(done, total)
+
+    def _update_eta_forecast(self) -> None:
+        try:
+            stats = json.loads(self._stats_path.read_text(encoding="utf-8")) if self._stats_path.exists() else {}
+        except Exception as exc:
+            log_event(self.log_path, "WARN", "eta forecast read failed", error=str(exc))
+            self._state.set_eta_seconds(None)
+            return
+        raw_durations = stats.get("recent_durations") or []
+        if not isinstance(raw_durations, list):
+            self._state.set_eta_seconds(None)
+            return
+        durations = [int(value) for value in raw_durations if isinstance(value, (int, float)) and value > 0]
+        if not durations:
+            self._state.set_eta_seconds(None)
+            return
+        window = durations[-3:]
+        avg_seconds = sum(window) / max(len(window), 1)
+        snapshot = self._state.build_snapshot()
+        remaining = max(snapshot.progress_remaining, 0)
+        self._state.set_eta_seconds(avg_seconds * remaining if remaining > 0 else 0.0)
+
+    def _update_task_runtime_state(self) -> None:
+        if not self._task_state_path.exists():
+            return
+        now = time.time()
+        try:
+            payload = json.loads(self._task_state_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log_event(self.log_path, "WARN", "task runtime heartbeat read failed", error=str(exc))
+            return
+        if not isinstance(payload, dict):
+            return
+        if str(payload.get("task_id") or "").strip() != self.task_id:
+            return
+        active_seconds = float(payload.get("active_seconds") or 0.0)
+        last_heartbeat = float(payload.get("last_heartbeat_at") or now)
+        run_id = str(payload.get("run_id") or "")
+        if run_id == self._run_id:
+            active_seconds += max(now - last_heartbeat, 0.0)
+        payload["active_seconds"] = active_seconds
+        payload["last_heartbeat_at"] = now
+        payload["run_id"] = self._run_id
+        try:
+            write_json_atomic(self._task_state_path, payload, ensure_ascii=False, indent=2)
+        except Exception as exc:
+            log_event(self.log_path, "WARN", "task runtime heartbeat write failed", error=str(exc))
+
     def maybe_report(self) -> None:
         now = time.time()
         if now - self._last_report_time < self._report_interval:
             return
         self._last_report_time = now
+        self._refresh_backlog_progress()
         if now - self._last_git_stats_time >= 10.0:
             self._last_git_stats_time = now
             self._update_git_stats()
+        self._update_task_runtime_state()
+        self._update_eta_forecast()
         self._write_metrics_snapshot()
         self._state.tick_spinner()
         self._publish_snapshot()

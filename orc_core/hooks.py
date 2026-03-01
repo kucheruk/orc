@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import time
 from pathlib import Path
 from typing import Tuple
 
@@ -98,6 +99,9 @@ def write_task_file(workdir: str, task: Task, backlog_path: Path, log_path: Path
         "conversation_id": "",
         "created_at": now_iso(),
         "restart_count": restart_count,
+        "active_seconds": 0.0,
+        "last_heartbeat_at": time.time(),
+        "run_id": "",
     }
     write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
     log_event(log_path, "INFO", "task file written", path=str(task_path), task_id=task.task_id)
