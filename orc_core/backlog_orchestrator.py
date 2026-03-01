@@ -55,7 +55,7 @@ class BacklogOrchestrator:
     def run(self) -> int:
         mode = str(getattr(self.args, "mode", "backlog") or "backlog").strip().lower()
         selected_task_id = str(getattr(self.args, "task_id", "") or "").strip()
-        single_mode = mode == "single" or bool(selected_task_id)
+        single_mode = mode == "single"
         drop_pending = bool(self.args.drop)
         drop_override: Optional[Tuple[str, str]] = None
 

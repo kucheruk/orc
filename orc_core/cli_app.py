@@ -32,18 +32,14 @@ from .model_selector import (
 )
 from .notify import send_telegram_message
 from .process import acquire_lock, release_lock
+from .role_config import (
+    ROLE_CODER,
+    ROLE_HANDOFF,
+    RoleProfileRegistry,
+)
 from .resume_state import resumable_task_id
 from .start_menu import show_start_menu
-from .supervisor import (
-    COMMIT_PROMPT_PATH,
-    CONTINUE_PROMPT_PATH,
-    DEFAULT_PROMPT_PATH,
-    _cleanup_stale_task_file,
-    _create_temp_backlog,
-    _delete_task_file,
-    _load_task_payload,
-    load_prompt,
-)
+from .supervisor import _cleanup_stale_task_file, _create_temp_backlog, _delete_task_file, _load_task_payload
 from .stream_monitor_state import MonitorSnapshot
 from .task_execution import TaskExecutionEngine
 from .tui_app import OrcApp
@@ -122,6 +118,7 @@ def _resolve_mode(
     default_model: str = DEFAULT_MODEL,
     task_path: Optional[Path] = None,
     status_line: str = "",
+    workdir: str = "",
 ) -> None:
     explicit_new_flow = bool(args.mode or args.task_id.strip() or args.prompt.strip())
     if explicit_new_flow:
@@ -142,12 +139,12 @@ def _resolve_mode(
         default_model=default_model,
         resume_task_id=resume_task_id,
         status_line=status_line,
+        workdir=workdir or str(backlog_path.parent.resolve()),
     )
     args.mode = "backlog" if choice.mode == "resume" else choice.mode
     args.debug = bool(args.debug or choice.debug_enabled)
     args.model = choice.model
-    if choice.task_id:
-        args.task_id = choice.task_id
+    args.task_id = choice.task_id if choice.mode == "single" else ""
     if choice.prompt_text:
         args.prompt = choice.prompt_text
 
@@ -208,6 +205,7 @@ def _failure_message(reason: str) -> str:
 
 def main() -> int:
     args = build_parser().parse_args()
+    role_registry = RoleProfileRegistry()
     workdir = str(Path(args.workspace).resolve())
     set_log_context(workdir=workdir)
     lock_path = Path(workdir) / ".orc" / LOCK_FILE_NAME
@@ -236,7 +234,8 @@ def main() -> int:
         interactive_requested = _should_use_interactive_flow(args)
         model_loader = start_model_list_loading() if interactive_requested else None
 
-        last_model = str(args.model).strip() or load_last_selected_model(workdir) or DEFAULT_MODEL
+        default_coder_model = role_registry.resolve_role(workdir, ROLE_CODER).model
+        last_model = str(args.model).strip() or load_last_selected_model(workdir) or default_coder_model or DEFAULT_MODEL
         models = model_loader.result(timeout=30.0) if model_loader is not None else [DEFAULT_MODEL]
         status_line = ""
         while True:
@@ -249,6 +248,7 @@ def main() -> int:
                     default_model=last_model,
                     task_path=task_path,
                     status_line=status_line,
+                    workdir=workdir,
                 )
                 status_line = ""
             else:
@@ -278,11 +278,25 @@ def main() -> int:
             lock_acquired = True
             try:
                 try:
-                    template = load_prompt(Path(args.prompt_template)) if args.prompt_template else load_prompt(DEFAULT_PROMPT_PATH)
-                    continue_template = load_prompt(Path(args.continue_template)) if args.continue_template else load_prompt(CONTINUE_PROMPT_PATH)
+                    coder_config = role_registry.resolve_role(
+                        workdir,
+                        ROLE_CODER,
+                        cli_model=str(args.model).strip(),
+                        cli_prompt_path=str(args.prompt_template).strip(),
+                    )
+                    args.model = coder_config.model
+                    template = coder_config.prompt
+                    continue_template = role_registry.resolve_continue_prompt(str(args.continue_template).strip())
                     commit_template = ""
                     if args.commit_phase:
-                        commit_template = load_prompt(Path(args.commit_template)) if args.commit_template else load_prompt(COMMIT_PROMPT_PATH)
+                        handoff_config = role_registry.resolve_role(
+                            workdir,
+                            ROLE_HANDOFF,
+                            cli_model=str(args.commit_model).strip(),
+                            cli_prompt_path=str(args.commit_template).strip(),
+                        )
+                        args.commit_model = handoff_config.model
+                        commit_template = handoff_config.prompt
                 except FileNotFoundError as exc:
                     log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
                     ui_error(str(exc))

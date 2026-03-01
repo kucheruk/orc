@@ -11,8 +11,10 @@ from textual.widget import Widget
 from textual.widgets import Button, Footer, Header, Input, Label, RadioButton, RadioSet, Switch
 
 from ...backlog_status import BacklogStatus
+from ...role_config import ROLE_CODER, RoleProfileRegistry
 from ...start_menu import StartMenuChoice
 from .model_picker import ModelPickerModal
+from .role_settings import RoleSettingsModal
 
 
 class StartMenuScreen(Screen[StartMenuChoice]):
@@ -20,6 +22,7 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         ("tab", "tab_cycle_forward", "Next"),
         ("shift+tab", "tab_cycle_backward", "Previous"),
         ("f2", "open_model_picker", "Model"),
+        ("f3", "open_role_settings", "Roles"),
         ("escape", "cancel", "Cancel"),
     ]
 
@@ -30,6 +33,8 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         default_model: str,
         resume_task_id: str = "",
         status_line: str = "",
+        workdir: str = "",
+        role_registry: Optional[RoleProfileRegistry] = None,
     ) -> None:
         super().__init__()
         self._backlog_status = backlog_status
@@ -38,12 +43,16 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         self._selected_model_value = self._default_model
         self._resume_task_id = resume_task_id.strip()
         self._status_line = status_line.strip()
+        self._workdir = workdir
+        self._role_registry = role_registry or RoleProfileRegistry()
         self._focus_before_model_modal_id = "mode_set"
+        self._focus_before_roles_modal_id = "roles_btn"
         self._mode_values = [
             ("backlog", "Выполнять задачи из backlog в цикле"),
             ("single", "Выполнить одну задачу из backlog"),
             ("prompt", "Выполнить произвольную задачу"),
         ]
+        self._sync_model_from_coder_role()
         if self._resume_task_id:
             self._mode_values.insert(0, ("resume", f"Продолжить текущую задачу ({self._resume_task_id})"))
 
@@ -71,6 +80,8 @@ class StartMenuScreen(Screen[StartMenuChoice]):
                 with Vertical(classes="col"):
                     yield Label("Модель")
                     yield Label("", id="model_value")
+                    yield Label("F2 — выбор модели, F3 — роли", classes="help")
+                    yield Button("Roles (F3)", id="roles_btn", variant="default")
                     yield Label("Enter — запустить, Esc — выйти", classes="help")
             with Horizontal(id="menu_actions"):
                 yield Button("Запустить", id="start_btn", variant="primary")
@@ -116,7 +127,7 @@ class StartMenuScreen(Screen[StartMenuChoice]):
             focus_cycle.append("task_id")
         elif self._is_prompt_input_visible(mode):
             focus_cycle.append("prompt_text")
-        focus_cycle.extend(["start_btn", "cancel_btn"])
+        focus_cycle.extend(["roles_btn", "start_btn", "cancel_btn"])
         return focus_cycle
 
     def _selected_model(self) -> str:
@@ -131,6 +142,13 @@ class StartMenuScreen(Screen[StartMenuChoice]):
 
     def _update_selected_model_label(self) -> None:
         self.query_one("#model_value", Label).update(f"{self._selected_model_value} (F2)")
+
+    def _sync_model_from_coder_role(self) -> None:
+        if not self._workdir:
+            return
+        resolved = self._role_registry.resolve_role(self._workdir, ROLE_CODER)
+        if resolved.model in self._models:
+            self._selected_model_value = resolved.model
 
     def _apply_mode_visibility(self) -> None:
         mode = self._selected_mode()
@@ -201,9 +219,10 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         if mode == "prompt" and not prompt_text:
             self._set_error("Prompt mode требует непустой prompt.")
             return None
+        result_task_id = task_id if mode == "single" else ""
         return StartMenuChoice(
             mode=mode,
-            task_id=task_id,
+            task_id=result_task_id,
             prompt_text=prompt_text,
             debug_enabled=debug_enabled,
             model=model,
@@ -255,6 +274,24 @@ class StartMenuScreen(Screen[StartMenuChoice]):
             self._selected_model_value = selected_model
             self._update_selected_model_label()
         self.set_focus(self.query_one(f"#{self._focus_before_model_modal_id}"))
+
+    @on(Button.Pressed, "#roles_btn")
+    def _on_open_roles_btn(self) -> None:
+        self.action_open_role_settings()
+
+    def action_open_role_settings(self) -> None:
+        focus_cycle = self._focus_cycle_for_mode(self._selected_mode())
+        focused_id = self._focused_cycle_id(focus_cycle)
+        self._focus_before_roles_modal_id = focused_id if focused_id is not None else "roles_btn"
+        self.push_screen(
+            RoleSettingsModal(workdir=self._workdir, models=self._models, registry=self._role_registry),
+            self._on_role_settings_closed,
+        )
+
+    def _on_role_settings_closed(self, _saved: bool) -> None:
+        self._sync_model_from_coder_role()
+        self._update_selected_model_label()
+        self.set_focus(self.query_one(f"#{self._focus_before_roles_modal_id}"))
 
     def action_cancel(self) -> None:
         self.dismiss(None)  # type: ignore[arg-type]
