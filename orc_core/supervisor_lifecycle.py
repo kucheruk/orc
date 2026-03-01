@@ -2,15 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
-import json
 import time
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
-from .backlog import is_task_done
 from .logging import debug_log, log_event
 from .notify import send_telegram_message
-from .supervisor_fallback import hard_cleanup_after_success, invoke_stop_hook_fallback, load_task_payload
 
 
 def wait_for_completion(
@@ -34,9 +31,6 @@ def wait_for_completion(
     last_tokens_value: Optional[int] = None
     last_tokens_time = time.time()
     last_stuck_notice_time = 0.0
-    followup_seen_at: Optional[float] = None
-    fallback_invoked = False
-    fallback_last_attempt = 0.0
     debug_log(
         "H3",
         "orc_core/supervisor_lifecycle.py:wait_for_completion:start",
@@ -89,56 +83,14 @@ def wait_for_completion(
         else:
             same_count = 0
             last_stats_key = stats_key
-        if monitor.ui_followup_prompt:
-            if followup_seen_at is None:
-                followup_seen_at = time.time()
-            if not fallback_invoked and (time.time() - followup_seen_at) >= 20.0:
-                try:
-                    payload = json.loads(task_path.read_text(encoding="utf-8"))
-                except Exception as exc:
-                    log_event(log_path, "ERROR", "fallback stop: failed to parse task json", error=str(exc))
-                    payload = {}
-                backlog_path = payload.get("backlog_path")
-                current_task_id = payload.get("task_id")
-                if backlog_path and current_task_id and is_task_done(Path(backlog_path), str(current_task_id)):
-                    log_event(
-                        log_path,
-                        "WARN",
-                        "follow-up prompt stuck with done task; invoking fallback stop",
-                        task_id=current_task_id,
-                    )
-                    fallback_invoked = invoke_stop_hook_fallback(monitor.workdir, task_path, log_path)
-                else:
-                    log_event(
-                        log_path,
-                        "INFO",
-                        "follow-up prompt visible but task not marked done yet",
-                        task_id=current_task_id,
-                    )
-        else:
-            followup_seen_at = None
         if getattr(monitor, "result_status", None) == "success":
             if not task_path.exists():
                 return "completed"
-            if getattr(monitor, "result_seen_at", None) and (time.time() - monitor.result_seen_at) >= 10.0:
-                if not fallback_invoked or (time.time() - fallback_last_attempt) >= 5.0:
-                    log_event(log_path, "WARN", "result success observed; invoking stop-hook fallback")
-                    fallback_last_attempt = time.time()
-                    fallback_invoked = invoke_stop_hook_fallback(monitor.workdir, task_path, log_path)
-                if not task_path.exists():
-                    return "completed"
-                if hard_cleanup_after_success(task_path, log_path):
-                    return "completed"
 
         if monitor.proc.poll() is not None:
             returncode = int(monitor.proc.returncode or 0)
-            if returncode == 0:
-                log_event(log_path, "WARN", "agent exited with code 0 while task still active; attempting cleanup")
-                if not fallback_invoked or (time.time() - fallback_last_attempt) >= 5.0:
-                    fallback_last_attempt = time.time()
-                    fallback_invoked = invoke_stop_hook_fallback(monitor.workdir, task_path, log_path)
-                if not task_path.exists() or hard_cleanup_after_success(task_path, log_path):
-                    return "completed"
+            if returncode == 0 and not task_path.exists():
+                return "completed"
             log_event(log_path, "ERROR", "agent process exited while task still active", returncode=monitor.proc.returncode)
             debug_log(
                 "H4",
@@ -191,9 +143,6 @@ def wait_for_process_exit(
     confirm_exit: Optional[Callable[[], bool]] = None,
 ) -> str:
     start_time = time.time()
-    followup_seen_at: Optional[float] = None
-    followup_enter_sent = False
-    followup_ctrlc_sent = False
     debug_log(
         "H3",
         "orc_core/supervisor_lifecycle.py:wait_for_process_exit:start",
@@ -214,21 +163,7 @@ def wait_for_process_exit(
             log_event(log_path, "INFO", "escape interrupt cancelled", label=label)
         monitor.maybe_report()
         if stop_on_followup_prompt and getattr(monitor, "ui_followup_prompt", False):
-            if followup_seen_at is None:
-                followup_seen_at = time.time()
-                log_event(log_path, "WARN", "follow-up prompt visible during phase", label=label)
-            seen_for = time.time() - followup_seen_at
-            if seen_for >= 10.0 and not followup_enter_sent:
-                followup_enter_sent = True
-                monitor.send_keys(["Enter"], label=f"{label}:followup:enter")
-            if seen_for >= 20.0 and not followup_ctrlc_sent:
-                followup_ctrlc_sent = True
-                monitor.send_keys(["C-C"], label=f"{label}:followup:ctrlc")
-            if seen_for >= 40.0:
-                log_event(log_path, "WARN", "follow-up prompt stuck; forcing phase end", label=label)
-                return "followup_stuck"
-        else:
-            followup_seen_at = None
+            log_event(log_path, "WARN", "follow-up prompt visible during phase", label=label)
         if monitor.proc.poll() is not None:
             log_event(
                 log_path,

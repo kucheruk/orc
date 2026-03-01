@@ -134,10 +134,9 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
-    @patch("orc_core.task_execution.get_resume_id_from_agent_ls", return_value=None)
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
     @patch("orc_core.task_execution.write_task_file")
-    def test_missing_resume_id_resets_state_and_restarts_fresh(self, write_task_file, *_mocks) -> None:
+    def test_missing_resume_id_fails_fast(self, write_task_file, *_mocks) -> None:
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
@@ -151,10 +150,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
             )
             result = engine.execute(request)
 
-        self.assertEqual(result.status, "completed")
-        self.assertEqual(worker.launch_calls, 1)
-        write_task_file.assert_called_once()
-        self.assertFalse(worker.launch_kwargs[0].get("resume_latest"))
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "missing_conversation_id")
+        self.assertEqual(worker.launch_calls, 0)
+        write_task_file.assert_not_called()
 
 
 if __name__ == "__main__":

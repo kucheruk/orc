@@ -42,21 +42,11 @@ class _FakeMonitor:
 
 
 class SupervisorLifecycleTest(unittest.TestCase):
-    @patch("orc_core.supervisor_lifecycle.hard_cleanup_after_success", return_value=False)
-    @patch("orc_core.supervisor_lifecycle.invoke_stop_hook_fallback")
-    def test_wait_for_completion_treats_exit_zero_as_completed_after_cleanup(
-        self, invoke_stop_hook_fallback, hard_cleanup_after_success
-    ) -> None:
+    def test_wait_for_completion_treats_exit_zero_with_active_task_as_process_exited(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             task_path = Path(tmpdir) / "orc-task.json"
             task_path.write_text("{}", encoding="utf-8")
             monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
-            
-            def _fallback(_workdir: str, _task_path: Path, _log_path: Path) -> bool:
-                task_path.unlink()
-                return True
-
-            invoke_stop_hook_fallback.side_effect = _fallback
 
             result = wait_for_completion(
                 task_path=task_path,
@@ -72,9 +62,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
                 task_text="repro",
             )
 
-        self.assertEqual(result, "completed")
-        invoke_stop_hook_fallback.assert_called_once()
-        hard_cleanup_after_success.assert_not_called()
+        self.assertEqual(result, "process_exited")
 
     def test_wait_for_completion_raises_on_confirmed_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

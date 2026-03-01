@@ -15,7 +15,6 @@ from .logging import debug_log, log_event
 from .process import kill_process_tree
 from .quit_signal import is_stop_requested
 from .runner import launch_agent_stream_json
-from .supervisor_fallback import get_resume_id_from_agent_ls, update_task_conversation_id
 from .supervisor_lifecycle import wait_for_completion, wait_for_process_exit
 from .task_source import Task
 from .text_parse import clean_summary_lines
@@ -188,30 +187,6 @@ def _git_run(workdir: str, log_path: Path, args: list[str], label: str) -> tuple
     return ok, result.stdout or "", result.stderr or "", int(result.returncode)
 
 
-def _attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, task_text: str) -> bool:
-    ok_add, _, _, _ = _git_run(workdir, log_path, ["git", "add", "-A"], label="commit_fallback:add_all")
-    if not ok_add:
-        return False
-
-    ok_quiet, _, _, rc = _git_run(workdir, log_path, ["git", "diff", "--cached", "--quiet"], label="commit_fallback:cached_quiet")
-    if ok_quiet:
-        return True
-    if rc not in (1,):
-        return False
-
-    title = f"{task_id}: checkpoint"
-    body = "Commit phase fallback: committed remaining changes left after commit phase."
-    if task_text:
-        body = f"{body}\n\nTask: {task_text}"
-    ok_commit, _, _, _ = _git_run(
-        workdir,
-        log_path,
-        ["git", "commit", "-m", title, "-m", body],
-        label="commit_fallback:commit",
-    )
-    return ok_commit
-
-
 def _run_commit_phase(
     worker: TaskWorker,
     request: TaskExecutionRequest,
@@ -255,7 +230,7 @@ def _run_commit_phase(
         monitor.stop()
         kill_process_tree(monitor.init_pid or monitor.proc.pid, log_path, label="commit-phase")
 
-    if result not in {"completed", "followup_stuck"}:
+    if result != "completed":
         log_event(log_path, "ERROR", "commit phase failed", task_id=task_id, result=result)
         ui_error(f"[orc] commit phase: failed ({result})")
         return False
@@ -276,30 +251,11 @@ def _run_commit_phase(
             ui_warn("[orc] commit phase: warning (repo has untracked files)")
             return True
 
-        task_text = str(prompt_vars.get("task_text") or "").strip()
         if tracked:
-            ui_warn("[orc] commit phase: finished but repo still dirty; attempting fallback commit")
-            if not _attempt_autocommit_fallback(request.workdir, log_path, task_id=task_id, task_text=task_text):
-                ui_error("[orc] commit phase: fallback commit failed")
-                return False
-
-        ok3, porcelain3 = _git_status_porcelain(request.workdir, log_path)
-        if ok3 and porcelain3.strip():
-            tracked3, untracked3 = _parse_git_porcelain(porcelain3)
-            if tracked3:
-                log_event(
-                    log_path,
-                    "ERROR",
-                    "commit phase still dirty after fallback",
-                    task_id=task_id,
-                    tracked=len(tracked3),
-                    untracked=len(untracked3),
-                    porcelain=porcelain3[:500],
-                )
-                ui_error("[orc] commit phase: still dirty after fallback")
-                return False
-            ui_warn("[orc] commit phase: completed (untracked leftovers remain)")
-            return True
+            ui_error("[orc] commit phase: completed but tracked changes remain")
+            return False
+        ui_warn("[orc] commit phase: completed (untracked leftovers remain)")
+        return True
 
     log_event(log_path, "INFO", "commit phase completed", task_id=task_id)
     ui_info("[orc] commit phase: completed")
@@ -352,23 +308,8 @@ class TaskExecutionEngine:
             log_event(self.log_path, "INFO", "resume existing task", task_id=task_id)
             ui_info(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
             if not resume_id:
-                resume_id = get_resume_id_from_agent_ls(request.workdir, self.log_path)
-                if resume_id:
-                    update_task_conversation_id(request.task_path, self.log_path, resume_id)
-                else:
-                    ui_warn("⚠️ Resume ID не найден, сбрасываю state и запускаю задачу заново.")
-                    try:
-                        request.task_path.unlink()
-                        resume_existing = False
-                        log_event(
-                            self.log_path,
-                            "WARN",
-                            "resume state reset: missing conversation_id",
-                            task_id=task_id,
-                            task_path=str(request.task_path),
-                        )
-                    except Exception as exc:
-                        log_event(self.log_path, "ERROR", "failed to reset resume state", error=str(exc))
+                ui_error("❌ Resume state поврежден: отсутствует conversation_id в task file.")
+                return TaskExecutionResult(status="failed", reason="missing_conversation_id")
             log_event(
                 self.log_path,
                 "INFO",

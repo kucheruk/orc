@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from .backlog import is_task_done
 from .logging import log_event
 
 
@@ -162,67 +161,3 @@ def get_resume_id_from_agent_ls(workdir: str, log_path: Path) -> Optional[str]:
     else:
         log_event(log_path, "WARN", "agent ls returned no resume id")
     return resume_id
-
-
-def invoke_stop_hook_fallback(workdir: str, task_path: Path, log_path: Path) -> bool:
-    stop_hook = Path(workdir) / ".cursor" / "hooks" / "orc_stop.py"
-    if not stop_hook.exists():
-        log_event(log_path, "WARN", "fallback stop skipped: hook missing", hook=str(stop_hook))
-        return False
-    try:
-        payload = json.loads(task_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        log_event(log_path, "ERROR", "fallback stop: failed to read task file", error=str(exc))
-        return False
-    stdin_payload = {
-        "status": "completed",
-        "loop_count": 0,
-        "conversation_id": payload.get("conversation_id") or "",
-    }
-    try:
-        result = subprocess.run(
-            ["python3", str(stop_hook)],
-            cwd=workdir,
-            input=json.dumps(stdin_payload),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-        )
-    except Exception as exc:
-        log_event(log_path, "ERROR", "fallback stop: hook invocation failed", error=str(exc))
-        return False
-    log_event(
-        log_path,
-        "WARN" if result.returncode != 0 else "INFO",
-        "fallback stop invoked",
-        returncode=result.returncode,
-        stdout=(result.stdout or "")[:500],
-        stderr=(result.stderr or "")[:500],
-    )
-    return result.returncode == 0
-
-
-def hard_cleanup_after_success(task_path: Path, log_path: Path) -> bool:
-    payload = load_task_payload(task_path)
-    backlog_path_raw = str(payload.get("backlog_path") or "").strip()
-    current_task_id = str(payload.get("task_id") or "").strip()
-    if not backlog_path_raw or not current_task_id:
-        return False
-    backlog_path = Path(backlog_path_raw)
-    if not backlog_path.exists():
-        return delete_task_file(
-            task_path,
-            log_path,
-            reason="result_success_backlog_missing",
-            expected_task_id=current_task_id,
-        )
-    if is_task_done(backlog_path, current_task_id):
-        return delete_task_file(
-            task_path,
-            log_path,
-            reason="result_success_backlog_already_done",
-            expected_task_id=current_task_id,
-            expected_backlog=backlog_path,
-        )
-    return False

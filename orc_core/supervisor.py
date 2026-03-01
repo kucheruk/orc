@@ -15,14 +15,11 @@ from .logging import ORC_LOG_NAME, ORC_ROOT, debug_log, log_event
 from .notify import send_telegram_message
 from .process import acquire_lock, kill_process_tree, release_lock
 from .runner import launch_agent_stream_json
-from .supervisor_fallback import (
+from .task_state import (
     cleanup_stale_task_file as _cleanup_stale_task_file,
     create_temp_backlog as _create_temp_backlog,
     delete_task_file as _delete_task_file,
-    get_resume_id_from_agent_ls as _get_resume_id_from_agent_ls,
-    invoke_stop_hook_fallback as _invoke_stop_hook_fallback,
     load_task_payload as _load_task_payload,
-    update_task_conversation_id as _update_task_conversation_id,
 )
 from .supervisor_lifecycle import (
     wait_for_completion as lifecycle_wait_for_completion,

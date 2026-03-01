@@ -231,9 +231,8 @@ class StreamJsonMonitor:
     def get_summary_text(self) -> str:
         return self._state.summary_text()
 
-    def send_keys(self, keys: Iterable[str], label: str = "", fallback: Optional[Iterable[Iterable[str]]] = None) -> bool:
+    def send_keys(self, keys: Iterable[str], label: str = "") -> bool:
         log_event(self.log_path, "INFO", "send_keys_ignored", keys=list(keys), label=label)
-        _ = fallback
         return False
 
     def stop(self) -> None:
