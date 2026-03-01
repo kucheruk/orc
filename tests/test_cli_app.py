@@ -84,6 +84,24 @@ class CliAppModeSelectionTest(unittest.TestCase):
         self.assertEqual(args.model, "gpt-5.3-codex")
 
     @patch("orc_core.cli_app.show_start_menu")
+    def test_menu_status_line_passed_to_start_screen(self, show_start_menu) -> None:
+        args = _args()
+        show_start_menu.return_value = StartMenuChoice(mode="single", task_id="TASK-002", model="gpt-5.3-codex")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _resolve_mode(
+                args,
+                Path(tmpdir) / "BACKLOG.md",
+                models=["gpt-5.3-codex"],
+                default_model="gpt-5.3-codex",
+                status_line="Задача TASK-002 завершена успешно",
+            )
+
+        show_start_menu.assert_called_once()
+        _, kwargs = show_start_menu.call_args
+        self.assertEqual(kwargs["status_line"], "Задача TASK-002 завершена успешно")
+
+    @patch("orc_core.cli_app.show_start_menu")
     def test_resume_mode_choice_maps_to_backlog_mode(self, show_start_menu) -> None:
         args = _args()
         show_start_menu.return_value = StartMenuChoice(mode="resume", task_id="TASK-002", model="gpt-5.3-codex")
@@ -259,6 +277,102 @@ class CliAppTuiMouseReportingTest(unittest.TestCase):
 
         self.assertEqual(result, 0)
         orc_app_instance.run.assert_called_once_with(mouse=False)
+
+    @patch("orc_core.cli_app.release_lock")
+    @patch("orc_core.cli_app.acquire_lock")
+    @patch("orc_core.cli_app.load_prompt", return_value="template")
+    @patch("orc_core.cli_app._cleanup_stale_task_file")
+    @patch("orc_core.cli_app._validate_inputs", return_value=True)
+    @patch("orc_core.cli_app._resolve_backlog")
+    @patch("orc_core.cli_app.init_debug_logging", return_value=None)
+    @patch("orc_core.cli_app._resolve_model")
+    @patch("orc_core.cli_app._resolve_mode")
+    @patch("orc_core.cli_app.start_model_list_loading")
+    @patch("orc_core.cli_app.ensure_agent_installed")
+    @patch("orc_core.cli_app.OrcApp")
+    @patch("orc_core.cli_app.BacklogOrchestrator")
+    @patch("orc_core.cli_app.TaskExecutionEngine")
+    @patch("orc_core.cli_app.build_parser")
+    def test_main_returns_to_menu_after_single_success(
+        self,
+        build_parser_mock,
+        _engine_mock,
+        orchestrator_cls_mock,
+        orc_app_cls_mock,
+        _ensure_agent_installed_mock,
+        model_loader_mock,
+        resolve_mode_mock,
+        _resolve_model_mock,
+        _init_debug_logging_mock,
+        resolve_backlog_mock,
+        _validate_inputs_mock,
+        _cleanup_stale_task_file_mock,
+        _load_prompt_mock,
+        _acquire_lock_mock,
+        _release_lock_mock,
+    ) -> None:
+        args = Namespace(
+            backlog="BACKLOG.md",
+            task="",
+            workspace=".",
+            model="",
+            prompt_template="",
+            continue_template="",
+            commit_template="",
+            commit_model="",
+            commit_phase=False,
+            allow_fallback_commits=False,
+            commit_stall_timeout=300.0,
+            commit_ttl=1800.0,
+            poll=1.0,
+            stall_timeout=600.0,
+            task_ttl=21600.0,
+            max_restarts=2,
+            report_interval=2.0,
+            summary_lines=25,
+            nudge_after=10,
+            nudge_cooldown=300.0,
+            nudge_text="continue",
+            telegram_test=None,
+            reinit_hooks=False,
+            drop=False,
+            mode="",
+            task_id="",
+            prompt="",
+            debug=False,
+            agent_output_log=False,
+        )
+        build_parser_mock.return_value = SimpleNamespace(parse_args=lambda: args)
+        resolve_backlog_mock.return_value = (Path("BACKLOG.md"), None)
+        orchestrator_cls_mock.return_value = SimpleNamespace(last_failure_reason="", run_async=lambda: None)
+        model_loader_mock.return_value = SimpleNamespace(result=lambda timeout=30.0: ["gpt-5.3-codex"])
+        call_index = {"value": 0}
+
+        def _resolve_mode_side_effect(mut_args, *_args, **kwargs):
+            status_line = kwargs.get("status_line", "")
+            if call_index["value"] == 0:
+                mut_args.mode = "single"
+                mut_args.task_id = "TASK-009"
+                mut_args.model = "gpt-5.3-codex"
+                self.assertEqual(status_line, "")
+            else:
+                mut_args.mode = "backlog"
+                mut_args.task_id = ""
+                mut_args.model = "gpt-5.3-codex"
+                self.assertEqual(status_line, "Задача TASK-009 завершена успешно")
+            call_index["value"] += 1
+
+        resolve_mode_mock.side_effect = _resolve_mode_side_effect
+        orc_app_cls_mock.side_effect = [
+            SimpleNamespace(run=lambda mouse=False: 0, last_error=None),
+            SimpleNamespace(run=lambda mouse=False: 0, last_error=None),
+        ]
+
+        result = cli_app.main()
+
+        self.assertEqual(result, 0)
+        self.assertEqual(resolve_mode_mock.call_count, 2)
+        self.assertEqual(orc_app_cls_mock.call_count, 2)
 
 
 class CliAppCrashStdoutDiagnosticsTest(unittest.TestCase):

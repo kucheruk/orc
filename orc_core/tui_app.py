@@ -27,12 +27,14 @@ class _StartMenuApp(App[Optional[StartMenuChoice]]):
         models: list[str],
         default_model: str,
         resume_task_id: str = "",
+        status_line: str = "",
     ) -> None:
         super().__init__()
         self._backlog_status = backlog_status
         self._models = models
         self._default_model = default_model
         self._resume_task_id = resume_task_id
+        self._status_line = status_line
 
     def on_mount(self) -> None:
         self.push_screen(
@@ -41,6 +43,7 @@ class _StartMenuApp(App[Optional[StartMenuChoice]]):
                 models=self._models,
                 default_model=self._default_model,
                 resume_task_id=self._resume_task_id,
+                status_line=self._status_line,
             ),
             self._on_choice,
         )
@@ -117,11 +120,13 @@ def run_start_menu(
     models: list[str],
     default_model: str,
     resume_task_id: str = "",
+    status_line: str = "",
 ) -> Optional[StartMenuChoice]:
     app = _StartMenuApp(
         backlog_status,
         models=models,
         default_model=default_model,
         resume_task_id=resume_task_id,
+        status_line=status_line,
     )
     return app.run(mouse=False)

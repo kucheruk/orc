@@ -7,6 +7,11 @@
     margin: 1 0;
 }
 
+#status_line {
+    height: 1;
+    margin-top: 1;
+}
+
 .col {
     width: 1fr;
     padding: 0 1;

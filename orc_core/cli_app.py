@@ -109,6 +109,7 @@ def _resolve_mode(
     models: Optional[list[str]] = None,
     default_model: str = DEFAULT_MODEL,
     task_path: Optional[Path] = None,
+    status_line: str = "",
 ) -> None:
     explicit_new_flow = bool(args.mode or args.task_id.strip() or args.prompt.strip())
     if explicit_new_flow:
@@ -128,6 +129,7 @@ def _resolve_mode(
         models=models,
         default_model=default_model,
         resume_task_id=resume_task_id,
+        status_line=status_line,
     )
     args.mode = "backlog" if choice.mode == "resume" else choice.mode
     args.debug = bool(args.debug or choice.debug_enabled)
@@ -216,107 +218,122 @@ def main() -> int:
         interactive_requested = _should_use_interactive_flow(args)
         model_loader = start_model_list_loading() if interactive_requested else None
 
-        initial_backlog_path = Path(workdir) / args.backlog
-        if interactive_requested:
-            last_model = str(args.model).strip() or load_last_selected_model(workdir) or DEFAULT_MODEL
-            models = model_loader.result(timeout=30.0) if model_loader is not None else [DEFAULT_MODEL]
-            _resolve_mode(
-                args,
-                initial_backlog_path,
-                models=models,
-                default_model=last_model,
-                task_path=task_path,
-            )
-        else:
-            _resolve_mode(args, initial_backlog_path)
-        try:
-            _resolve_model(args, workdir, interactive_requested=interactive_requested, model_loader=model_loader)
-        except ModelSelectionError as exc:
-            ui_error(f"❌ {exc}")
-            return 2
-        debug_log_path = init_debug_logging(enabled=bool(args.debug), workdir=workdir)
-        if debug_log_path is not None:
-            ui_info(f"[orc] debug log: {debug_log_path}")
-            log_event(log_path, "INFO", "debug logging enabled", debug_log_path=str(debug_log_path))
-        args.agent_output_log_path = ""
-        if bool(args.agent_output_log):
-            transcript_path = _build_agent_output_log_path()
-            args.agent_output_log_path = str(transcript_path)
-            ui_info(f"[orc] agent output log: {transcript_path}")
-            log_event(log_path, "INFO", "agent output logging enabled", agent_output_log_path=str(transcript_path))
-        backlog_path, temp_backlog_path = _resolve_backlog(args, workdir, log_path)
-        if not _validate_inputs(args, backlog_path):
-            return 2
-
-        _cleanup_stale_task_file(task_path, log_path, allowed_backlog=backlog_path)
-        acquire_lock(lock_path, log_path)
-        lock_acquired = True
-        try:
+        last_model = str(args.model).strip() or load_last_selected_model(workdir) or DEFAULT_MODEL
+        models = model_loader.result(timeout=30.0) if model_loader is not None else [DEFAULT_MODEL]
+        status_line = ""
+        while True:
+            initial_backlog_path = Path(workdir) / args.backlog
+            if interactive_requested:
+                _resolve_mode(
+                    args,
+                    initial_backlog_path,
+                    models=models,
+                    default_model=last_model,
+                    task_path=task_path,
+                    status_line=status_line,
+                )
+                status_line = ""
+            else:
+                _resolve_mode(args, initial_backlog_path)
+            last_model = str(args.model).strip() or last_model
             try:
-                template = load_prompt(Path(args.prompt_template)) if args.prompt_template else load_prompt(DEFAULT_PROMPT_PATH)
-                continue_template = load_prompt(Path(args.continue_template)) if args.continue_template else load_prompt(CONTINUE_PROMPT_PATH)
-                commit_template = ""
-                if args.commit_phase:
-                    commit_template = load_prompt(Path(args.commit_template)) if args.commit_template else load_prompt(COMMIT_PROMPT_PATH)
-            except FileNotFoundError as exc:
-                log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
+                _resolve_model(args, workdir, interactive_requested=interactive_requested, model_loader=model_loader)
+            except ModelSelectionError as exc:
+                ui_error(f"❌ {exc}")
+                return 2
+            debug_log_path = init_debug_logging(enabled=bool(args.debug), workdir=workdir)
+            if debug_log_path is not None:
+                ui_info(f"[orc] debug log: {debug_log_path}")
+                log_event(log_path, "INFO", "debug logging enabled", debug_log_path=str(debug_log_path))
+            args.agent_output_log_path = ""
+            if bool(args.agent_output_log):
+                transcript_path = _build_agent_output_log_path()
+                args.agent_output_log_path = str(transcript_path)
+                ui_info(f"[orc] agent output log: {transcript_path}")
+                log_event(log_path, "INFO", "agent output logging enabled", agent_output_log_path=str(transcript_path))
+            backlog_path, temp_backlog_path = _resolve_backlog(args, workdir, log_path)
+            if not _validate_inputs(args, backlog_path):
                 return 2
 
-            run_root = Path(workdir) / ".orc" / "backlog-run"
-            engine = TaskExecutionEngine(log_path=log_path)
-            orchestrator = BacklogOrchestrator(
-                workdir=workdir,
-                backlog_path=backlog_path,
-                args=args,
-                task_path=task_path,
-                run_root=run_root,
-                log_path=log_path,
-                prompt_template=template,
-                continue_template=continue_template,
-                commit_template=commit_template,
-                engine=engine,
-            )
-
-            def _run_orchestrator(snapshot_publisher: Callable[[MonitorSnapshot], None]) -> int:
-                orchestrator.snapshot_publisher = snapshot_publisher
-                return asyncio.run(orchestrator.run_async())
-
-            app = OrcApp(_run_orchestrator)
-            result = app.run(mouse=False)
-            exit_code = int(result if result is not None else 1)
-            if app.last_error:
-                crash_payload = emit_crash_stdout_payload(
-                    entrypoint="orc_core.cli_app:main",
-                    phase="orchestrator.run_async",
-                    exception_type="OrchestratorUnhandledException",
-                    error="orchestrator crashed",
-                    traceback_text=app.last_error,
-                    workspace=workdir,
-                )
-                log_event(log_path, "ERROR", "orchestrator crashed", **crash_payload)
-                ui_error("❌ ORC завершился из-за необработанной ошибки. Traceback:")
-                print(app.last_error, file=sys.stderr, flush=True)
-            elif exit_code != 0:
-                ui_error(f"❌ {_failure_message(orchestrator.last_failure_reason)}")
-            return exit_code
-        except KeyboardInterrupt:
-            log_event(log_path, "WARN", "keyboard interrupt")
-            ui_warn("⏹️ Прервано. Состояние сохранено.")
-            return 130
-        finally:
-            if lock_acquired:
-                release_lock(lock_path, log_path)
-            if temp_backlog_path is not None and task_path.exists():
-                payload = _load_task_payload(task_path)
-                task_backlog = str(payload.get("backlog_path") or "").strip()
-                if not task_backlog or Path(task_backlog) == temp_backlog_path or not Path(task_backlog).exists():
-                    _delete_task_file(task_path, log_path, reason="one_off_final_cleanup")
-            if temp_backlog_path is not None and temp_backlog_path.exists():
+            _cleanup_stale_task_file(task_path, log_path, allowed_backlog=backlog_path)
+            acquire_lock(lock_path, log_path)
+            lock_acquired = True
+            try:
                 try:
-                    temp_backlog_path.unlink()
-                    log_event(log_path, "INFO", "temporary backlog removed", backlog_path=str(temp_backlog_path))
-                except Exception as exc:
-                    log_event(log_path, "WARN", "failed to remove temporary backlog", error=str(exc), backlog_path=str(temp_backlog_path))
+                    template = load_prompt(Path(args.prompt_template)) if args.prompt_template else load_prompt(DEFAULT_PROMPT_PATH)
+                    continue_template = load_prompt(Path(args.continue_template)) if args.continue_template else load_prompt(CONTINUE_PROMPT_PATH)
+                    commit_template = ""
+                    if args.commit_phase:
+                        commit_template = load_prompt(Path(args.commit_template)) if args.commit_template else load_prompt(COMMIT_PROMPT_PATH)
+                except FileNotFoundError as exc:
+                    log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
+                    ui_error(str(exc))
+                    return 2
+
+                run_root = Path(workdir) / ".orc" / "backlog-run"
+                engine = TaskExecutionEngine(log_path=log_path)
+                orchestrator = BacklogOrchestrator(
+                    workdir=workdir,
+                    backlog_path=backlog_path,
+                    args=args,
+                    task_path=task_path,
+                    run_root=run_root,
+                    log_path=log_path,
+                    prompt_template=template,
+                    continue_template=continue_template,
+                    commit_template=commit_template,
+                    engine=engine,
+                )
+
+                def _run_orchestrator(snapshot_publisher: Callable[[MonitorSnapshot], None]) -> int:
+                    orchestrator.snapshot_publisher = snapshot_publisher
+                    return asyncio.run(orchestrator.run_async())
+
+                app = OrcApp(_run_orchestrator)
+                result = app.run(mouse=False)
+                exit_code = int(result if result is not None else 1)
+                if app.last_error:
+                    crash_payload = emit_crash_stdout_payload(
+                        entrypoint="orc_core.cli_app:main",
+                        phase="orchestrator.run_async",
+                        exception_type="OrchestratorUnhandledException",
+                        error="orchestrator crashed",
+                        traceback_text=app.last_error,
+                        workspace=workdir,
+                    )
+                    log_event(log_path, "ERROR", "orchestrator crashed", **crash_payload)
+                    ui_error("❌ ORC завершился из-за необработанной ошибки. Traceback:")
+                    print(app.last_error, file=sys.stderr, flush=True)
+                elif exit_code != 0:
+                    ui_error(f"❌ {_failure_message(orchestrator.last_failure_reason)}")
+                if interactive_requested and exit_code == 0 and str(args.mode).strip() == "single":
+                    completed_task_id = str(args.task_id).strip()
+                    status_line = f"Задача {completed_task_id} завершена успешно" if completed_task_id else "Задача завершена успешно"
+                    args.mode = ""
+                    args.task_id = ""
+                    args.prompt = ""
+                    args.task = ""
+                    continue
+                return exit_code
+            except KeyboardInterrupt:
+                log_event(log_path, "WARN", "keyboard interrupt")
+                ui_warn("⏹️ Прервано. Состояние сохранено.")
+                return 130
+            finally:
+                if lock_acquired:
+                    release_lock(lock_path, log_path)
+                lock_acquired = False
+                if temp_backlog_path is not None and task_path.exists():
+                    payload = _load_task_payload(task_path)
+                    task_backlog = str(payload.get("backlog_path") or "").strip()
+                    if not task_backlog or Path(task_backlog) == temp_backlog_path or not Path(task_backlog).exists():
+                        _delete_task_file(task_path, log_path, reason="one_off_final_cleanup")
+                if temp_backlog_path is not None and temp_backlog_path.exists():
+                    try:
+                        temp_backlog_path.unlink()
+                        log_event(log_path, "INFO", "temporary backlog removed", backlog_path=str(temp_backlog_path))
+                    except Exception as exc:
+                        log_event(log_path, "WARN", "failed to remove temporary backlog", error=str(exc), backlog_path=str(temp_backlog_path))
     except KeyboardInterrupt:
         log_event(log_path, "WARN", "keyboard interrupt")
         ui_warn("⏹️ Прервано. Состояние сохранено.")

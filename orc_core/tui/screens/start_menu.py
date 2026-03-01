@@ -22,12 +22,14 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         models: list[str],
         default_model: str,
         resume_task_id: str = "",
+        status_line: str = "",
     ) -> None:
         super().__init__()
         self._backlog_status = backlog_status
         self._models = list(models)
         self._default_model = default_model if default_model in models else models[0]
         self._resume_task_id = resume_task_id.strip()
+        self._status_line = status_line.strip()
         self._mode_values = [
             ("backlog", "Выполнять задачи из backlog в цикле"),
             ("single", "Выполнить одну задачу из backlog"),
@@ -40,6 +42,8 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         yield Header()
         with Vertical(id="menu_root"):
             yield Label(self._menu_text(), id="menu_text")
+            if self._status_line:
+                yield Label(f"[green]{self._status_line}[/green]", id="status_line")
             with Horizontal(id="menu_cols"):
                 with Vertical(classes="col"):
                     yield Label("Режим")
