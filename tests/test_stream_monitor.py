@@ -228,6 +228,26 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         self.assertEqual(state.metrics.tokens_total, 20)
 
+    def test_incremental_usage_for_same_request_counts_only_growth(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        first = {
+            "type": "result",
+            "request_id": "req-grow",
+            "usage": {"inputTokens": 6, "outputTokens": 4},
+        }
+        second = {
+            "type": "result",
+            "request_id": "req-grow",
+            "usage": {"inputTokens": 9, "outputTokens": 6},
+        }
+        state.record_event(first)
+        state.record_event(second)
+
+        self.assertEqual(state.metrics.tokens_total, 15)
+        self.assertEqual(state.metrics.tokens_source, "structured")
+
     def test_event_summary_contains_useful_context(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 

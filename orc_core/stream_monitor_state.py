@@ -78,6 +78,7 @@ class StreamMonitorState:
         self._spinner_idx = 0
         self._last_event_at = started_at
         self._seen_token_usage_keys: set[str] = set()
+        self._max_tokens_by_request: dict[str, int] = {}
 
     def set_progress(self, done: int, total: int) -> None:
         self._progress_done = max(0, int(done))
@@ -344,9 +345,9 @@ class StreamMonitorState:
                     return parsed
         return None
 
-    def _extract_structured_token_entries(self, event: Dict[str, object]) -> list[tuple[str, int]]:
+    def _extract_structured_token_entries(self, event: Dict[str, object]) -> list[tuple[str, str, int]]:
         request_id = self._extract_request_id(event) or ""
-        entries: list[tuple[str, int]] = []
+        entries: list[tuple[str, str, int]] = []
 
         def visit(value: object) -> None:
             if isinstance(value, dict):
@@ -363,7 +364,7 @@ class StreamMonitorState:
                     }
                     signature = json.dumps(usage_payload, ensure_ascii=False, sort_keys=True)
                     usage_key = f"{request_id}:{signature}" if request_id else signature
-                    entries.append((usage_key, total))
+                    entries.append((request_id, usage_key, total))
                 for inner in value.values():
                     visit(inner)
             elif isinstance(value, list):
@@ -372,13 +373,13 @@ class StreamMonitorState:
 
         visit(event)
         # stable de-duplication within one event
-        result: list[tuple[str, int]] = []
+        result: list[tuple[str, str, int]] = []
         seen_local: set[str] = set()
-        for usage_key, total in entries:
+        for request_key, usage_key, total in entries:
             if usage_key in seen_local:
                 continue
             seen_local.add(usage_key)
-            result.append((usage_key, total))
+            result.append((request_key, usage_key, total))
         return result
 
     def _string_arg(self, value: object) -> str:
@@ -567,10 +568,16 @@ class StreamMonitorState:
             self._recent_events.append(self._summarize_event(event, text))
         if structured_entries:
             total_delta = 0
-            for usage_key, usage_tokens in structured_entries:
+            for request_key, usage_key, usage_tokens in structured_entries:
                 if usage_key in self._seen_token_usage_keys:
                     continue
                 self._seen_token_usage_keys.add(usage_key)
+                if request_key:
+                    previous_max = self._max_tokens_by_request.get(request_key, 0)
+                    if usage_tokens > previous_max:
+                        total_delta += usage_tokens - previous_max
+                        self._max_tokens_by_request[request_key] = usage_tokens
+                    continue
                 total_delta += usage_tokens
             if total_delta > 0:
                 self.metrics.tokens_total = (self.metrics.tokens_total or 0) + total_delta
