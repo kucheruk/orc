@@ -63,6 +63,7 @@ class BacklogModeCycleGuardTest(unittest.TestCase):
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=engine,
+                use_task_worktrees=False,
                 sleep_fn=lambda _seconds: None,
             )
             rc = orchestrator.run()

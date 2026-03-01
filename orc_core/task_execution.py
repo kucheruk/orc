@@ -23,6 +23,7 @@ from .supervisor_lifecycle import wait_for_completion, wait_for_process_exit
 from .task_source import Task
 from .text_parse import clean_summary_lines
 from .ui import ui_error, ui_info, ui_warn
+from .worktree_flow import get_head_commit, integrate_commit_into_main
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
 
@@ -39,13 +40,18 @@ class TaskExecutionRequest:
     backlog_arg: str
     task_path: Path
     workdir: str
+    base_workdir: str
     run_root: Path
     model: str
     commit_model: str
+    merge_expert_model: str
     prompt_template: str
     continue_template: str
     commit_template: str
+    merge_expert_template: str
     commit_phase: bool
+    integrate_to_main: bool
+    main_branch: str
     allow_fallback_commits: bool
     poll: float
     stall_timeout: float
@@ -305,6 +311,23 @@ def _attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, tas
     return ok_commit
 
 
+def _has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> bool:
+    ok, stdout, stderr, _ = _git_run(
+        workdir,
+        log_path,
+        ["git", "rev-list", "--count", f"{branch}..HEAD"],
+        label="integration:ahead_count",
+    )
+    if not ok:
+        log_event(log_path, "ERROR", "failed to detect ahead commits", branch=branch, error=stderr[:200])
+        return False
+    try:
+        return int((stdout or "0").strip() or "0") > 0
+    except ValueError:
+        log_event(log_path, "ERROR", "invalid ahead count output", branch=branch, output=stdout[:100])
+        return False
+
+
 def _run_commit_phase(
     worker: TaskWorker,
     request: TaskExecutionRequest,
@@ -427,6 +450,70 @@ def _run_commit_phase(
     return True
 
 
+def _run_merge_expert_phase(
+    worker: TaskWorker,
+    request: TaskExecutionRequest,
+    prompt_vars: SafeDict,
+    task_id: str,
+    tag: str,
+    log_path: Path,
+    agent_output_log_path: Optional[str],
+) -> bool:
+    prompt = request.merge_expert_template.format_map(prompt_vars)
+    prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}__merge_expert")
+    log_event(
+        log_path,
+        "INFO",
+        "merge expert phase starting",
+        task_id=task_id,
+        prompt_path=str(prompt_path),
+        model=request.merge_expert_model,
+    )
+    ui_info("[orc] merge expert phase: starting")
+
+    try:
+        monitor = worker.launch(
+            workdir=request.base_workdir,
+            prompt_path=prompt_path,
+            model=request.merge_expert_model,
+            log_path=log_path,
+            report_interval=15.0,
+            summary_lines=25,
+            task_id=f"{task_id}::merge-expert",
+            progress_done=request.progress_done,
+            progress_total=request.progress_total,
+            agent_output_log_path=agent_output_log_path,
+            snapshot_publisher=request.snapshot_publisher,
+        )
+    except Exception as exc:
+        log_event(log_path, "ERROR", "merge expert phase launch failed", task_id=task_id, error=str(exc))
+        ui_error(f"[orc] merge expert phase: launch failed ({type(exc).__name__})")
+        return False
+
+    try:
+        result = wait_for_process_exit(
+            monitor=monitor,
+            poll=request.poll,
+            stall_timeout=request.commit_stall_timeout,
+            task_ttl=request.commit_ttl,
+            log_path=log_path,
+            label="merge_expert_phase",
+            stop_on_followup_prompt=True,
+            escape_requested=is_stop_requested,
+        )
+    finally:
+        monitor.stop()
+        _cleanup_monitor_processes(monitor, log_path, label="merge-expert-phase")
+
+    if result != "completed":
+        log_event(log_path, "ERROR", "merge expert phase failed", task_id=task_id, result=result)
+        ui_error(f"[orc] merge expert phase: failed ({result})")
+        return False
+    log_event(log_path, "INFO", "merge expert phase completed", task_id=task_id)
+    ui_info("[orc] merge expert phase: completed")
+    return True
+
+
 class TaskExecutionEngine:
     def __init__(self, *, worker: Optional[TaskWorker] = None, log_path: Path) -> None:
         self.worker = worker or AgentTaskWorker()
@@ -489,6 +576,72 @@ class TaskExecutionEngine:
             ):
                 ui_error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
                 return TaskExecutionResult(status="failed", reason="commit_phase_failed")
+
+            if request.integrate_to_main:
+                if not _has_commits_ahead_of_branch(request.workdir, request.main_branch, self.log_path):
+                    log_event(
+                        self.log_path,
+                        "INFO",
+                        "main integration skipped: no task commit ahead of main",
+                        task_id=current_task_id,
+                        branch=request.main_branch,
+                    )
+                    return TaskExecutionResult(status="completed")
+                try:
+                    commit_sha = get_head_commit(request.workdir)
+                except Exception as exc:
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "cannot resolve task commit sha before main integration",
+                        task_id=current_task_id,
+                        error=str(exc),
+                    )
+                    ui_error("❌ Не удалось определить commit задачи для переноса в main.")
+                    return TaskExecutionResult(status="failed", reason="integration_commit_sha_failed")
+
+                integration = integrate_commit_into_main(
+                    base_workdir=request.base_workdir,
+                    commit_sha=commit_sha,
+                    task_id=current_task_id,
+                    log_path=self.log_path,
+                    main_branch=request.main_branch,
+                )
+                if not integration.ok and integration.conflict:
+                    merge_prompt_vars = SafeDict(
+                        task_text=current_task_text,
+                        task_id=current_task_id,
+                        backlog=request.backlog_arg,
+                        workspace=request.base_workdir,
+                    )
+                    if not _run_merge_expert_phase(
+                        self.worker,
+                        request,
+                        merge_prompt_vars,
+                        current_task_id,
+                        current_tag,
+                        self.log_path,
+                        effective_agent_output_log_path,
+                    ):
+                        return TaskExecutionResult(status="failed", reason="merge_expert_phase_failed")
+                    integration = integrate_commit_into_main(
+                        base_workdir=request.base_workdir,
+                        commit_sha=commit_sha,
+                        task_id=current_task_id,
+                        log_path=self.log_path,
+                        main_branch=request.main_branch,
+                    )
+                if not integration.ok:
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "failed to integrate task commit into main",
+                        task_id=current_task_id,
+                        commit_sha=commit_sha,
+                        error=integration.error[:500],
+                    )
+                    ui_error(f"❌ Не удалось перенести commit в {request.main_branch}: {integration.error}")
+                    return TaskExecutionResult(status="failed", reason="main_integration_failed")
             return TaskExecutionResult(status="completed")
 
         debug_log(

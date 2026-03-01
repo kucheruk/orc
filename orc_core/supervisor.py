@@ -16,7 +16,7 @@ from .notify import send_telegram_message
 from .model_selector import DEFAULT_MODEL
 from .process import build_process_tree, is_pid_alive, kill_orphan_project_processes, kill_process_tree, acquire_lock, release_lock
 from .process_groups import terminate_process_group
-from .role_config import ROLE_CODER, ROLE_HANDOFF, RoleProfileRegistry
+from .role_config import ROLE_CODER, ROLE_HANDOFF, ROLE_MERGE_EXPERT, RoleProfileRegistry
 from .runner import launch_agent_stream_json
 from .task_state import (
     cleanup_stale_task_file as _cleanup_stale_task_file,
@@ -455,6 +455,8 @@ def main() -> int:
             template = coder_config.prompt
             continue_prompt = role_registry.resolve_continue_prompt(str(args.continue_template).strip())
             commit_template = ""
+            merge_expert_template = ""
+            merge_expert_model = ""
             if args.commit_phase:
                 handoff_config = role_registry.resolve_role(
                     workdir,
@@ -464,6 +466,9 @@ def main() -> int:
                 )
                 args.commit_model = handoff_config.model
                 commit_template = handoff_config.prompt
+            merge_expert_config = role_registry.resolve_role(workdir, ROLE_MERGE_EXPERT)
+            merge_expert_model = merge_expert_config.model
+            merge_expert_template = merge_expert_config.prompt
         except FileNotFoundError as exc:
             log_event(orc_log_path, "ERROR", "prompt file missing", error=str(exc))
             return 2
@@ -480,7 +485,11 @@ def main() -> int:
             prompt_template=template,
             continue_template=continue_prompt,
             commit_template=commit_template,
+            merge_expert_template=merge_expert_template,
             engine=engine,
+            merge_expert_model=merge_expert_model,
+            integrate_to_main=True,
+            main_branch="main",
         )
         return orchestrator.run()
     except KeyboardInterrupt:

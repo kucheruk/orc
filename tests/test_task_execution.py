@@ -4,6 +4,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import orc_core.task_execution as task_execution
@@ -89,13 +90,18 @@ class TaskExecutionEngineTest(unittest.TestCase):
             backlog_arg="BACKLOG.md",
             task_path=root / ".cursor" / "orc-task.json",
             workdir=tmpdir,
+            base_workdir=tmpdir,
             run_root=root / ".orc" / "run",
             model="gpt-5.2-codex",
             commit_model="gpt-5.2-codex",
+            merge_expert_model="gpt-5.2-codex",
             prompt_template="{task_id} {task_text}",
             continue_template="continue {task_id} :: {reason}",
             commit_template="commit {task_id}",
+            merge_expert_template="merge {task_id}",
             commit_phase=commit_phase,
+            integrate_to_main=False,
+            main_branch="main",
             allow_fallback_commits=allow_fallback_commits,
             poll=0.01,
             stall_timeout=1.0,
@@ -527,6 +533,55 @@ class TaskExecutionEngineTest(unittest.TestCase):
         launch_path = worker.launch_kwargs[0]["agent_output_log_path"]
         self.assertTrue(isinstance(launch_path, str) and launch_path.endswith(".log"))
         self.assertIn(".orc/run/raw-stream/", launch_path)
+
+    @patch("orc_core.task_execution.integrate_commit_into_main")
+    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=False)
+    @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    def test_execute_skips_main_integration_when_worktree_not_ahead(self, *_mocks) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            request = TaskExecutionRequest(
+                **{**request.__dict__, "integrate_to_main": True, "main_branch": "main"}
+            )
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "completed")
+        task_execution.integrate_commit_into_main.assert_not_called()
+
+    @patch("orc_core.task_execution._run_merge_expert_phase", return_value=True)
+    @patch("orc_core.task_execution.integrate_commit_into_main")
+    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    def test_execute_runs_merge_expert_when_main_integration_conflicts(
+        self,
+        *_mocks,
+    ) -> None:
+        task_execution.integrate_commit_into_main.side_effect = [
+            SimpleNamespace(ok=False, conflict=True, error="conflict"),
+            SimpleNamespace(ok=True, conflict=False, error=""),
+        ]
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            request = TaskExecutionRequest(**{**request.__dict__, "integrate_to_main": True})
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(task_execution.integrate_commit_into_main.call_count, 2)
+        task_execution._run_merge_expert_phase.assert_called_once()
 
 
 if __name__ == "__main__":

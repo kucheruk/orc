@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from orc_core.model_selector import DEFAULT_MODEL
-from orc_core.role_config import ROLE_CODER, ROLE_SUPERVISOR, RoleProfileRegistry
+from orc_core.role_config import ROLE_CODER, ROLE_MERGE_EXPERT, ROLE_SUPERVISOR, RoleProfileRegistry
 
 
 class RoleProfileRegistryTest(unittest.TestCase):
@@ -56,6 +56,13 @@ class RoleProfileRegistryTest(unittest.TestCase):
             resolved = registry.resolve_role(tmpdir, ROLE_CODER)
         self.assertEqual(resolved.model, DEFAULT_MODEL)
         self.assertIn("Роль: эксперт-программист", resolved.prompt)
+
+    def test_resolve_merge_expert_role_uses_prompt_file_by_default(self) -> None:
+        registry = RoleProfileRegistry()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            resolved = registry.resolve_role(tmpdir, ROLE_MERGE_EXPERT)
+        self.assertEqual(resolved.model, DEFAULT_MODEL)
+        self.assertIn("эксперт по разрешению merge-конфликтов", resolved.prompt)
 
 
 if __name__ == "__main__":

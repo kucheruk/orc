@@ -14,6 +14,7 @@ from .stream_monitor_state import MonitorSnapshot
 from .task_execution import TaskExecutionEngine, TaskExecutionRequest
 from .task_source import MarkdownTaskSource, Task
 from .ui import ui_error, ui_info
+from .worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
 
 
 TaskSourceFactory = Callable[[Path], MarkdownTaskSource]
@@ -32,7 +33,12 @@ class BacklogOrchestrator:
         prompt_template: str,
         continue_template: str,
         commit_template: str,
+        merge_expert_template: str = "",
         engine: TaskExecutionEngine,
+        merge_expert_model: str = "",
+        integrate_to_main: bool = True,
+        main_branch: str = "main",
+        use_task_worktrees: bool = True,
         snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
         task_source_factory: TaskSourceFactory = MarkdownTaskSource,
         sleep_fn: Callable[[float], None] = time.sleep,
@@ -46,7 +52,12 @@ class BacklogOrchestrator:
         self.prompt_template = prompt_template
         self.continue_template = continue_template
         self.commit_template = commit_template
+        self.merge_expert_template = merge_expert_template
         self.engine = engine
+        self.merge_expert_model = (merge_expert_model or "").strip()
+        self.integrate_to_main = bool(integrate_to_main)
+        self.main_branch = (main_branch or "main").strip() or "main"
+        self.use_task_worktrees = bool(use_task_worktrees)
         self.snapshot_publisher = snapshot_publisher
         self.task_source_factory = task_source_factory
         self.sleep_fn = sleep_fn
@@ -58,6 +69,7 @@ class BacklogOrchestrator:
         single_mode = mode == "single"
         drop_pending = bool(self.args.drop)
         drop_override: Optional[Tuple[str, str]] = None
+        active_worktree: Optional[WorktreeSession] = None
 
         while True:
             self._ensure_hooks()
@@ -120,7 +132,29 @@ class BacklogOrchestrator:
 
             short = (open_task.text[:120] + "…") if len(open_task.text) > 120 else open_task.text
             ui_info(f"▶️ Текущая задача: {open_task.task_id} — {short}")
+            if self.use_task_worktrees and (active_worktree is None or active_worktree.task_id != open_task.task_id):
+                try:
+                    active_worktree = create_task_worktree(
+                        base_workdir=self.workdir,
+                        task_id=open_task.task_id,
+                        log_path=self.log_path,
+                        main_branch=self.main_branch,
+                    )
+                    ui_info(f"[orc] worktree: {active_worktree.worktree_path}")
+                except Exception as exc:
+                    self.last_failure_reason = f"worktree_create_failed:{type(exc).__name__}"
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "task worktree creation failed",
+                        reason=self.last_failure_reason,
+                        task_id=open_task.task_id,
+                        error=str(exc),
+                    )
+                    ui_error(f"❌ Не удалось создать worktree для {open_task.task_id}: {exc}")
+                    return 1
 
+            execution_workdir = active_worktree.worktree_path if active_worktree is not None else self.workdir
             try:
                 result = self.engine.execute(
                     TaskExecutionRequest(
@@ -128,14 +162,19 @@ class BacklogOrchestrator:
                         backlog_path=self.backlog_path,
                         backlog_arg=self.args.backlog,
                         task_path=self.task_path,
-                        workdir=self.workdir,
-                        run_root=self.run_root,
+                        workdir=execution_workdir,
+                        base_workdir=self.workdir,
+                        run_root=Path(execution_workdir) / ".orc" / "backlog-run",
                         model=self.args.model,
                         commit_model=(self.args.commit_model or "").strip() or self.args.model,
+                        merge_expert_model=self.merge_expert_model or ((self.args.commit_model or "").strip() or self.args.model),
                         prompt_template=self.prompt_template,
                         continue_template=self.continue_template,
                         commit_template=self.commit_template,
+                        merge_expert_template=self.merge_expert_template,
                         commit_phase=bool(self.args.commit_phase),
+                        integrate_to_main=self.integrate_to_main,
+                        main_branch=self.main_branch,
                         allow_fallback_commits=bool(getattr(self.args, "allow_fallback_commits", False)),
                         poll=self.args.poll,
                         stall_timeout=self.args.stall_timeout,
@@ -173,10 +212,32 @@ class BacklogOrchestrator:
                 self.last_failure_reason = result.reason or "execution_failed"
                 log_event(self.log_path, "ERROR", "task execution failed", reason=self.last_failure_reason, task_id=open_task.task_id)
                 ui_error(f"❌ Задача завершилась с ошибкой: {self.last_failure_reason}")
+                if self.use_task_worktrees and active_worktree is not None:
+                    ui_info(f"[orc] worktree preserved for diagnostics: {active_worktree.worktree_path}")
                 return 1
             if result.delay_seconds > 0:
                 self.sleep_fn(result.delay_seconds)
             if result.status == "completed":
+                if self.use_task_worktrees and active_worktree is not None:
+                    try:
+                        cleanup_task_worktree(active_worktree, self.log_path)
+                    except Exception as exc:
+                        self.last_failure_reason = f"worktree_cleanup_failed:{type(exc).__name__}"
+                        log_event(
+                            self.log_path,
+                            "ERROR",
+                            "task worktree cleanup failed",
+                            reason=self.last_failure_reason,
+                            task_id=open_task.task_id,
+                            worktree_path=active_worktree.worktree_path,
+                            error=str(exc),
+                        )
+                        ui_error(
+                            f"❌ Задача завершена, но cleanup worktree не удался: {active_worktree.worktree_path}. "
+                            "Worktree сохранён для диагностики."
+                        )
+                        return 1
+                    active_worktree = None
                 if single_mode:
                     ui_info("✅ Single task mode: задача выполнена. Выход.")
                     return 0

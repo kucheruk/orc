@@ -35,6 +35,7 @@ from .process import acquire_lock, release_lock
 from .role_config import (
     ROLE_CODER,
     ROLE_HANDOFF,
+    ROLE_MERGE_EXPERT,
     RoleProfileRegistry,
 )
 from .resume_state import resumable_task_id
@@ -293,6 +294,8 @@ def main() -> int:
                     template = coder_config.prompt
                     continue_template = role_registry.resolve_continue_prompt(str(args.continue_template).strip())
                     commit_template = ""
+                    merge_expert_template = ""
+                    merge_expert_model = ""
                     if args.commit_phase:
                         handoff_config = role_registry.resolve_role(
                             workdir,
@@ -302,6 +305,12 @@ def main() -> int:
                         )
                         args.commit_model = handoff_config.model
                         commit_template = handoff_config.prompt
+                    merge_expert_config = role_registry.resolve_role(
+                        workdir,
+                        ROLE_MERGE_EXPERT,
+                    )
+                    merge_expert_model = merge_expert_config.model
+                    merge_expert_template = merge_expert_config.prompt
                 except FileNotFoundError as exc:
                     log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
                     ui_error(str(exc))
@@ -319,7 +328,11 @@ def main() -> int:
                     prompt_template=template,
                     continue_template=continue_template,
                     commit_template=commit_template,
+                    merge_expert_template=merge_expert_template,
                     engine=engine,
+                    merge_expert_model=merge_expert_model,
+                    integrate_to_main=True,
+                    main_branch="main",
                 )
 
                 def _run_orchestrator(snapshot_publisher: Callable[[MonitorSnapshot], None]) -> int:

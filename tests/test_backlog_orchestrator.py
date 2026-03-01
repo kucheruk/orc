@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from orc_core.backlog_orchestrator import BacklogOrchestrator
@@ -61,6 +62,46 @@ def _args(backlog: str) -> Namespace:
 
 
 class BacklogOrchestratorTest(unittest.TestCase):
+    @patch("orc_core.backlog_orchestrator.cleanup_task_worktree")
+    @patch("orc_core.backlog_orchestrator.create_task_worktree")
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    def test_orchestrator_uses_worktree_and_cleans_up_on_success(
+        self,
+        hooks_config,
+        hooks,
+        create_worktree,
+        cleanup_worktree,
+    ) -> None:
+        hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
+        hooks_config.return_value = Path("/tmp/hooks.json")
+        create_worktree.return_value = SimpleNamespace(
+            task_id="TASK-001",
+            worktree_path="/tmp/repo/.orc/worktrees/TASK-001-1",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [ ] TASK-001 first\n", encoding="utf-8")
+            engine = _FakeEngine(backlog_path)
+            orchestrator = BacklogOrchestrator(
+                workdir=tmpdir,
+                backlog_path=backlog_path,
+                args=_args("BACKLOG.md"),
+                task_path=Path(tmpdir) / ".cursor" / "orc-task.json",
+                run_root=Path(tmpdir) / ".orc" / "run",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+                prompt_template="{task_id}",
+                continue_template="{task_id}",
+                commit_template="{task_id}",
+                engine=engine,
+                use_task_worktrees=True,
+                sleep_fn=lambda _seconds: None,
+            )
+            rc = orchestrator.run()
+        self.assertEqual(rc, 0)
+        create_worktree.assert_called_once()
+        cleanup_worktree.assert_called_once()
+
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
     def test_orchestrator_runs_until_backlog_complete(self, hooks_config, hooks) -> None:
@@ -85,6 +126,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=engine,
+                use_task_worktrees=False,
                 sleep_fn=lambda _seconds: None,
             )
 
@@ -113,6 +155,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=engine,
+                use_task_worktrees=False,
                 sleep_fn=lambda _seconds: None,
             )
 
@@ -143,6 +186,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=engine,
+                use_task_worktrees=False,
                 sleep_fn=lambda _seconds: None,
             )
 
@@ -176,6 +220,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=engine,
+                use_task_worktrees=False,
                 sleep_fn=lambda _seconds: None,
             )
 
@@ -212,6 +257,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=engine,
+                use_task_worktrees=False,
                 sleep_fn=lambda _seconds: None,
             )
 
@@ -240,6 +286,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=_FailingEngine(reason="missing_conversation_id"),
+                use_task_worktrees=False,
                 sleep_fn=lambda _seconds: None,
             )
 
@@ -270,6 +317,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=_ExplodingEngine(),
+                use_task_worktrees=False,
                 sleep_fn=lambda _seconds: None,
             )
 

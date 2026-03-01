@@ -14,6 +14,7 @@ PROMPTS_DIR = BASE_DIR / "prompts"
 DEFAULT_PROMPT_PATH = PROMPTS_DIR / "default.txt"
 CONTINUE_PROMPT_PATH = PROMPTS_DIR / "continue.txt"
 COMMIT_PROMPT_PATH = PROMPTS_DIR / "commit.txt"
+MERGE_EXPERT_PROMPT_PATH = PROMPTS_DIR / "merge_expert.txt"
 ROLE_SETTINGS_PATH = Path(".orc") / "role-settings.json"
 
 ROLE_ANALYSIS_PLANNING = "analysis_planning"
@@ -22,6 +23,7 @@ ROLE_CODER = "coder"
 ROLE_CODE_REVIEW = "code_review"
 ROLE_TESTER = "tester"
 ROLE_HANDOFF = "handoff"
+ROLE_MERGE_EXPERT = "merge_expert"
 
 ALL_ROLE_IDS = (
     ROLE_ANALYSIS_PLANNING,
@@ -30,6 +32,7 @@ ALL_ROLE_IDS = (
     ROLE_CODE_REVIEW,
     ROLE_TESTER,
     ROLE_HANDOFF,
+    ROLE_MERGE_EXPERT,
 )
 
 
@@ -109,6 +112,13 @@ class RoleProfileRegistry:
                 default_enabled=True,
                 can_toggle_enabled=True,
                 default_prompt_path=COMMIT_PROMPT_PATH,
+            ),
+            ROLE_MERGE_EXPERT: RoleDefinition(
+                role_id=ROLE_MERGE_EXPERT,
+                title="Merge Expert",
+                default_enabled=False,
+                can_toggle_enabled=False,
+                default_prompt_path=MERGE_EXPERT_PROMPT_PATH,
             ),
         }
 
