@@ -5,7 +5,6 @@ import json
 import io
 import importlib
 import tempfile
-import traceback
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -94,6 +93,7 @@ class CrashStdoutPayloadTest(unittest.TestCase):
 class CrashHandlersTest(unittest.TestCase):
     def setUp(self) -> None:
         logging_module._CRASH_HANDLERS_INSTALLED = False
+        logging_module._FAULT_HANDLER_STREAM = None
 
     def test_report_fatal_exception_logs_and_emits_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -135,18 +135,19 @@ class CrashHandlersTest(unittest.TestCase):
             workspace = str(Path(tmpdir))
             old_sys_hook = logging_module.sys.excepthook
             old_thread_hook = logging_module.threading.excepthook
-            install_crash_handlers(
-                entrypoint="orc_core.cli_app:main",
-                phase="main",
-                workspace=workspace,
-                log_path=log_path,
-            )
+            with patch("orc_core.logging.faulthandler.enable") as fault_mock:
+                install_crash_handlers(
+                    entrypoint="orc_core.cli_app:main",
+                    phase="main",
+                    workspace=workspace,
+                    log_path=log_path,
+                )
             try:
                 self.assertIsNot(logging_module.sys.excepthook, old_sys_hook)
                 self.assertIsNot(logging_module.threading.excepthook, old_thread_hook)
+                self.assertTrue(fault_mock.called)
                 with patch("orc_core.logging.report_fatal_exception") as report_mock:
                     exc = RuntimeError("boom")
-                    tb = traceback.TracebackException.from_exception(exc)
                     tb_obj = exc.__traceback__
                     logging_module.sys.excepthook(type(exc), exc, tb_obj)
                     self.assertTrue(report_mock.called)

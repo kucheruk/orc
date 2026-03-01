@@ -3,6 +3,7 @@
 
 import json
 import os
+import faulthandler
 import signal
 import sys
 import threading
@@ -27,6 +28,7 @@ _DEBUG_WORKDIR = ""
 _LOG_WORKDIR = ""
 _CRASH_HANDLERS_INSTALLED = False
 _CRASH_HANDLER_LOCK = threading.Lock()
+_FAULT_HANDLER_STREAM = None
 
 ORC_LOG_NAME = "orc.log"
 ORC_DATA_DIR = ".orc"
@@ -203,7 +205,7 @@ def install_crash_handlers(
     workspace: str,
     log_path: Path,
 ) -> None:
-    global _CRASH_HANDLERS_INSTALLED
+    global _CRASH_HANDLERS_INSTALLED, _FAULT_HANDLER_STREAM
     if _CRASH_HANDLERS_INSTALLED:
         return
 
@@ -254,6 +256,12 @@ def install_crash_handlers(
             signal.signal(sig, _signal_handler)
         except Exception:
             continue
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        _FAULT_HANDLER_STREAM = log_path.open("a", encoding="utf-8", errors="replace")
+        faulthandler.enable(file=_FAULT_HANDLER_STREAM, all_threads=True)
+    except Exception:
+        _FAULT_HANDLER_STREAM = None
     _CRASH_HANDLERS_INSTALLED = True
 
 
