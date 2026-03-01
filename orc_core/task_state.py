@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from .atomic_io import write_json_atomic
 from .logging import log_event
 
 
@@ -104,7 +105,7 @@ def update_task_conversation_id(task_path: Path, log_path: Path, conversation_id
         return
     payload["conversation_id"] = conversation_id
     try:
-        task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
         log_event(log_path, "INFO", "stored conversation_id from agent ls", conversation_id=conversation_id)
     except Exception as exc:
         log_event(log_path, "ERROR", "failed to update conversation_id", error=str(exc))

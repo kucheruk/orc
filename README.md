@@ -104,6 +104,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
    - Запустить агента с дефолтным промптом для этой задачи.
 4. Подождать, пока stop‑hook удалит `.cursor/orc-task.json`.
 5. (Опционально) Запустить commit phase и дождаться её завершения.
+   - Если после commit phase остаются tracked-изменения, ORC по умолчанию завершит пайплайн ошибкой (fail-fast) и оставит рабочее дерево без авто-коммита.
+   - Для явного opt-in fallback-коммита используйте `--allow-fallback-commits`.
 6. Повторить цикл с шага 1.
 
 ## Источник задач (Task Source)
@@ -224,6 +226,9 @@ uv run python /path/to/orc/orc.py --workspace /path/to/repo
 - `--commit-model MODEL` — модель для commit phase (по умолчанию: как `--model`)
 - `--commit-stall-timeout SECONDS` — сколько секунд без вывода считать commit phase зависшей (по умолчанию: `300`)
 - `--commit-ttl SECONDS` — максимальная длительность commit phase (по умолчанию: `1800`)
+- `--allow-fallback-commits` / `--no-allow-fallback-commits` — разрешить/запретить fallback auto-commit, если commit phase оставила tracked-изменения (по умолчанию: выключено)
+
+По умолчанию fallback-коммит отключён: при остаточных tracked-изменениях ORC останавливается с ошибкой, чтобы изменения проверил человек (`git status`, `git diff`) и принял решение вручную.
 
 ### Примеры
 

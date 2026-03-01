@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Tuple
 
+from .atomic_io import write_json_atomic
 from .backlog import Task
 from .logging import log_event, now_iso
 
@@ -550,7 +551,7 @@ def write_task_file(workdir: str, task: Task, backlog_path: Path, log_path: Path
         "created_at": now_iso(),
         "restart_count": restart_count,
     }
-    task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
     log_event(log_path, "INFO", "task file written", path=str(task_path), task_id=task.task_id)
     return task_path
 
@@ -563,7 +564,7 @@ def update_task_restart_count(task_path: Path, log_path: Path, restart_count: in
         return
     payload["restart_count"] = restart_count
     try:
-        task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
     except Exception as exc:
         log_event(log_path, "ERROR", "failed to update task restart count", error=str(exc))
         return

@@ -60,3 +60,31 @@ jq -c '. | {timestamp, location, message, hypothesisId}' /tmp/orc/orc-debug-<...
 2. Найдите последние записи `completion state` и `wait_for_completion`.
 3. Сопоставьте время с `.orc/orc.log` и `.orc/orc-hook.log`.
 4. Если агент завершился, но задача не закрыта, проверьте записи про `stop-hook fallback`.
+
+## Диагностика commit phase (fallback disabled / enabled)
+
+### Симптом: commit phase завершилась ошибкой при грязном дереве
+
+Проверьте `.orc/orc.log` на одно из сообщений:
+- `commit phase failed: tracked changes remain and fallback disabled`
+- `commit phase: completed but tracked changes remain (fallback disabled)`
+
+Это ожидаемое fail-fast поведение по умолчанию: ORC не делает авто-коммит и останавливает пайплайн.
+
+### Что делать оператору
+
+1. Посмотреть состояние репозитория:
+```bash
+git status --porcelain
+git diff
+```
+2. Принять решение вручную (исправить изменения/закоммитить нужное).
+3. Если нужен временный автоподбор commit fallback, перезапустить ORC с явным opt-in:
+```bash
+uv run python /path/to/orc/orc.py --workspace /path/to/repo --allow-fallback-commits
+```
+
+### Отличие режимов
+
+- `fallback disabled` (по умолчанию): tracked leftovers => немедленная ошибка и остановка.
+- `fallback enabled`: ORC пытается `git add -A` + checkpoint commit; при неуспехе fallback — тоже ошибка.

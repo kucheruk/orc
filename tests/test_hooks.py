@@ -7,8 +7,11 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from orc_core.atomic_io import write_json_atomic
 from orc_core.hooks import ensure_repo_hooks, write_task_file
+from orc_core.hooks import update_task_restart_count
 from orc_core.task_source import MarkdownTaskSource, Task
 
 
@@ -69,6 +72,46 @@ class HooksStopBehaviorTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertFalse(MarkdownTaskSource(backlog).is_task_done("TASK-001"))
             self.assertTrue(task_path.exists())
+
+
+class HooksAtomicWriteTest(unittest.TestCase):
+    def test_write_task_file_does_not_use_path_write_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir_str:
+            tmpdir = Path(tmpdir_str)
+            backlog = tmpdir / "BACKLOG.md"
+            backlog.write_text("- [ ] TASK-001 test task\n", encoding="utf-8")
+            log_path = tmpdir / ".orc" / "orc.log"
+            task = Task(task_id="TASK-001", text="test task", done=False)
+
+            with patch.object(Path, "write_text", side_effect=RuntimeError("Path.write_text should not be used")):
+                task_path = write_task_file(str(tmpdir), task, backlog, log_path)
+
+            self.assertTrue(task_path.exists())
+            self.assertIn('"task_id": "TASK-001"', task_path.read_text(encoding="utf-8"))
+
+    def test_update_task_restart_count_does_not_use_path_write_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir_str:
+            tmpdir = Path(tmpdir_str)
+            task_path = tmpdir / ".cursor" / "orc-task.json"
+            log_path = tmpdir / ".orc" / "orc.log"
+            write_json_atomic(
+                task_path,
+                {
+                    "version": 1,
+                    "task_id": "TASK-001",
+                    "task_text": "test task",
+                    "backlog_path": str(tmpdir / "BACKLOG.md"),
+                    "workspace_root": str(tmpdir),
+                    "conversation_id": "",
+                    "created_at": "2026-01-01T00:00:00",
+                    "restart_count": 0,
+                },
+            )
+
+            with patch.object(Path, "write_text", side_effect=RuntimeError("Path.write_text should not be used")):
+                update_task_restart_count(task_path, log_path, restart_count=2)
+
+            self.assertIn('"restart_count": 2', task_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
