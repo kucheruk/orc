@@ -10,6 +10,7 @@ from typing import Callable, Optional, Tuple
 
 from .hooks import ensure_repo_hooks, ensure_repo_hooks_config
 from .logging import log_event
+from .quit_signal import is_quit_after_task_requested
 from .stream_monitor_state import MonitorSnapshot
 from .task_execution import TaskExecutionEngine, TaskExecutionRequest
 from .task_source import MarkdownTaskSource, Task
@@ -238,6 +239,11 @@ class BacklogOrchestrator:
                         )
                         return 1
                     active_worktree = None
+                if is_quit_after_task_requested():
+                    if result.committed:
+                        ui_info("[orc] graceful quit requested: current task completed and committed. Exiting.")
+                        return 0
+                    ui_info("[orc] graceful quit requested, but commit phase is not completed yet; continuing.")
                 if single_mode:
                     ui_info("✅ Single task mode: задача выполнена. Выход.")
                     return 0

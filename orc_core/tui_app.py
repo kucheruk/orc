@@ -8,7 +8,7 @@ from textual import work
 from textual.app import App
 
 from .backlog_status import BacklogStatus
-from .quit_signal import clear_stop_request, request_stop
+from .quit_signal import clear_stop_request, request_quit_after_task, request_stop
 from .start_menu import StartMenuChoice
 from .stream_monitor_state import MonitorSnapshot
 from .tui.messages import OrchestratorFinished, SnapshotUpdated
@@ -66,7 +66,11 @@ class _StartMenuApp(App[Optional[StartMenuChoice]]):
 class OrcApp(App[int]):
     CSS_PATH = "tui/orc.tcss"
     TITLE = "ORC"
-    BINDINGS = [("escape", "request_quit", "Stop ORC"), ("t", "toggle_dark", "Theme")]
+    BINDINGS = [
+        ("escape", "request_quit", "Stop ORC"),
+        ("q", "request_quit_after_task", "Quit After Task"),
+        ("t", "toggle_dark", "Theme"),
+    ]
 
     def __init__(self, run_orchestrator: Callable[[Callable[[MonitorSnapshot], None]], int]) -> None:
         super().__init__()
@@ -117,6 +121,9 @@ class OrcApp(App[int]):
         if not confirmed:
             return
         request_stop()
+
+    def action_request_quit_after_task(self) -> None:
+        request_quit_after_task()
 
 
 def run_start_menu(

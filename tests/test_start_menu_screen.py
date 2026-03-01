@@ -4,6 +4,9 @@
 import unittest
 import tempfile
 from pathlib import Path
+from unittest.mock import Mock
+
+from textual.message_pump import active_app
 
 from orc_core.backlog_status import BacklogStatus
 from orc_core.role_config import ROLE_CODER, RoleProfileRegistry
@@ -103,6 +106,38 @@ class StartMenuScreenTaskHintsTest(unittest.TestCase):
                 role_registry=registry,
             )
         self.assertEqual(screen._selected_model(), "sonnet-4.5")
+
+    def test_open_role_settings_uses_app_push_screen(self) -> None:
+        status = BacklogStatus(path=Path("BACKLOG.md"), exists=True, tasks=[], open_tasks=[])
+        screen = StartMenuScreen(status, models=["gpt-5.3-codex"], default_model="gpt-5.3-codex")
+        screen._selected_mode = lambda: "backlog"  # type: ignore[method-assign]
+        screen._focus_cycle_for_mode = lambda _mode: ["mode_set", "roles_btn", "start_btn"]  # type: ignore[method-assign]
+        screen._focused_cycle_id = lambda _cycle: "roles_btn"  # type: ignore[method-assign]
+        app = Mock()
+        token = active_app.set(app)
+
+        try:
+            screen.action_open_role_settings()
+        finally:
+            active_app.reset(token)
+
+        app.push_screen.assert_called_once()
+
+    def test_open_model_picker_uses_app_push_screen(self) -> None:
+        status = BacklogStatus(path=Path("BACKLOG.md"), exists=True, tasks=[], open_tasks=[])
+        screen = StartMenuScreen(status, models=["gpt-5.3-codex"], default_model="gpt-5.3-codex")
+        screen._selected_mode = lambda: "backlog"  # type: ignore[method-assign]
+        screen._focus_cycle_for_mode = lambda _mode: ["mode_set", "roles_btn", "start_btn"]  # type: ignore[method-assign]
+        screen._focused_cycle_id = lambda _cycle: "roles_btn"  # type: ignore[method-assign]
+        app = Mock()
+        token = active_app.set(app)
+
+        try:
+            screen.action_open_model_picker()
+        finally:
+            active_app.reset(token)
+
+        app.push_screen.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -75,6 +75,7 @@ class TaskExecutionResult:
     status: str
     reason: str = ""
     delay_seconds: float = 0.0
+    committed: bool = False
 
 
 class TaskWorker(Protocol):
@@ -534,6 +535,7 @@ class TaskExecutionEngine:
         resume_id: Optional[str] = None
 
         def _finalize_completed(current_task_id: str, current_task_text: str, current_tag: str, monitor) -> TaskExecutionResult:
+            commit_completed = False
             log_event(self.log_path, "INFO", "task completed", task_id=current_task_id)
             raw_summary_text = monitor.get_summary_text()
             raw_lines = raw_summary_text.splitlines() if raw_summary_text else []
@@ -576,6 +578,8 @@ class TaskExecutionEngine:
             ):
                 ui_error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
                 return TaskExecutionResult(status="failed", reason="commit_phase_failed")
+            if request.commit_phase:
+                commit_completed = True
 
             if request.integrate_to_main:
                 if not _has_commits_ahead_of_branch(request.workdir, request.main_branch, self.log_path):
@@ -586,7 +590,7 @@ class TaskExecutionEngine:
                         task_id=current_task_id,
                         branch=request.main_branch,
                     )
-                    return TaskExecutionResult(status="completed")
+                    return TaskExecutionResult(status="completed", committed=commit_completed)
                 try:
                     commit_sha = get_head_commit(request.workdir)
                 except Exception as exc:
@@ -642,7 +646,7 @@ class TaskExecutionEngine:
                     )
                     ui_error(f"❌ Не удалось перенести commit в {request.main_branch}: {integration.error}")
                     return TaskExecutionResult(status="failed", reason="main_integration_failed")
-            return TaskExecutionResult(status="completed")
+            return TaskExecutionResult(status="completed", committed=commit_completed)
 
         debug_log(
             "H2",

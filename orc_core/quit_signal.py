@@ -4,10 +4,12 @@
 import threading
 
 _STOP_EVENT = threading.Event()
+_QUIT_AFTER_TASK_EVENT = threading.Event()
 
 
 def clear_stop_request() -> None:
     _STOP_EVENT.clear()
+    _QUIT_AFTER_TASK_EVENT.clear()
 
 
 def request_stop() -> None:
@@ -16,3 +18,11 @@ def request_stop() -> None:
 
 def is_stop_requested() -> bool:
     return _STOP_EVENT.is_set()
+
+
+def request_quit_after_task() -> None:
+    _QUIT_AFTER_TASK_EVENT.set()
+
+
+def is_quit_after_task_requested() -> bool:
+    return _QUIT_AFTER_TASK_EVENT.is_set()

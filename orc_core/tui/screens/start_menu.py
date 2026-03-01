@@ -264,7 +264,7 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         focus_cycle = self._focus_cycle_for_mode(self._selected_mode())
         focused_id = self._focused_cycle_id(focus_cycle)
         self._focus_before_model_modal_id = focused_id if focused_id is not None else focus_cycle[0]
-        self.push_screen(
+        self.app.push_screen(
             ModelPickerModal(models=self._models, selected_model=self._selected_model_value),
             self._on_model_picker_closed,
         )
@@ -283,7 +283,7 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         focus_cycle = self._focus_cycle_for_mode(self._selected_mode())
         focused_id = self._focused_cycle_id(focus_cycle)
         self._focus_before_roles_modal_id = focused_id if focused_id is not None else "roles_btn"
-        self.push_screen(
+        self.app.push_screen(
             RoleSettingsModal(workdir=self._workdir, models=self._models, registry=self._role_registry),
             self._on_role_settings_closed,
         )

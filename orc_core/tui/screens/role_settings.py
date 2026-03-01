@@ -85,7 +85,7 @@ class RoleSettingsModal(ModalScreen[bool]):
             if role is None:
                 return
             self._focus_before_model_picker_id = button_id
-            self.push_screen(
+            self.app.push_screen(
                 ModelPickerModal(models=self._models, selected_model=role.model),
                 lambda selected: self._on_model_selected(role_id, selected),
             )
@@ -96,7 +96,7 @@ class RoleSettingsModal(ModalScreen[bool]):
             if role is None:
                 return
             self._focus_before_prompt_editor_id = button_id
-            self.push_screen(
+            self.app.push_screen(
                 PromptEditorModal(role.title, role.prompt),
                 lambda prompt_text: self._on_prompt_updated(role_id, prompt_text),
             )
