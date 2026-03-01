@@ -371,16 +371,93 @@ class StreamMonitorState:
             result.append((usage_key, total))
         return result
 
+    def _string_arg(self, value: object) -> str:
+        if isinstance(value, str):
+            return " ".join(value.split()).strip()
+        return ""
+
+    def _tool_call_name(self, payload_key: str) -> str:
+        normalized = re.sub(r"ToolCall$", "", payload_key.strip())
+        return normalized.strip()
+
+    def _format_tool_call_with_args(self, payload_key: str, payload: object) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        args = payload.get("args")
+        if not isinstance(args, dict):
+            return ""
+
+        tool_name = self._tool_call_name(payload_key)
+        tool_label = tool_name.lower() if tool_name else "tool"
+
+        command = self._string_arg(args.get("command"))
+        if command:
+            return command
+
+        path = self._string_arg(args.get("path"))
+        if tool_label == "read" and path:
+            return f"{tool_label} {path}"
+
+        pattern = self._string_arg(args.get("pattern"))
+        if tool_label in {"grep", "rg"} and pattern:
+            target_path = self._string_arg(args.get("path"))
+            if target_path:
+                return f'{tool_label} "{pattern}" in {target_path}'
+            return f'{tool_label} "{pattern}"'
+
+        glob_pattern = self._string_arg(args.get("globPattern"))
+        target_dir = self._string_arg(args.get("targetDirectory"))
+        if tool_label == "glob" and (glob_pattern or target_dir):
+            left = f"{tool_label} {glob_pattern}".strip()
+            if target_dir:
+                return f"{left} in {target_dir}"
+            return left
+
+        kv_parts: list[str] = []
+        for key, value in args.items():
+            key_name = str(key).strip()
+            if not key_name:
+                continue
+            normalized = self._string_arg(value)
+            if normalized:
+                kv_parts.append(f"{key_name}={normalized}")
+            elif isinstance(value, (int, float, bool)):
+                kv_parts.append(f"{key_name}={value}")
+
+        if kv_parts:
+            return f"{tool_label} " + " ".join(kv_parts[:4])
+        return ""
+
     def _remember_command(self, event: Dict[str, object]) -> None:
         event_type = str(event.get("type") or "")
         if event_type == "tool_call":
+            tool_call_payload = event.get("tool_call")
+            if isinstance(tool_call_payload, dict):
+                for payload_key, payload_value in tool_call_payload.items():
+                    if not isinstance(payload_key, str) or not payload_key.strip():
+                        continue
+                    formatted = self._format_tool_call_with_args(payload_key, payload_value)
+                    if formatted:
+                        self._recent_commands.append(formatted[:180])
+                        return
+
+            for key, value in self._iter_values(event):
+                if not isinstance(key, str) or not isinstance(value, str):
+                    continue
+                key_lower = key.lower()
+                val = " ".join(value.split())
+                if not val:
+                    continue
+                if key_lower in {"command", "cmd", "shell_command"}:
+                    self._recent_commands.append(val[:180])
+                    return
+
             for key in ("tool_name", "tool", "name", "function"):
                 value = event.get(key)
                 if isinstance(value, str) and value.strip():
                     self._recent_commands.append(value.strip()[:180])
                     return
 
-            tool_call_payload = event.get("tool_call")
             if isinstance(tool_call_payload, dict):
                 for payload_key in tool_call_payload.keys():
                     if not isinstance(payload_key, str) or not payload_key.strip():

@@ -206,7 +206,92 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         )
 
         snapshot = state.build_snapshot()
-        self.assertIn("read", [cmd.lower() for cmd in snapshot.recent_commands])
+        self.assertIn("read /tmp/a.txt", [cmd.lower() for cmd in snapshot.recent_commands])
+
+    def test_tool_call_prefers_shell_command_with_arguments_for_recent_commands(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_name": "Shell",
+                "arguments": {"command": "git status --short"},
+            }
+        )
+
+        snapshot = state.build_snapshot()
+        self.assertIn("git status --short", snapshot.recent_commands)
+
+    def test_tool_call_glob_includes_pattern_and_directory(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_call": {
+                    "globToolCall": {
+                        "args": {
+                            "globPattern": "ADR/*.md",
+                            "targetDirectory": "/Users/vetinary/work/nadmozg",
+                        }
+                    }
+                },
+            }
+        )
+
+        command = state.build_snapshot().recent_commands[-1]
+        self.assertIn("glob ADR/*.md", command)
+        self.assertIn("/Users/vetinary/work/nadmozg", command)
+
+    def test_tool_call_grep_includes_pattern_and_path(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_call": {
+                    "grepToolCall": {
+                        "args": {
+                            "pattern": "class\\s+SafeJsonExtensions",
+                            "path": "/Users/vetinary/work/nadmozg/src",
+                        }
+                    }
+                },
+            }
+        )
+
+        command = state.build_snapshot().recent_commands[-1]
+        self.assertIn('grep "class\\s+SafeJsonExtensions"', command)
+        self.assertIn("/Users/vetinary/work/nadmozg/src", command)
+
+    def test_tool_call_unknown_payload_uses_key_value_fallback(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_call": {
+                    "customToolCall": {
+                        "args": {
+                            "foo": "bar",
+                            "n": 7,
+                        }
+                    }
+                },
+            }
+        )
+
+        command = state.build_snapshot().recent_commands[-1]
+        self.assertIn("custom foo=bar", command)
+        self.assertIn("n=7", command)
 
     def test_maybe_report_updates_state_and_requests_render(self) -> None:
         monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
