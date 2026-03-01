@@ -7,14 +7,21 @@ from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
+from textual.widget import Widget
 from textual.widgets import Button, Footer, Header, Input, Label, RadioButton, RadioSet, Switch
 
 from ...backlog_status import BacklogStatus
 from ...start_menu import StartMenuChoice
+from .model_picker import ModelPickerModal
 
 
 class StartMenuScreen(Screen[StartMenuChoice]):
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        ("tab", "tab_cycle_forward", "Next"),
+        ("shift+tab", "tab_cycle_backward", "Previous"),
+        ("f2", "open_model_picker", "Model"),
+        ("escape", "cancel", "Cancel"),
+    ]
 
     def __init__(
         self,
@@ -28,8 +35,10 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         self._backlog_status = backlog_status
         self._models = list(models)
         self._default_model = default_model if default_model in models else models[0]
+        self._selected_model_value = self._default_model
         self._resume_task_id = resume_task_id.strip()
         self._status_line = status_line.strip()
+        self._focus_before_model_modal_id = "mode_set"
         self._mode_values = [
             ("backlog", "Выполнять задачи из backlog в цикле"),
             ("single", "Выполнить одну задачу из backlog"),
@@ -52,22 +61,20 @@ class StartMenuScreen(Screen[StartMenuChoice]):
                             yield RadioButton(title, value=idx == 0, id=f"mode_{idx}")
                     yield Label("Debug logging")
                     yield Switch(value=True, id="debug_switch")
-                    yield Label("Task ID (для single)")
+                    yield Label("Task ID (для single)", id="task_id_label")
                     yield Label(self._available_task_ids_hint(), id="task_ids_hint", classes="help")
                     default_task = self._backlog_status.open_tasks[0].task_id if self._backlog_status.open_tasks else ""
                     yield Input(value=default_task, id="task_id")
-                    yield Label("Нажмите Enter в поле Task ID или Prompt, чтобы запустить.", id="submit_hint", classes="help")
-                    yield Label("Prompt (для prompt)")
+                    yield Label("Нажмите Enter в поле ввода, чтобы запустить.", id="submit_hint", classes="help")
+                    yield Label("Prompt (для prompt)", id="prompt_label")
                     yield Input(placeholder="Введите prompt", id="prompt_text")
                 with Vertical(classes="col"):
                     yield Label("Модель")
-                    with RadioSet(id="model_set"):
-                        for idx, model in enumerate(self._models):
-                            yield RadioButton(model, value=model == self._default_model, id=f"model_{idx}")
-                    yield Label("Enter — запустить, Esc — отмена", classes="help")
+                    yield Label("", id="model_value")
+                    yield Label("Enter — запустить, Esc — выйти", classes="help")
             with Horizontal(id="menu_actions"):
                 yield Button("Запустить", id="start_btn", variant="primary")
-                yield Button("Отмена", id="cancel_btn", variant="default")
+                yield Button("Выйти", id="cancel_btn", variant="default")
             yield Label("", id="error_text")
         yield Footer()
 
@@ -97,14 +104,74 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         selected = self.query_one("#mode_set", RadioSet).pressed_index
         return self._mode_values[selected if selected is not None else 0][0]
 
+    def _is_task_input_visible(self, mode: str) -> bool:
+        return mode == "single"
+
+    def _is_prompt_input_visible(self, mode: str) -> bool:
+        return mode == "prompt"
+
+    def _focus_cycle_for_mode(self, mode: str) -> list[str]:
+        focus_cycle = ["mode_set"]
+        if self._is_task_input_visible(mode):
+            focus_cycle.append("task_id")
+        elif self._is_prompt_input_visible(mode):
+            focus_cycle.append("prompt_text")
+        focus_cycle.extend(["start_btn", "cancel_btn"])
+        return focus_cycle
+
     def _selected_model(self) -> str:
-        selected = self.query_one("#model_set", RadioSet).pressed_index
-        if selected is None:
-            return self._default_model
-        return self._models[selected]
+        return self._selected_model_value
 
     def _set_error(self, message: str) -> None:
         self.query_one("#error_text", Label).update(f"[red]{message}[/red]")
+
+    def _set_visible(self, widget_id: str, is_visible: bool) -> None:
+        widget = self.query_one(f"#{widget_id}")
+        widget.display = is_visible
+
+    def _update_selected_model_label(self) -> None:
+        self.query_one("#model_value", Label).update(f"{self._selected_model_value} (F2)")
+
+    def _apply_mode_visibility(self) -> None:
+        mode = self._selected_mode()
+        task_visible = self._is_task_input_visible(mode)
+        prompt_visible = self._is_prompt_input_visible(mode)
+
+        self._set_visible("task_id_label", task_visible)
+        self._set_visible("task_ids_hint", task_visible)
+        self._set_visible("task_id", task_visible)
+        self._set_visible("prompt_label", prompt_visible)
+        self._set_visible("prompt_text", prompt_visible)
+        self._set_visible("submit_hint", task_visible or prompt_visible)
+
+    def _cycle_focus(self, forward: bool) -> None:
+        focus_cycle = self._focus_cycle_for_mode(self._selected_mode())
+        focused_id = self._focused_cycle_id(focus_cycle)
+
+        if focused_id not in focus_cycle:
+            target_id = focus_cycle[0] if forward else focus_cycle[-1]
+        else:
+            index = focus_cycle.index(focused_id)
+            target_id = focus_cycle[(index + 1) % len(focus_cycle)] if forward else focus_cycle[(index - 1) % len(focus_cycle)]
+
+        self.set_focus(self.query_one(f"#{target_id}"))
+
+    def _focused_cycle_id(self, focus_cycle: list[str]) -> Optional[str]:
+        focused = self.app.focused
+        if focused is None:
+            return None
+        current: Optional[Widget] = focused
+        while current is not None:
+            if current.id in focus_cycle:
+                return current.id
+            current = current.parent
+        return None
+
+    def _ensure_focus_visible(self) -> None:
+        focus_cycle = self._focus_cycle_for_mode(self._selected_mode())
+        focused_id = self._focused_cycle_id(focus_cycle)
+        if focused_id is None or focused_id not in focus_cycle:
+            self.set_focus(self.query_one(f"#{focus_cycle[0]}"))
 
     def _build_choice(self) -> Optional[StartMenuChoice]:
         mode = self._selected_mode()
@@ -156,6 +223,38 @@ class StartMenuScreen(Screen[StartMenuChoice]):
     @on(Input.Submitted, "#task_id")
     def _on_submit(self) -> None:
         self._on_start()
+
+    @on(RadioSet.Changed, "#mode_set")
+    def _on_mode_changed(self) -> None:
+        self._apply_mode_visibility()
+        self._ensure_focus_visible()
+
+    def on_mount(self) -> None:
+        self._apply_mode_visibility()
+        self._update_selected_model_label()
+        self.query_one("#debug_switch", Switch).can_focus = False
+        self.set_focus(self.query_one("#mode_set"))
+
+    def action_tab_cycle_forward(self) -> None:
+        self._cycle_focus(forward=True)
+
+    def action_tab_cycle_backward(self) -> None:
+        self._cycle_focus(forward=False)
+
+    def action_open_model_picker(self) -> None:
+        focus_cycle = self._focus_cycle_for_mode(self._selected_mode())
+        focused_id = self._focused_cycle_id(focus_cycle)
+        self._focus_before_model_modal_id = focused_id if focused_id is not None else focus_cycle[0]
+        self.push_screen(
+            ModelPickerModal(models=self._models, selected_model=self._selected_model_value),
+            self._on_model_picker_closed,
+        )
+
+    def _on_model_picker_closed(self, selected_model: Optional[str]) -> None:
+        if selected_model:
+            self._selected_model_value = selected_model
+            self._update_selected_model_label()
+        self.set_focus(self.query_one(f"#{self._focus_before_model_modal_id}"))
 
     def action_cancel(self) -> None:
         self.dismiss(None)  # type: ignore[arg-type]

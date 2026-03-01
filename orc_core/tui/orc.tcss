@@ -1,10 +1,12 @@
 #menu_root {
     padding: 1 2;
+    height: 1fr;
 }
 
 #menu_cols {
-    height: auto;
+    height: 1fr;
     margin: 1 0;
+    overflow-y: auto;
 }
 
 #status_line {
@@ -18,7 +20,8 @@
 }
 
 #menu_actions {
-    margin-top: 1;
+    dock: bottom;
+    margin-top: 0;
     height: auto;
 }
 
@@ -70,4 +73,12 @@
 #quit_actions {
     height: auto;
     margin-top: 1;
+}
+
+#model_picker_modal {
+    width: 60;
+    height: auto;
+    padding: 1 2;
+    border: round $primary;
+    background: $background;
 }
