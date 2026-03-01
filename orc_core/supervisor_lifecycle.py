@@ -9,6 +9,7 @@ from typing import Callable, Optional, Tuple
 
 from .logging import debug_log, log_event
 from .notify import send_telegram_message
+from .process import is_pid_alive
 
 PROCESS_EXIT_GRACE_SECONDS = 3.0
 DEBUG_SESSION_LOG_PATH = Path("/Users/vetinary/work/orc/.cursor/debug-bbb5e7.log")
@@ -30,6 +31,15 @@ def _task_done_in_backlog(task_path: Path) -> bool:
         return MarkdownTaskSource(Path(backlog_raw)).is_task_done(task_id)
     except Exception:
         return False
+
+
+def _monitor_pid_missing(monitor) -> bool:
+    if monitor.proc.poll() is not None:
+        return False
+    pid = getattr(monitor.proc, "pid", None) or getattr(monitor, "init_pid", None)
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    return not is_pid_alive(pid)
 
 
 def _session_debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
@@ -67,8 +77,6 @@ def wait_for_completion(
 ) -> str:
     start_time = time.time()
     last_heartbeat_time = 0.0
-    last_stats_key: Optional[Tuple[int, int, int, int]] = None
-    same_count = 0
     last_tokens_value: Optional[int] = None
     last_tokens_time = time.time()
     last_stuck_notice_time = 0.0
@@ -99,6 +107,16 @@ def wait_for_completion(
                 {"task_path": str(task_path)},
             )
             return "completed"
+        if _monitor_pid_missing(monitor):
+            if _task_done_in_backlog(task_path):
+                log_event(log_path, "INFO", "agent pid missing and task marked done; treating as completed", task_id=task_id)
+                try:
+                    task_path.unlink()
+                except Exception:
+                    pass
+                return "completed"
+            log_event(log_path, "ERROR", "agent pid missing while task still active", task_id=task_id)
+            return "process_exited"
         now = time.time()
         if (now - last_heartbeat_time) >= 20.0:
             last_heartbeat_time = now
@@ -156,11 +174,6 @@ def wait_for_completion(
                     if task_text:
                         stuck_msg = f"{task_id} — {task_text}\nagent stuck (tokens unchanged 5m)"
                     send_telegram_message(stuck_msg, log_path)
-        if stats_key == last_stats_key:
-            same_count += 1
-        else:
-            same_count = 0
-            last_stats_key = stats_key
         if getattr(monitor, "result_status", None) == "success":
             if not task_path.exists():
                 return "completed"

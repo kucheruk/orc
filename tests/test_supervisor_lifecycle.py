@@ -43,6 +43,64 @@ class _FakeMonitor:
 
 
 class SupervisorLifecycleTest(unittest.TestCase):
+    def test_wait_for_completion_treats_missing_agent_pid_as_completed_when_backlog_done(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [x] REFACT-099 done\n", encoding="utf-8")
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text(
+                '{"task_id":"REFACT-099","backlog_path":"%s"}' % str(backlog_path),
+                encoding="utf-8",
+            )
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.proc = SimpleNamespace(pid=999999, returncode=None, poll=lambda: None)
+            monitor.last_output_time = time.time()
+
+            result = wait_for_completion(
+                task_path=task_path,
+                monitor=monitor,
+                poll=0.01,
+                stall_timeout=30.0,
+                task_ttl=30.0,
+                log_path=Path(tmpdir) / "orc.log",
+                nudge_after=10,
+                nudge_cooldown=300.0,
+                nudge_text="continue",
+                task_id="REFACT-099",
+                task_text="repro",
+            )
+
+        self.assertEqual(result, "completed")
+
+    def test_wait_for_completion_treats_missing_agent_pid_as_process_exited_when_not_done(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [ ] REFACT-100 open\n", encoding="utf-8")
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text(
+                '{"task_id":"REFACT-100","backlog_path":"%s"}' % str(backlog_path),
+                encoding="utf-8",
+            )
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.proc = SimpleNamespace(pid=999999, returncode=None, poll=lambda: None)
+            monitor.last_output_time = time.time()
+
+            result = wait_for_completion(
+                task_path=task_path,
+                monitor=monitor,
+                poll=0.01,
+                stall_timeout=30.0,
+                task_ttl=30.0,
+                log_path=Path(tmpdir) / "orc.log",
+                nudge_after=10,
+                nudge_cooldown=300.0,
+                nudge_text="continue",
+                task_id="REFACT-100",
+                task_text="repro",
+            )
+
+        self.assertEqual(result, "process_exited")
+
     def test_wait_for_completion_does_not_finish_only_from_done_backlog_while_agent_running(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backlog_path = Path(tmpdir) / "BACKLOG.md"
