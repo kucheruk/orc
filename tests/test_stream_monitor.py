@@ -180,6 +180,15 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("tool_call:started", summary)
         self.assertIn("ReadFile", summary)
 
+    def test_event_summary_has_simple_timestamp_prefix(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event({"type": "result", "subtype": "success", "status": "ok"})
+        recent_event = state.build_snapshot().recent_events[-1]
+
+        self.assertRegex(recent_event, r"^\[\d{2}:\d{2}:\d{2}\] ")
+
     def test_tool_call_with_nested_payload_populates_recent_commands(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 

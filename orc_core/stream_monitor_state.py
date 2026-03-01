@@ -438,6 +438,7 @@ class StreamMonitorState:
             self.append_reasoning_fragment(line[:220])
 
     def _summarize_event(self, event: Dict[str, object], text: str) -> str:
+        timestamp = time.strftime("%H:%M:%S", time.localtime(self._last_event_at or time.time()))
         event_type = str(event.get("type") or "")
         subtype = str(event.get("subtype") or "") or "update"
         base = f"{event_type}:{subtype}"
@@ -447,16 +448,16 @@ class StreamMonitorState:
             for key in ("tool_name", "tool", "name", "function"):
                 value = event.get(key)
                 if isinstance(value, str) and value.strip():
-                    return f"{base} {value.strip()[:40]}"
+                    return f"[{timestamp}] {base} {value.strip()[:40]}"
         if event_type == "result":
             status = str(event.get("status") or subtype).strip()
             if status:
-                return f"{base} status={status[:20]}"
+                return f"[{timestamp}] {base} status={status[:20]}"
         for key in ("command", "cmd", "shell_command"):
             value = event.get(key)
             if isinstance(value, str) and value.strip():
-                return f"{base} {value.strip()[:50]}"
-        return f"{base} {preview}" if preview else base
+                return f"[{timestamp}] {base} {value.strip()[:50]}"
+        return f"[{timestamp}] {base} {preview}" if preview else f"[{timestamp}] {base}"
 
     def record_event(self, event: Dict[str, object]) -> tuple[str, str, str]:
         raw = json.dumps(event, ensure_ascii=False)
