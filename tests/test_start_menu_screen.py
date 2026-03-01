@@ -31,6 +31,19 @@ class StartMenuScreenTaskHintsTest(unittest.TestCase):
 
         self.assertIn("Нет открытых задач", hint)
 
+    def test_resume_mode_is_first_when_resume_available(self) -> None:
+        open_tasks = [Task(task_id="TASK-101", text="one", done=False)]
+        status = BacklogStatus(path=Path("BACKLOG.md"), exists=True, tasks=open_tasks, open_tasks=open_tasks)
+        screen = StartMenuScreen(
+            status,
+            models=["gpt-5.3-codex"],
+            default_model="gpt-5.3-codex",
+            resume_task_id="TASK-101",
+        )
+
+        self.assertEqual(screen._mode_values[0][0], "resume")
+        self.assertIn("TASK-101", screen._mode_values[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()

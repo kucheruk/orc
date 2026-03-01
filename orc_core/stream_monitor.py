@@ -8,11 +8,10 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, Optional, TextIO
+from typing import Callable, Dict, Iterable, Optional, TextIO
 
 from .logging import log_event
-from .stream_monitor_state import StreamMonitorState
-from .tui.bus import publish_snapshot
+from .stream_monitor_state import MonitorSnapshot, StreamMonitorState
 
 
 class _ProcessProxy:
@@ -34,6 +33,7 @@ class StreamJsonMonitor:
         task_id: str,
         workdir: str,
         agent_output_log_path: Optional[str] = None,
+        snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
     ) -> None:
         self._agent_cmd = list(agent_cmd)
         self.proc = _ProcessProxy()
@@ -51,6 +51,7 @@ class StreamJsonMonitor:
         self.result_status: Optional[str] = None
         self.result_seen_at: Optional[float] = None
         self._agent_output_log_path = str(agent_output_log_path or "").strip() or None
+        self._snapshot_publisher = snapshot_publisher
         self._agent_output_file: Optional[TextIO] = None
         if self._agent_output_log_path:
             path = Path(self._agent_output_log_path)
@@ -285,4 +286,5 @@ class StreamJsonMonitor:
             self._agent_output_file = None
 
     def _publish_snapshot(self) -> None:
-        publish_snapshot(self._state.build_snapshot())
+        if self._snapshot_publisher is not None:
+            self._snapshot_publisher(self._state.build_snapshot())

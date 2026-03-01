@@ -6,7 +6,7 @@ from typing import Literal
 
 from .backlog_status import BacklogStatus
 
-Mode = Literal["backlog", "single", "prompt"]
+Mode = Literal["resume", "backlog", "single", "prompt"]
 
 
 @dataclass(frozen=True)
@@ -18,10 +18,21 @@ class StartMenuChoice:
     model: str = ""
 
 
-def show_start_menu(backlog_status: BacklogStatus, *, models: list[str], default_model: str) -> StartMenuChoice:
+def show_start_menu(
+    backlog_status: BacklogStatus,
+    *,
+    models: list[str],
+    default_model: str,
+    resume_task_id: str = "",
+) -> StartMenuChoice:
     from .tui_app import run_start_menu
 
-    choice = run_start_menu(backlog_status, models=models, default_model=default_model)
+    choice = run_start_menu(
+        backlog_status,
+        models=models,
+        default_model=default_model,
+        resume_task_id=resume_task_id,
+    )
     if choice is None:
         raise KeyboardInterrupt
     return choice

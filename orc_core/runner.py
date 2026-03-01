@@ -4,10 +4,11 @@
 import asyncio
 import shlex
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .logging import debug_log, log_event
 from .stream_monitor import StreamJsonMonitor
+from .stream_monitor_state import MonitorSnapshot
 
 
 def launch_agent_stream_json(
@@ -21,6 +22,7 @@ def launch_agent_stream_json(
     progress_done: int = 0,
     progress_total: int = 1,
     agent_output_log_path: Optional[str] = None,
+    snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
     resume_id: Optional[str] = None,
     resume_latest: bool = False,
     resume_prompt: Optional[str] = None,
@@ -37,6 +39,7 @@ def launch_agent_stream_json(
             progress_done=progress_done,
             progress_total=progress_total,
             agent_output_log_path=agent_output_log_path,
+            snapshot_publisher=snapshot_publisher,
             resume_id=resume_id,
             resume_latest=resume_latest,
             resume_prompt=resume_prompt,
@@ -56,6 +59,7 @@ async def launch_agent_stream_json_async(
     progress_done: int = 0,
     progress_total: int = 1,
     agent_output_log_path: Optional[str] = None,
+    snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
     resume_id: Optional[str] = None,
     resume_latest: bool = False,
     resume_prompt: Optional[str] = None,
@@ -72,6 +76,7 @@ async def launch_agent_stream_json_async(
             "progress_done": progress_done,
             "progress_total": progress_total,
             "agent_output_log_path": agent_output_log_path,
+            "snapshot_publisher": bool(snapshot_publisher),
             "resume_id": resume_id,
             "resume_latest": resume_latest,
             "resume_prompt": resume_prompt,
@@ -119,6 +124,7 @@ async def launch_agent_stream_json_async(
         task_id=task_id,
         workdir=workdir,
         agent_output_log_path=agent_output_log_path,
+        snapshot_publisher=snapshot_publisher,
     )
     monitor.set_progress(progress_done, progress_total)
     debug_log(

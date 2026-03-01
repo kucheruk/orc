@@ -10,6 +10,7 @@ from typing import Callable, Optional, Tuple
 
 from .hooks import ensure_repo_hooks, ensure_repo_hooks_config
 from .logging import log_event
+from .stream_monitor_state import MonitorSnapshot
 from .task_execution import TaskExecutionEngine, TaskExecutionRequest
 from .task_source import MarkdownTaskSource, Task
 from .ui import ui_error, ui_info
@@ -32,6 +33,7 @@ class BacklogOrchestrator:
         continue_template: str,
         commit_template: str,
         engine: TaskExecutionEngine,
+        snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
         task_source_factory: TaskSourceFactory = MarkdownTaskSource,
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -45,6 +47,7 @@ class BacklogOrchestrator:
         self.continue_template = continue_template
         self.commit_template = commit_template
         self.engine = engine
+        self.snapshot_publisher = snapshot_publisher
         self.task_source_factory = task_source_factory
         self.sleep_fn = sleep_fn
         self.last_failure_reason = ""
@@ -132,6 +135,7 @@ class BacklogOrchestrator:
                     continue_template=self.continue_template,
                     commit_template=self.commit_template,
                     commit_phase=bool(self.args.commit_phase),
+                    allow_fallback_commits=bool(getattr(self.args, "allow_fallback_commits", False)),
                     poll=self.args.poll,
                     stall_timeout=self.args.stall_timeout,
                     task_ttl=self.args.task_ttl,
@@ -146,6 +150,7 @@ class BacklogOrchestrator:
                     progress_done=done,
                     progress_total=total,
                     agent_output_log_path=str(getattr(self.args, "agent_output_log_path", "") or "").strip() or None,
+                    snapshot_publisher=self.snapshot_publisher,
                 )
             )
 

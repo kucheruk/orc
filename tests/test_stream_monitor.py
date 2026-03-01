@@ -127,6 +127,17 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         )
         self.assertFalse(detected)
 
+    def test_publish_snapshot_uses_injected_callback(self) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        monitor._state = MagicMock()
+        snapshot = object()
+        monitor._state.build_snapshot.return_value = snapshot
+        monitor._snapshot_publisher = MagicMock()
+
+        monitor._publish_snapshot()
+
+        monitor._snapshot_publisher.assert_called_once_with(snapshot)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,12 +4,13 @@
 import tempfile
 import unittest
 from argparse import Namespace
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from orc_core import cli_app
-from orc_core.cli_app import _failure_message, _resolve_mode, _resolve_model
+from orc_core.cli_app import _failure_message, _resolve_mode, _resolve_model, _resumable_task_id
 from orc_core.model_selector import DEFAULT_MODEL
 from orc_core.model_selector import ModelSelectionError
 from orc_core.start_menu import StartMenuChoice
@@ -30,6 +31,18 @@ class CliAppModeSelectionTest(unittest.TestCase):
     def test_parser_supports_agent_output_log_flag(self) -> None:
         parsed = cli_app.build_parser().parse_args(["--agent-output-log"])
         self.assertTrue(parsed.agent_output_log)
+
+    def test_parser_fallback_commits_default_is_disabled(self) -> None:
+        parsed = cli_app.build_parser().parse_args([])
+        self.assertFalse(parsed.allow_fallback_commits)
+
+    def test_parser_supports_enabling_fallback_commits(self) -> None:
+        parsed = cli_app.build_parser().parse_args(["--allow-fallback-commits"])
+        self.assertTrue(parsed.allow_fallback_commits)
+
+    def test_parser_supports_disabling_fallback_commits(self) -> None:
+        parsed = cli_app.build_parser().parse_args(["--allow-fallback-commits", "--no-allow-fallback-commits"])
+        self.assertFalse(parsed.allow_fallback_commits)
 
     @patch("orc_core.cli_app.show_start_menu")
     def test_legacy_task_promotes_to_prompt_mode(self, show_start_menu) -> None:
@@ -68,6 +81,21 @@ class CliAppModeSelectionTest(unittest.TestCase):
         self.assertEqual(args.mode, "single")
         self.assertEqual(args.task_id, "TASK-002")
         self.assertEqual(args.model, "gpt-5.3-codex")
+
+    @patch("orc_core.cli_app.show_start_menu")
+    def test_resume_mode_choice_maps_to_backlog_mode(self, show_start_menu) -> None:
+        args = _args()
+        show_start_menu.return_value = StartMenuChoice(mode="resume", task_id="TASK-002", model="gpt-5.3-codex")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _resolve_mode(
+                args,
+                Path(tmpdir) / "BACKLOG.md",
+                models=["gpt-5.3-codex"],
+                default_model="gpt-5.3-codex",
+            )
+
+        self.assertEqual(args.mode, "backlog")
 
 
 class CliAppModelSelectionTest(unittest.TestCase):
@@ -110,6 +138,54 @@ class CliAppFailureMessageTest(unittest.TestCase):
         self.assertIn("custom_reason", message)
 
 
+class CliAppResumeDetectionTest(unittest.TestCase):
+    def test_resumable_task_id_returns_task_when_payload_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            backlog = root / "BACKLOG.md"
+            backlog.write_text("- [ ] TASK-001 keep going\n", encoding="utf-8")
+            task_path = root / ".cursor" / "orc-task.json"
+            task_path.parent.mkdir(parents=True, exist_ok=True)
+            task_path.write_text(
+                json.dumps(
+                    {
+                        "task_id": "TASK-001",
+                        "conversation_id": "conv-123",
+                        "backlog_path": str(backlog),
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            detected = _resumable_task_id(task_path, backlog)
+
+        self.assertEqual(detected, "TASK-001")
+
+    def test_resumable_task_id_returns_empty_when_task_done(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            backlog = root / "BACKLOG.md"
+            backlog.write_text("- [x] TASK-001 done\n", encoding="utf-8")
+            task_path = root / ".cursor" / "orc-task.json"
+            task_path.parent.mkdir(parents=True, exist_ok=True)
+            task_path.write_text(
+                json.dumps(
+                    {
+                        "task_id": "TASK-001",
+                        "conversation_id": "conv-123",
+                        "backlog_path": str(backlog),
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            detected = _resumable_task_id(task_path, backlog)
+
+        self.assertEqual(detected, "")
+
+
 class CliAppTuiMouseReportingTest(unittest.TestCase):
     @patch("orc_core.cli_app.release_lock")
     @patch("orc_core.cli_app.acquire_lock")
@@ -150,6 +226,7 @@ class CliAppTuiMouseReportingTest(unittest.TestCase):
             commit_template="",
             commit_model="",
             commit_phase=False,
+            allow_fallback_commits=False,
             commit_stall_timeout=300.0,
             commit_ttl=1800.0,
             poll=1.0,

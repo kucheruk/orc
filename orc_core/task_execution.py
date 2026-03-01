@@ -9,13 +9,14 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Callable, Optional, Protocol
 
 from .hooks import update_task_restart_count, write_task_file
 from .logging import debug_log, log_event
 from .process import kill_process_tree
 from .quit_signal import is_stop_requested
 from .runner import launch_agent_stream_json
+from .stream_monitor_state import MonitorSnapshot
 from .supervisor_lifecycle import wait_for_completion, wait_for_process_exit
 from .task_source import Task
 from .text_parse import clean_summary_lines
@@ -41,6 +42,7 @@ class TaskExecutionRequest:
     continue_template: str
     commit_template: str
     commit_phase: bool
+    allow_fallback_commits: bool
     poll: float
     stall_timeout: float
     task_ttl: float
@@ -55,6 +57,7 @@ class TaskExecutionRequest:
     progress_done: int
     progress_total: int
     agent_output_log_path: Optional[str] = None
+    snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None
 
 
 @dataclass(frozen=True)
@@ -78,6 +81,7 @@ class TaskWorker(Protocol):
         progress_done: int,
         progress_total: int,
         agent_output_log_path: Optional[str] = None,
+        snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
         resume_id: Optional[str] = None,
         resume_latest: bool = False,
         resume_prompt: Optional[str] = None,
@@ -99,6 +103,7 @@ class AgentTaskWorker:
         progress_done: int,
         progress_total: int,
         agent_output_log_path: Optional[str] = None,
+        snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
         resume_id: Optional[str] = None,
         resume_latest: bool = False,
         resume_prompt: Optional[str] = None,
@@ -114,6 +119,7 @@ class AgentTaskWorker:
             progress_done=progress_done,
             progress_total=progress_total,
             agent_output_log_path=agent_output_log_path,
+            snapshot_publisher=snapshot_publisher,
             resume_id=resume_id,
             resume_latest=resume_latest,
             resume_prompt=resume_prompt,
@@ -204,6 +210,39 @@ def _git_run(workdir: str, log_path: Path, args: list[str], label: str) -> tuple
     return ok, result.stdout or "", result.stderr or "", int(result.returncode)
 
 
+def _attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, task_text: str) -> bool:
+    """
+    Optional recovery step for commit phase when tracked changes remain.
+    This path is strictly opt-in.
+    """
+    ok_add, _, _, _ = _git_run(workdir, log_path, ["git", "add", "-A"], label="commit_fallback:add_all")
+    if not ok_add:
+        return False
+
+    ok_quiet, _, _, rc = _git_run(
+        workdir,
+        log_path,
+        ["git", "diff", "--cached", "--quiet"],
+        label="commit_fallback:cached_quiet",
+    )
+    if ok_quiet:
+        return True
+    if rc not in (1,):
+        return False
+
+    title = f"{task_id}: checkpoint"
+    body = "Commit phase fallback: committed remaining changes left after commit phase."
+    if task_text:
+        body = f"{body}\n\nTask: {task_text}"
+    ok_commit, _, _, _ = _git_run(
+        workdir,
+        log_path,
+        ["git", "commit", "-m", title, "-m", body],
+        label="commit_fallback:commit",
+    )
+    return ok_commit
+
+
 def _run_commit_phase(
     worker: TaskWorker,
     request: TaskExecutionRequest,
@@ -232,6 +271,7 @@ def _run_commit_phase(
         summary_lines=25,
         task_id=f"{task_id}::commit",
         agent_output_log_path=request.agent_output_log_path,
+        snapshot_publisher=request.snapshot_publisher,
     )
     try:
         result = wait_for_process_exit(
@@ -270,7 +310,44 @@ def _run_commit_phase(
             return True
 
         if tracked:
-            ui_error("[orc] commit phase: completed but tracked changes remain")
+            task_text = str(prompt_vars.get("task_text") or "").strip()
+            if request.allow_fallback_commits:
+                ui_warn("[orc] commit phase: tracked changes remain; attempting fallback commit")
+                if not _attempt_autocommit_fallback(request.workdir, log_path, task_id=task_id, task_text=task_text):
+                    ui_error("[orc] commit phase: fallback commit failed")
+                    return False
+
+                ok3, porcelain3 = _git_status_porcelain(request.workdir, log_path)
+                if ok3 and porcelain3.strip():
+                    tracked3, untracked3 = _parse_git_porcelain(porcelain3)
+                    if tracked3:
+                        log_event(
+                            log_path,
+                            "ERROR",
+                            "commit phase still dirty after fallback",
+                            task_id=task_id,
+                            tracked=len(tracked3),
+                            untracked=len(untracked3),
+                            porcelain=porcelain3[:500],
+                        )
+                        ui_error("[orc] commit phase: still dirty after fallback")
+                        return False
+                    ui_warn("[orc] commit phase: completed (untracked leftovers remain)")
+                    return True
+                log_event(log_path, "INFO", "commit phase completed after fallback", task_id=task_id)
+                ui_info("[orc] commit phase: completed")
+                return True
+
+            log_event(
+                log_path,
+                "ERROR",
+                "commit phase failed: tracked changes remain and fallback disabled",
+                task_id=task_id,
+                tracked=len(tracked),
+                untracked=len(untracked),
+                porcelain=porcelain2[:500],
+            )
+            ui_error("[orc] commit phase: completed but tracked changes remain (fallback disabled)")
             return False
         ui_warn("[orc] commit phase: completed (untracked leftovers remain)")
         return True
@@ -389,6 +466,7 @@ class TaskExecutionEngine:
                     progress_done=request.progress_done,
                     progress_total=request.progress_total,
                     agent_output_log_path=request.agent_output_log_path,
+                    snapshot_publisher=request.snapshot_publisher,
                     resume_id=resume_id if resume_existing else None,
                     resume_latest=False,
                     resume_prompt=resume_prompt_text if resume_existing else None,

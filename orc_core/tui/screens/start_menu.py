@@ -16,16 +16,25 @@ from ...start_menu import StartMenuChoice
 class StartMenuScreen(Screen[StartMenuChoice]):
     BINDINGS = [("escape", "cancel", "Cancel")]
 
-    def __init__(self, backlog_status: BacklogStatus, models: list[str], default_model: str) -> None:
+    def __init__(
+        self,
+        backlog_status: BacklogStatus,
+        models: list[str],
+        default_model: str,
+        resume_task_id: str = "",
+    ) -> None:
         super().__init__()
         self._backlog_status = backlog_status
         self._models = list(models)
         self._default_model = default_model if default_model in models else models[0]
+        self._resume_task_id = resume_task_id.strip()
         self._mode_values = [
             ("backlog", "Выполнять задачи из backlog в цикле"),
             ("single", "Выполнить одну задачу из backlog"),
             ("prompt", "Выполнить произвольную задачу"),
         ]
+        if self._resume_task_id:
+            self._mode_values.insert(0, ("resume", f"Продолжить текущую задачу ({self._resume_task_id})"))
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -37,6 +46,8 @@ class StartMenuScreen(Screen[StartMenuChoice]):
                     with RadioSet(id="mode_set"):
                         for idx, (_value, title) in enumerate(self._mode_values):
                             yield RadioButton(title, value=idx == 0, id=f"mode_{idx}")
+                    yield Label("Debug logging")
+                    yield Switch(value=True, id="debug_switch")
                     yield Label("Task ID (для single)")
                     yield Label(self._available_task_ids_hint(), id="task_ids_hint", classes="help")
                     default_task = self._backlog_status.open_tasks[0].task_id if self._backlog_status.open_tasks else ""
@@ -44,8 +55,6 @@ class StartMenuScreen(Screen[StartMenuChoice]):
                     yield Label("Нажмите Enter в поле Task ID или Prompt, чтобы запустить.", id="submit_hint", classes="help")
                     yield Label("Prompt (для prompt)")
                     yield Input(placeholder="Введите prompt", id="prompt_text")
-                    yield Label("Debug logging")
-                    yield Switch(value=False, id="debug_switch")
                 with Vertical(classes="col"):
                     yield Label("Модель")
                     with RadioSet(id="model_set"):
@@ -103,6 +112,16 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         if mode in {"backlog", "single"} and not self._backlog_status.has_open_tasks:
             self._set_error(f"Backlog-режим недоступен: {self._backlog_status.disabled_reason}")
             return None
+        if mode == "resume":
+            if not self._resume_task_id:
+                self._set_error("Resume mode недоступен: не найдена активная задача.")
+                return None
+            return StartMenuChoice(
+                mode="resume",
+                task_id=self._resume_task_id,
+                debug_enabled=debug_enabled,
+                model=model,
+            )
         if mode == "single" and not task_id and self._backlog_status.open_tasks:
             task_id = self._backlog_status.open_tasks[0].task_id
         if mode == "single" and not task_id:

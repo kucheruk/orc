@@ -7,12 +7,12 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .agent_preflight import AgentNotInstalledError, ensure_agent_installed
 from .backlog_orchestrator import BacklogOrchestrator
 from .backlog_status import inspect_backlog
-from .logging import ORC_LOG_NAME, ORC_ROOT, init_debug_logging, log_event
+from .logging import ORC_LOG_NAME, ORC_ROOT, init_debug_logging, log_event, set_log_context
 from .model_selector import (
     DEFAULT_MODEL,
     ModelListLoader,
@@ -23,6 +23,7 @@ from .model_selector import (
 )
 from .notify import send_telegram_message
 from .process import acquire_lock, release_lock
+from .resume_state import resumable_task_id
 from .start_menu import show_start_menu
 from .supervisor import (
     COMMIT_PROMPT_PATH,
@@ -34,6 +35,7 @@ from .supervisor import (
     _load_task_payload,
     load_prompt,
 )
+from .stream_monitor_state import MonitorSnapshot
 from .task_execution import TaskExecutionEngine
 from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn
@@ -65,6 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--commit-stall-timeout", type=float, default=300.0, help="Commit stall timeout seconds")
     ap.add_argument("--commit-ttl", type=float, default=1800.0, help="Max seconds for commit phase")
+    ap.add_argument(
+        "--allow-fallback-commits",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Allow fallback autocommit when commit phase leaves tracked changes (default: false)",
+    )
     ap.add_argument("--poll", type=float, default=1.0, help="Poll interval for task completion")
     ap.add_argument("--stall-timeout", type=float, default=600.0, help="Seconds without output before stall")
     ap.add_argument("--task-ttl", type=float, default=6 * 3600, help="Max seconds per task before abort")
@@ -99,6 +107,7 @@ def _resolve_mode(
     *,
     models: Optional[list[str]] = None,
     default_model: str = DEFAULT_MODEL,
+    task_path: Optional[Path] = None,
 ) -> None:
     explicit_new_flow = bool(args.mode or args.task_id.strip() or args.prompt.strip())
     if explicit_new_flow:
@@ -112,8 +121,14 @@ def _resolve_mode(
     status = inspect_backlog(backlog_path)
     if not models:
         raise ModelSelectionError("Невозможно открыть стартовый экран: список моделей пуст.")
-    choice = show_start_menu(status, models=models, default_model=default_model)
-    args.mode = choice.mode
+    resume_task_id = _resumable_task_id(task_path, backlog_path) if task_path is not None else ""
+    choice = show_start_menu(
+        status,
+        models=models,
+        default_model=default_model,
+        resume_task_id=resume_task_id,
+    )
+    args.mode = "backlog" if choice.mode == "resume" else choice.mode
     args.debug = bool(args.debug or choice.debug_enabled)
     args.model = choice.model
     if choice.task_id:
@@ -132,6 +147,10 @@ def _resolve_model(args, workdir: str, *, interactive_requested: bool, model_loa
         save_last_selected_model(workdir, args.model)
         return
     raise ModelSelectionError("Интерактивный запуск требует выбранной модели со стартового экрана.")
+
+
+def _resumable_task_id(task_path: Path, backlog_path: Path) -> str:
+    return resumable_task_id(task_path, backlog_path)
 
 
 def _resolve_backlog(args, workdir: str, log_path: Path) -> tuple[Path, Optional[Path]]:
@@ -175,6 +194,7 @@ def _failure_message(reason: str) -> str:
 def main() -> int:
     args = build_parser().parse_args()
     workdir = str(Path(args.workspace).resolve())
+    set_log_context(workdir=workdir)
     lock_path = Path(workdir) / ".orc" / LOCK_FILE_NAME
     log_path = ORC_ROOT / ".orc" / ORC_LOG_NAME
     task_path = Path(workdir) / ".cursor" / TASK_FILE_NAME
@@ -197,7 +217,13 @@ def main() -> int:
     if interactive_requested:
         last_model = str(args.model).strip() or load_last_selected_model(workdir) or DEFAULT_MODEL
         models = model_loader.result(timeout=30.0) if model_loader is not None else [DEFAULT_MODEL]
-        _resolve_mode(args, initial_backlog_path, models=models, default_model=last_model)
+        _resolve_mode(
+            args,
+            initial_backlog_path,
+            models=models,
+            default_model=last_model,
+            task_path=task_path,
+        )
     else:
         _resolve_mode(args, initial_backlog_path)
     try:
@@ -246,7 +272,11 @@ def main() -> int:
             commit_template=commit_template,
             engine=engine,
         )
-        app = OrcApp(lambda: asyncio.run(orchestrator.run_async()))
+        def _run_orchestrator(snapshot_publisher: Callable[[MonitorSnapshot], None]) -> int:
+            orchestrator.snapshot_publisher = snapshot_publisher
+            return asyncio.run(orchestrator.run_async())
+
+        app = OrcApp(_run_orchestrator)
         result = app.run(mouse=False)
         exit_code = int(result if result is not None else 1)
         if app.last_error:

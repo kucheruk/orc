@@ -19,6 +19,7 @@ _DEBUG_ENABLED = False
 _DEBUG_LOG_PATH: Optional[Path] = None
 _DEBUG_SESSION_ID = f"{int(time.time() * 1000)}-{os.getpid()}"
 _DEBUG_WORKDIR = ""
+_LOG_WORKDIR = ""
 
 ORC_LOG_NAME = "orc.log"
 ORC_DATA_DIR = ".orc"
@@ -79,15 +80,32 @@ def get_debug_log_path() -> Optional[Path]:
     return _DEBUG_LOG_PATH
 
 
+def set_log_context(*, workdir: str = "") -> None:
+    global _LOG_WORKDIR
+    resolved = str(workdir or "").strip()
+    if not resolved:
+        _LOG_WORKDIR = ""
+        return
+    try:
+        _LOG_WORKDIR = str(Path(resolved).resolve())
+    except Exception:
+        _LOG_WORKDIR = resolved
+
+
 def log_event(log_path: Path, level: str, message: str, **fields: object) -> None:
     min_level = _min_log_level()
     if LOG_LEVELS.get(level.upper(), 100) < min_level:
         return
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    pid = os.getpid()
+    context: Dict[str, object] = {"pid": pid, "orc_pid": pid}
+    if _LOG_WORKDIR:
+        context["workspace"] = _LOG_WORKDIR
     payload = {
         "ts": now_iso(),
         "level": level,
         "message": message,
+        **context,
         **fields,
     }
     with log_path.open("a", encoding="utf-8", errors="replace") as log:

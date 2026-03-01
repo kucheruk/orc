@@ -3,12 +3,11 @@
 
 import json
 import os
-import signal
-import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Dict, List, Optional
+
+import psutil
 
 from .logging import log_event, now_iso
 
@@ -58,27 +57,11 @@ def release_lock(lock_path: Path, log_path: Path) -> None:
 
 def list_child_pids(pid: int) -> List[int]:
     try:
-        result = subprocess.run(
-            ["pgrep", "-P", str(pid)],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-    except Exception:
+        process = psutil.Process(pid)
+        children = process.children(recursive=False)
+    except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied, ValueError):
         return []
-    if result.returncode != 0:
-        return []
-    pids = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            pids.append(int(line))
-        except ValueError:
-            continue
-    return pids
+    return [child.pid for child in children]
 
 
 def build_process_tree(root_pid: int) -> List[int]:
@@ -102,19 +85,58 @@ def kill_process_tree(root_pid: Optional[int], log_path: Path, label: str) -> No
     if not root_pid:
         log_event(log_path, "WARN", "process tree kill skipped: no pid", label=label)
         return
-    pids = build_process_tree(root_pid)
-    log_event(log_path, "INFO", "process tree kill: SIGTERM", label=label, pids=pids)
-    for pid in reversed(pids):
+    try:
+        parent = psutil.Process(root_pid)
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        return
+    except psutil.AccessDenied:
+        log_event(log_path, "WARN", "process tree kill skipped: access denied", label=label, pid=root_pid)
+        return
+
+    try:
+        children = parent.children(recursive=True)
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        children = []
+    except psutil.AccessDenied:
+        log_event(log_path, "WARN", "process tree kill: cannot enumerate children", label=label, pid=root_pid)
+        children = []
+
+    pids = [proc.pid for proc in children] + [root_pid]
+    log_event(log_path, "INFO", "process tree kill: terminate", label=label, pids=pids)
+
+    for child in children:
         try:
-            os.kill(pid, signal.SIGTERM)
-        except Exception:
+            child.terminate()
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
-    time.sleep(1.5)
-    still_alive = [pid for pid in pids if is_pid_alive(pid)]
-    if still_alive:
-        log_event(log_path, "WARN", "process tree kill: SIGKILL", label=label, pids=still_alive)
-        for pid in reversed(still_alive):
+        except psutil.AccessDenied:
+            log_event(log_path, "WARN", "process tree kill: terminate denied", label=label, pid=child.pid)
+
+    _, alive_children = psutil.wait_procs(children, timeout=1.5)
+    if alive_children:
+        alive_pids = [proc.pid for proc in alive_children]
+        log_event(log_path, "WARN", "process tree kill: kill", label=label, pids=alive_pids)
+        for child in alive_children:
             try:
-                os.kill(pid, signal.SIGKILL)
-            except Exception:
+                child.kill()
+            except (psutil.NoSuchProcess, psutil.ZombieProcess):
                 continue
+            except psutil.AccessDenied:
+                log_event(log_path, "WARN", "process tree kill: kill denied", label=label, pid=child.pid)
+
+    try:
+        parent.terminate()
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        return
+    except psutil.AccessDenied:
+        log_event(log_path, "WARN", "process tree kill: terminate denied", label=label, pid=root_pid)
+        return
+
+    _, alive_parent = psutil.wait_procs([parent], timeout=1.5)
+    if alive_parent:
+        try:
+            parent.kill()
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            return
+        except psutil.AccessDenied:
+            log_event(log_path, "WARN", "process tree kill: kill denied", label=label, pid=root_pid)

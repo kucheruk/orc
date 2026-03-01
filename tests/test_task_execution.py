@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import orc_core.task_execution as task_execution
 from orc_core.task_execution import TaskExecutionEngine, TaskExecutionRequest
 from orc_core.task_source import Task
 
@@ -54,7 +55,14 @@ class _FakeWorker:
 
 
 class TaskExecutionEngineTest(unittest.TestCase):
-    def _request(self, tmpdir: str, *, max_restarts: int = 2, commit_phase: bool = False) -> TaskExecutionRequest:
+    def _request(
+        self,
+        tmpdir: str,
+        *,
+        max_restarts: int = 2,
+        commit_phase: bool = False,
+        allow_fallback_commits: bool = False,
+    ) -> TaskExecutionRequest:
         root = Path(tmpdir)
         backlog_path = root / "BACKLOG.md"
         backlog_path.write_text("- [ ] TASK-001 test task\n", encoding="utf-8")
@@ -71,6 +79,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             continue_template="continue {task_id} :: {reason}",
             commit_template="commit {task_id}",
             commit_phase=commit_phase,
+            allow_fallback_commits=allow_fallback_commits,
             poll=0.01,
             stall_timeout=1.0,
             task_ttl=1.0,
@@ -231,6 +240,94 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.reason, "waiting_for_input")
         self.assertEqual(result.delay_seconds, 7.0)
         self.assertEqual(worker.launch_calls, 1)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")
+    @patch("orc_core.task_execution._git_status_porcelain")
+    def test_commit_phase_fails_when_tracked_leftovers_and_fallback_disabled(
+        self,
+        git_status_mock,
+        *_mocks,
+    ) -> None:
+        worker = _FakeWorker()
+        git_status_mock.side_effect = [
+            (True, " M tracked.py\n"),
+            (True, " M tracked.py\n"),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=False)
+            ok = task_execution._run_commit_phase(
+                worker=worker,
+                request=request,
+                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                task_id="TASK-001",
+                tag="tag",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+            )
+
+        self.assertFalse(ok)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")
+    @patch("orc_core.task_execution._attempt_autocommit_fallback", return_value=True)
+    @patch("orc_core.task_execution._git_status_porcelain")
+    def test_commit_phase_uses_fallback_when_enabled_and_succeeds(
+        self,
+        git_status_mock,
+        fallback_mock,
+        *_mocks,
+    ) -> None:
+        worker = _FakeWorker()
+        git_status_mock.side_effect = [
+            (True, " M tracked.py\n"),
+            (True, " M tracked.py\n"),
+            (True, ""),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=True)
+            ok = task_execution._run_commit_phase(
+                worker=worker,
+                request=request,
+                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                task_id="TASK-001",
+                tag="tag",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+            )
+
+        self.assertTrue(ok)
+        fallback_mock.assert_called_once()
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")
+    @patch("orc_core.task_execution._attempt_autocommit_fallback", return_value=False)
+    @patch("orc_core.task_execution._git_status_porcelain")
+    def test_commit_phase_fails_when_enabled_fallback_fails(
+        self,
+        git_status_mock,
+        fallback_mock,
+        *_mocks,
+    ) -> None:
+        worker = _FakeWorker()
+        git_status_mock.side_effect = [
+            (True, " M tracked.py\n"),
+            (True, " M tracked.py\n"),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=True)
+            ok = task_execution._run_commit_phase(
+                worker=worker,
+                request=request,
+                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                task_id="TASK-001",
+                tag="tag",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+            )
+
+        self.assertFalse(ok)
+        fallback_mock.assert_called_once()
 
 
 if __name__ == "__main__":

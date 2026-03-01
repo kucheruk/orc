@@ -39,6 +39,7 @@ def _args(backlog: str) -> Namespace:
         model="gpt-5.2-codex",
         commit_model="",
         commit_phase=False,
+        allow_fallback_commits=False,
         poll=0.01,
         stall_timeout=1.0,
         task_ttl=1.0,
@@ -146,6 +147,38 @@ class BacklogOrchestratorTest(unittest.TestCase):
         self.assertEqual(len(engine.calls), 1)
         self.assertEqual(engine.calls[0].progress_done, 0)
         self.assertEqual(engine.calls[0].progress_total, 1)
+        self.assertFalse(engine.calls[0].allow_fallback_commits)
+
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    def test_request_propagates_allow_fallback_commits_flag(self, hooks_config, hooks) -> None:
+        hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
+        hooks_config.return_value = Path("/tmp/hooks.json")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [ ] TASK-001 only\n", encoding="utf-8")
+            engine = _FakeEngine(backlog_path)
+            args = _args("BACKLOG.md")
+            args.allow_fallback_commits = True
+            orchestrator = BacklogOrchestrator(
+                workdir=tmpdir,
+                backlog_path=backlog_path,
+                args=args,
+                task_path=Path(tmpdir) / ".cursor" / "orc-task.json",
+                run_root=Path(tmpdir) / ".orc" / "run",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+                prompt_template="{task_id}",
+                continue_template="{task_id}",
+                commit_template="{task_id}",
+                engine=engine,
+                sleep_fn=lambda _seconds: None,
+            )
+
+            rc = orchestrator.run()
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(engine.calls), 1)
+        self.assertTrue(engine.calls[0].allow_fallback_commits)
 
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")

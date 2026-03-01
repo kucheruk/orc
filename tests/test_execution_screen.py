@@ -3,6 +3,8 @@
 
 import time
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from textual.app import App
 
@@ -50,6 +52,44 @@ class ExecutionScreenRenderTest(unittest.TestCase):
                 self.assertEqual(screen.total_lines, 10)
                 activity = screen.query_one("#activity_label")
                 self.assertIn("Agent activity", str(activity.render()))
+
+        import asyncio
+
+        asyncio.run(_run())
+
+    def test_stats_label_shows_debug_log_name_when_available(self) -> None:
+        metrics = MetricsStore(tokens_total=42, files_edited=3, command_count=5, total_lines=10, total_output_chars=999)
+        snapshot = MonitorSnapshot(
+            task_id="TASK-1",
+            started_at=time.time() - 5,
+            progress_done=1,
+            progress_total=4,
+            metrics=metrics,
+            last_event_type="tool_call",
+            last_event_note="ReadFile started",
+            recent_commands=["ReadFile", "Shell"],
+            recent_files=["/tmp/a.py"],
+            recent_events=["tool_call:started ReadFile"],
+            reasoning_lines=["planning step one"],
+            spinner_idx=1,
+            last_event_at=time.time() - 3,
+        )
+        screen = ExecutionScreen()
+
+        class _TestApp(App[None]):
+            def compose(self):
+                yield screen
+
+        async def _run() -> None:
+            with patch(
+                "orc_core.tui.screens.execution.get_debug_log_path",
+                return_value=Path("/tmp/orc/orc-debug-20260301-120000-123.jsonl"),
+            ):
+                async with _TestApp().run_test() as pilot:
+                    _ = pilot
+                    screen.update_from_snapshot(snapshot)
+                    stats = screen.query_one("#stats_label")
+                    self.assertIn("orc-debug-20260301-120000-123.jsonl", str(stats.render()))
 
         import asyncio
 

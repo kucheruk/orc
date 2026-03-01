@@ -11,7 +11,7 @@ from .hooks import (
     ensure_repo_hooks,
     ensure_repo_hooks_config,
 )
-from .logging import ORC_LOG_NAME, ORC_ROOT, debug_log, log_event
+from .logging import ORC_LOG_NAME, ORC_ROOT, debug_log, log_event, set_log_context
 from .notify import send_telegram_message
 from .process import acquire_lock, kill_process_tree, release_lock
 from .runner import launch_agent_stream_json
@@ -218,6 +218,7 @@ def _run_commit_phase(
     task_ttl: float,
     task_id: str,
     tag: str,
+    allow_fallback_commits: bool = False,
 ) -> bool:
     ok, porcelain = _git_status_porcelain(workdir, log_path)
     if ok and not porcelain.strip():
@@ -275,9 +276,21 @@ def _run_commit_phase(
             ui_warn("[orc] commit phase: warning (repo has untracked files)")
             return True
 
-        # If tracked changes remain, try a best-effort fallback autocommit.
+        # If tracked changes remain, fallback autocommit is explicit opt-in only.
         task_text = str(prompt_vars.get("task_text") or "").strip()
         if tracked:
+            if not allow_fallback_commits:
+                log_event(
+                    log_path,
+                    "ERROR",
+                    "commit phase failed: tracked changes remain and fallback disabled",
+                    task_id=task_id,
+                    tracked=len(tracked),
+                    untracked=len(untracked),
+                    porcelain=porcelain2[:500],
+                )
+                ui_error("[orc] commit phase: completed but tracked changes remain (fallback disabled)")
+                return False
             ui_warn("[orc] commit phase: finished but repo still dirty; attempting fallback commit")
             if not _attempt_autocommit_fallback(workdir, log_path, task_id=task_id, task_text=task_text):
                 ui_error("[orc] commit phase: fallback commit failed")
@@ -329,6 +342,12 @@ def main() -> int:
     )
     ap.add_argument("--commit-stall-timeout", type=float, default=300.0, help="Seconds without output before commit stall")
     ap.add_argument("--commit-ttl", type=float, default=1800.0, help="Max seconds for commit phase before abort")
+    ap.add_argument(
+        "--allow-fallback-commits",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Allow fallback autocommit when commit phase leaves tracked changes (default: false)",
+    )
     ap.add_argument("--poll", type=float, default=1.0, help="Poll interval for task completion")
     ap.add_argument("--stall-timeout", type=float, default=600.0, help="Seconds without output before stall")
     ap.add_argument("--task-ttl", type=float, default=6 * 3600, help="Max seconds per task before abort")
@@ -348,6 +367,7 @@ def main() -> int:
     args = ap.parse_args()
 
     workdir = str(Path(args.workspace).resolve())
+    set_log_context(workdir=workdir)
     orc_log_path = ORC_ROOT / ".orc" / ORC_LOG_NAME
     lock_path = Path(workdir) / ".orc" / LOCK_FILE_NAME
     temp_backlog_path: Optional[Path] = None

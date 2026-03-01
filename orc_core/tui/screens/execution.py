@@ -10,6 +10,7 @@ from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ProgressBar, RichLog, Static
 
+from ...logging import get_debug_log_path
 from ...stream_monitor_state import MonitorSnapshot
 
 
@@ -68,10 +69,12 @@ class ExecutionScreen(Screen[None]):
 
     def _refresh_stats_and_activity(self) -> None:
         elapsed = int(max(time.time() - self.started_at, 0.0))
+        debug_log_path = get_debug_log_path()
+        debug_part = f" | Debug log: {debug_log_path.name}" if debug_log_path is not None else ""
         self.query_one("#stats_label", Label).update(
             f"Elapsed: {self._format_duration(elapsed)} | "
             f"Lines: {self.total_lines} | Commands: {self.commands_count} | "
-            f"Files: {self.files_edited} | Tokens: {self.tokens_total} | Last: {self.last_event}"
+            f"Files: {self.files_edited} | Tokens: {self.tokens_total} | Last: {self.last_event}{debug_part}"
         )
         idle_seconds = max(time.time() - self.last_event_at, 0.0)
         self.query_one("#activity_label", Label).update(self._activity_markup(idle_seconds))
