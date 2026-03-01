@@ -54,6 +54,11 @@ class _FakeWorker:
         return _FakeMonitor()
 
 
+class _FailingWorker:
+    def launch(self, **_kwargs):
+        raise TypeError("missing required keyword-only arguments: progress_done and progress_total")
+
+
 class TaskExecutionEngineTest(unittest.TestCase):
     def _request(
         self,
@@ -391,6 +396,47 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertFalse(ok)
         fallback_mock.assert_called_once()
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")
+    @patch("orc_core.task_execution._git_status_porcelain")
+    def test_commit_phase_passes_progress_arguments_to_worker_launch(self, git_status_mock, *_mocks) -> None:
+        worker = _FakeWorker()
+        git_status_mock.side_effect = [(True, " M tracked.py\n"), (True, "")]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=False)
+            request = TaskExecutionRequest(**{**request.__dict__, "progress_done": 3, "progress_total": 9})
+            ok = task_execution._run_commit_phase(
+                worker=worker,
+                request=request,
+                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                task_id="TASK-001",
+                tag="tag",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(worker.launch_calls, 1)
+        self.assertEqual(worker.launch_kwargs[0]["progress_done"], 3)
+        self.assertEqual(worker.launch_kwargs[0]["progress_total"], 9)
+
+    @patch("orc_core.task_execution._git_status_porcelain", return_value=(True, " M tracked.py\n"))
+    def test_commit_phase_launch_failure_returns_false_not_exception(self, *_mocks) -> None:
+        worker = _FailingWorker()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=False)
+            ok = task_execution._run_commit_phase(
+                worker=worker,
+                request=request,
+                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                task_id="TASK-001",
+                tag="tag",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+            )
+
+        self.assertFalse(ok)
 
 
 if __name__ == "__main__":

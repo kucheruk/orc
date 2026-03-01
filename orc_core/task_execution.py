@@ -262,17 +262,24 @@ def _run_commit_phase(
     log_event(log_path, "INFO", "commit phase starting", task_id=task_id, prompt_path=str(prompt_path), model=request.commit_model)
     ui_info("[orc] commit phase: starting")
 
-    monitor = worker.launch(
-        workdir=request.workdir,
-        prompt_path=prompt_path,
-        model=request.commit_model,
-        log_path=log_path,
-        report_interval=15.0,
-        summary_lines=25,
-        task_id=f"{task_id}::commit",
-        agent_output_log_path=request.agent_output_log_path,
-        snapshot_publisher=request.snapshot_publisher,
-    )
+    try:
+        monitor = worker.launch(
+            workdir=request.workdir,
+            prompt_path=prompt_path,
+            model=request.commit_model,
+            log_path=log_path,
+            report_interval=15.0,
+            summary_lines=25,
+            task_id=f"{task_id}::commit",
+            progress_done=request.progress_done,
+            progress_total=request.progress_total,
+            agent_output_log_path=request.agent_output_log_path,
+            snapshot_publisher=request.snapshot_publisher,
+        )
+    except Exception as exc:
+        log_event(log_path, "ERROR", "commit phase launch failed", task_id=task_id, error=str(exc))
+        ui_error(f"[orc] commit phase: launch failed ({type(exc).__name__})")
+        return False
     try:
         result = wait_for_process_exit(
             monitor=monitor,
