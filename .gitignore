@@ -1,5 +1,5 @@
 .orc/
 !.orc/telegram.json.example
-orc_core/__pycache__/
+__pycache__/
 .cursor/
 .worktrees/

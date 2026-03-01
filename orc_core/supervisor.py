@@ -8,7 +8,7 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from .backlog_orchestrator import BacklogOrchestrator
 from .backlog import render_progress
@@ -263,6 +263,8 @@ def wait_for_completion(
     nudge_text: str,
     task_id: str,
     task_text: str,
+    escape_requested: Optional[Callable[[], bool]] = None,
+    confirm_exit: Optional[Callable[[], bool]] = None,
 ) -> str:
     start_time = time.time()
     last_stats_key: Optional[Tuple[int, int, int, int]] = None
@@ -288,6 +290,11 @@ def wait_for_completion(
     )
     #endregion
     while True:
+        if escape_requested is not None and escape_requested():
+            if confirm_exit is None or confirm_exit():
+                log_event(log_path, "WARN", "escape interrupt confirmed", task_id=task_id)
+                raise KeyboardInterrupt
+            log_event(log_path, "INFO", "escape interrupt cancelled", task_id=task_id)
         if not task_path.exists():
             log_event(log_path, "INFO", "task file removed; completion observed")
             #region agent log
@@ -444,6 +451,8 @@ def wait_for_process_exit(
     log_path: Path,
     label: str,
     stop_on_followup_prompt: bool = False,
+    escape_requested: Optional[Callable[[], bool]] = None,
+    confirm_exit: Optional[Callable[[], bool]] = None,
 ) -> str:
     """
     Wait for the agent process to exit (used for non-task phases, e.g. commit).
@@ -467,6 +476,11 @@ def wait_for_process_exit(
     )
     #endregion
     while True:
+        if escape_requested is not None and escape_requested():
+            if confirm_exit is None or confirm_exit():
+                log_event(log_path, "WARN", "escape interrupt confirmed", label=label)
+                raise KeyboardInterrupt
+            log_event(log_path, "INFO", "escape interrupt cancelled", label=label)
         monitor.maybe_report()
         if stop_on_followup_prompt and getattr(monitor, "ui_followup_prompt", False):
             if followup_seen_at is None:

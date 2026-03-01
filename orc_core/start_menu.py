@@ -118,7 +118,6 @@ def _pick_start_options(
 ) -> tuple[Optional[str], Optional[str], bool]:
     if not models:
         raise ValueError("models list must not be empty")
-
     mode_selector = RadioList(mode_values)
     mode_selector.current_value = mode_values[0][0]
     model_values = [(model, model) for model in models]
@@ -202,6 +201,10 @@ def _pick_start_options(
     @kb.add("s-tab")
     def _focus_previous(_event) -> None:
         _event.app.layout.focus_previous()
+
+    @kb.add("escape")
+    def _cancel_on_escape(_event) -> None:
+        cancel()
 
     app = Application(
         layout=Layout(dialog, focused_element=mode_selector),

@@ -8,7 +8,6 @@ import subprocess
 import threading
 from pathlib import Path
 from typing import Optional
-
 from prompt_toolkit.shortcuts import radiolist_dialog
 
 DEFAULT_MODEL = "gpt-5.3-codex"

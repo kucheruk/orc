@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from rich.console import Console
-
-_CONSOLE = Console()
-
-
-def ui_console() -> Console:
-    return _CONSOLE
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.shortcuts import print_formatted_text
 
 
 def ui_info(message: str) -> None:
-    _CONSOLE.print(f"[cyan]{message}[/cyan]")
+    print_formatted_text(FormattedText([("ansicyan", message)]))
 
 
 def ui_warn(message: str) -> None:
-    _CONSOLE.print(f"[yellow]{message}[/yellow]")
+    print_formatted_text(FormattedText([("ansiyellow", message)]))
 
 
 def ui_error(message: str) -> None:
-    _CONSOLE.print(f"[bold red]{message}[/bold red]")
+    print_formatted_text(FormattedText([("ansired bold", message)]))

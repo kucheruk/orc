@@ -45,5 +45,13 @@ class StartMenuSingleScreenTest(unittest.TestCase):
         self.assertEqual(choice.prompt_text, "manual task")
         self.assertEqual(pick_start_options.call_count, 2)
 
+    @patch("orc_core.start_menu._pick_start_options", return_value=(None, None, False))
+    def test_show_start_menu_raises_keyboard_interrupt_on_cancel(self, _pick_start_options) -> None:
+        task = Task(task_id="TASK-001", text="test", done=False)
+        status = BacklogStatus(path=Path("BACKLOG.md"), exists=True, tasks=[task], open_tasks=[task])
+
+        with self.assertRaises(KeyboardInterrupt):
+            show_start_menu(status, models=["gpt-5.3-codex"], default_model="gpt-5.3-codex")
+
 if __name__ == "__main__":
     unittest.main()
