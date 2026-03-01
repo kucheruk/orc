@@ -288,7 +288,10 @@ class TaskExecutionEngine:
                 resume_id = (active.get("conversation_id") or "").strip() or None
             except Exception as exc:
                 log_event(self.log_path, "ERROR", "failed to read task file", error=str(exc))
-                ui_warn(f"⚠️ Не удалось прочитать {request.task_path}. Удали файл и запусти заново.")
+                ui_warn(
+                    f"⚠️ Не удалось прочитать {request.task_path}. "
+                    "Исправь/удали файл состояния или запусти с --drop для чистого старта."
+                )
                 return TaskExecutionResult(status="continue", reason="task_file_read_failed", delay_seconds=max(request.poll, 0.2))
 
             if active_task_id and request.task_path.exists():
@@ -308,7 +311,10 @@ class TaskExecutionEngine:
             log_event(self.log_path, "INFO", "resume existing task", task_id=task_id)
             ui_info(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
             if not resume_id:
-                ui_error("❌ Resume state поврежден: отсутствует conversation_id в task file.")
+                ui_error(
+                    "❌ Resume state поврежден: отсутствует conversation_id в task file. "
+                    "Запусти с --drop для намеренного перезапуска без resume."
+                )
                 return TaskExecutionResult(status="failed", reason="missing_conversation_id")
             log_event(
                 self.log_path,
