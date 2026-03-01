@@ -1,0 +1,21 @@
+{
+  "structured_subtypes": [
+    "user_input_requested",
+    "input_requested",
+    "waiting_for_input",
+    "followup_prompt",
+    "follow_up_prompt"
+  ],
+  "result_error_statuses": [
+    "error",
+    "failed",
+    "failure"
+  ],
+  "text_markers": [
+    "add a follow-up",
+    "follow-up",
+    "follow up",
+    "need your input",
+    "waiting for your input"
+  ]
+}

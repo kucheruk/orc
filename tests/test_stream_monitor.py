@@ -87,6 +87,18 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         self.assertEqual(state.build_snapshot().recent_events, [])
 
+    def test_thinking_delta_and_completed_are_hidden_from_event_feed(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event({"type": "thinking", "subtype": "delta", "text": "**Adding"})
+        state.record_event({"type": "thinking", "subtype": "delta", "text": " initial"})
+        state.record_event({"type": "thinking", "subtype": "delta", "text": " setup**"})
+        state.record_event({"type": "thinking", "subtype": "completed"})
+
+        self.assertEqual(state.build_snapshot().recent_events, [])
+        self.assertTrue(any("Adding initial setup" in line for line in state.reasoning_lines_for_panel()))
+
     def test_assistant_message_without_subtype_is_collected_into_reasoning(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 

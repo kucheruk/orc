@@ -475,7 +475,7 @@ class StreamMonitorState:
         tokens = self.extract_tokens(event)
         structured_entries = self._extract_structured_token_entries(event)
         text = self._extract_text(event)
-        if event_type.lower() != "assistant":
+        if not stream_kind:
             self._recent_events.append(self._summarize_event(event, text))
         if structured_entries:
             total_delta = 0
