@@ -11,6 +11,18 @@ from orc_core.stream_monitor import StreamJsonMonitor
 
 
 class StreamMonitorFormattingTest(unittest.TestCase):
+    def test_snapshot_tracks_last_event_timestamp(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        started_at = time.time() - 10
+        state = StreamMonitorState(task_id="TASK-1", started_at=started_at, summary_lines=25)
+        initial_snapshot = state.build_snapshot()
+        self.assertEqual(initial_snapshot.last_event_at, started_at)
+
+        state.record_event({"type": "assistant", "subtype": "reasoning", "text": "thinking..."})
+        updated_snapshot = state.build_snapshot()
+        self.assertGreaterEqual(updated_snapshot.last_event_at, initial_snapshot.last_event_at)
+
     def test_reasoning_chunks_are_coalesced_without_word_split(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
@@ -20,6 +32,15 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         self.assertEqual(len(state._recent_reasoning), 1)
         self.assertEqual(state._recent_reasoning[-1], "Prioritizing user commit preference")
+
+    def test_reasoning_chunks_keep_spaces_between_words(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.append_reasoning_fragment("Acknowledging")
+        state.append_reasoning_fragment("task DB-005 and preparing initial steps")
+
+        self.assertEqual(state._recent_reasoning[-1], "Acknowledging task DB-005 and preparing initial steps")
 
     def test_reasoning_strips_basic_markdown(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState

@@ -11,6 +11,12 @@ from orc_core.stream_monitor_state import MetricsStore, MonitorSnapshot
 
 
 class ExecutionScreenRenderTest(unittest.TestCase):
+    def test_activity_markup_uses_expected_thresholds(self) -> None:
+        screen = ExecutionScreen()
+        self.assertIn("active now", screen._activity_markup(1.0))
+        self.assertIn("waiting", screen._activity_markup(20.0))
+        self.assertIn("idle", screen._activity_markup(75.0))
+
     def test_render_text_contains_key_sections(self) -> None:
         metrics = MetricsStore(tokens_total=42, files_edited=3, command_count=5, total_lines=10, total_output_chars=999)
         snapshot = MonitorSnapshot(
@@ -26,6 +32,7 @@ class ExecutionScreenRenderTest(unittest.TestCase):
             recent_events=["tool_call:started ReadFile"],
             reasoning_lines=["planning step one"],
             spinner_idx=1,
+            last_event_at=time.time() - 3,
         )
         screen = ExecutionScreen()
 
@@ -41,6 +48,8 @@ class ExecutionScreenRenderTest(unittest.TestCase):
                 self.assertEqual(screen.progress_done, 1)
                 self.assertEqual(screen.progress_total, 4)
                 self.assertEqual(screen.total_lines, 10)
+                activity = screen.query_one("#activity_label")
+                self.assertIn("Agent activity", str(activity.render()))
 
         import asyncio
 

@@ -23,6 +23,7 @@ class ExecutionScreen(Screen[None]):
     progress_done = reactive(0)
     progress_total = reactive(1)
     started_at = reactive(0.0)
+    last_event_at = reactive(0.0)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -30,6 +31,7 @@ class ExecutionScreen(Screen[None]):
             yield Label("", id="task_label")
             yield Label("", id="stats_label")
             yield ProgressBar(total=1, id="progress")
+            yield Label("", id="activity_label")
             with Grid(id="recent_grid"):
                 yield Static("", id="recent_commands")
                 yield Static("", id="recent_files")
@@ -51,13 +53,28 @@ class ExecutionScreen(Screen[None]):
         progress.update(total=max(1, value), progress=max(0, self.progress_done))
 
     def watch_total_lines(self, _value: int) -> None:
+        self._refresh_stats_and_activity()
+
+    def _format_duration(self, seconds: float) -> str:
+        mins, secs = divmod(int(max(seconds, 0.0)), 60)
+        return f"{mins:02d}:{secs:02d}"
+
+    def _activity_markup(self, idle_seconds: float) -> str:
+        if idle_seconds < 2.0:
+            return "[green]Agent activity: active now[/green]"
+        if idle_seconds < 60.0:
+            return f"[yellow]Agent activity: waiting {self._format_duration(idle_seconds)}[/yellow]"
+        return f"[red]Agent activity: idle {self._format_duration(idle_seconds)}[/red]"
+
+    def _refresh_stats_and_activity(self) -> None:
         elapsed = int(max(time.time() - self.started_at, 0.0))
-        mins, secs = divmod(elapsed, 60)
         self.query_one("#stats_label", Label).update(
-            f"Elapsed: {mins:02d}:{secs:02d} | "
+            f"Elapsed: {self._format_duration(elapsed)} | "
             f"Lines: {self.total_lines} | Commands: {self.commands_count} | "
             f"Files: {self.files_edited} | Tokens: {self.tokens_total} | Last: {self.last_event}"
         )
+        idle_seconds = max(time.time() - self.last_event_at, 0.0)
+        self.query_one("#activity_label", Label).update(self._activity_markup(idle_seconds))
 
     def update_from_snapshot(self, snapshot: MonitorSnapshot) -> None:
         self.task_title = f"Task: {snapshot.task_id}"
@@ -69,9 +86,11 @@ class ExecutionScreen(Screen[None]):
         self.tokens_total = str(snapshot.metrics.tokens_total or "-")
         self.files_edited = str(snapshot.metrics.files_edited or "-")
         self.last_event = f"{snapshot.last_event_type}:{snapshot.last_event_note[:80]}"
+        self.last_event_at = snapshot.last_event_at
         self._update_recent(snapshot)
         self._replace_log("reasoning_log", snapshot.reasoning_lines, empty="waiting for reasoning...")
         self._replace_log("events_log", snapshot.recent_events[-8:], empty="waiting for events...")
+        self._refresh_stats_and_activity()
 
     def _update_recent(self, snapshot: MonitorSnapshot) -> None:
         commands = snapshot.recent_commands[-6:] or ["waiting for tool calls..."]

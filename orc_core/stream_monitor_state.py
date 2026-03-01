@@ -37,6 +37,7 @@ class MonitorSnapshot:
     recent_events: list[str]
     reasoning_lines: list[str]
     spinner_idx: int
+    last_event_at: float
 
 
 class StreamMonitorState:
@@ -54,6 +55,7 @@ class StreamMonitorState:
         self._progress_done = 0
         self._progress_total = 1
         self._spinner_idx = 0
+        self._last_event_at = started_at
 
     def set_progress(self, done: int, total: int) -> None:
         self._progress_done = max(0, int(done))
@@ -76,6 +78,7 @@ class StreamMonitorState:
             recent_events=list(self._recent_events),
             reasoning_lines=self.reasoning_lines_for_panel(max_width=90, max_lines=5),
             spinner_idx=self._spinner_idx,
+            last_event_at=self._last_event_at,
         )
 
     def summary_text(self) -> str:
@@ -114,7 +117,34 @@ class StreamMonitorState:
         if prev_last.isalpha() and first_token.isalpha() and len(prev_last) <= 2 and len(first_token) >= 3:
             return f"{prev}{chunk_stripped}"
         if prev and prev[-1].isalnum() and first_token and first_token[0].islower():
-            return f"{prev}{chunk_stripped}"
+            if (
+                prev_last.isalpha()
+                and first_token.isalpha()
+                and len(prev_last) <= 6
+                and first_token.endswith(
+                    (
+                        "ing",
+                        "ed",
+                        "er",
+                        "est",
+                        "ly",
+                        "tion",
+                        "sion",
+                        "ment",
+                        "ness",
+                        "able",
+                        "ible",
+                        "ive",
+                        "ous",
+                        "al",
+                        "ize",
+                        "ized",
+                        "izing",
+                    )
+                )
+            ):
+                return f"{prev}{chunk_stripped}"
+            return f"{prev} {chunk_stripped}"
         if chunk.startswith(" "):
             return f"{prev}{chunk}"
         return f"{prev} {chunk_stripped}"
@@ -270,6 +300,7 @@ class StreamMonitorState:
         raw = json.dumps(event, ensure_ascii=False)
         self.metrics.total_lines += 1
         self.metrics.total_output_chars += len(raw)
+        self._last_event_at = time.time()
 
         event_type = str(event.get("type") or "")
         subtype = str(event.get("subtype") or "")
