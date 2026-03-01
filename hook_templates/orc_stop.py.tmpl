@@ -40,13 +40,19 @@ def main() -> int:
         lib.log_event(log_path, "ERROR", "stop: bad task file")
         return 0
 
-    conv_id = data.get("conversation_id")
-    if task.get("conversation_id") and conv_id and task["conversation_id"] != conv_id:
+    conv_id = str(data.get("conversation_id") or "").strip()
+    task_conversation_id = str(task.get("conversation_id") or "").strip()
+    if conv_id and not task_conversation_id:
+        task["conversation_id"] = conv_id
+        task_conversation_id = conv_id
+        lib.write_json(task_file, task)
+        lib.log_event(log_path, "INFO", "stop: backfilled conversation_id", conversation_id=conv_id)
+    if task_conversation_id and conv_id and task_conversation_id != conv_id:
         lib.log_event(
             log_path,
             "WARN",
             "stop: conversation_id mismatch (continuing)",
-            task_conversation_id=task.get("conversation_id"),
+            task_conversation_id=task_conversation_id,
             got_conversation_id=conv_id,
         )
 
@@ -105,14 +111,15 @@ def main() -> int:
         report = lib.build_report(stats, total, done)
         report_text = lib.format_report(report)
         tokens_line = f"spent_tokens={task_tokens}" if task_tokens is not None else "spent_tokens=unknown"
-        report_lines = "\n".join(f"`{line}`" for line in report_text.splitlines() if line.strip())
-        tokens_line = f"`{tokens_line}`"
-        if task_text:
-            message = f"**Задача завершена**\n{task_id} — {task_text}\n\n{tokens_line}\n{report_lines}"
-        else:
-            message = f"**Задача завершена**\n{task_id} — завершено\n\n{tokens_line}\n{report_lines}"
-        lib.log_event(log_path, "INFO", "stop: message prepared", task_id=task_id, text=message)
-        lib.send_telegram_message(message, log_path)
+        lib.log_event(
+            log_path,
+            "INFO",
+            "stop: completion tracked",
+            task_id=task_id,
+            task_text=task_text,
+            tokens=tokens_line,
+            report=report_text,
+        )
         lib.save_stats(script_repo, stats)
         if loop_count < 5:
             sys.stdout.write(json.dumps({"followup_message": "commit EVERYTHING+push with task ID and task description as commit message"}))

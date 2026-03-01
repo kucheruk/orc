@@ -111,14 +111,15 @@ def main() -> int:
         report = lib.build_report(stats, total, done)
         report_text = lib.format_report(report)
         tokens_line = f"spent_tokens={task_tokens}" if task_tokens is not None else "spent_tokens=unknown"
-        report_lines = "\n".join(f"`{line}`" for line in report_text.splitlines() if line.strip())
-        tokens_line = f"`{tokens_line}`"
-        if task_text:
-            message = f"**Задача завершена**\n{task_id} — {task_text}\n\n{tokens_line}\n{report_lines}"
-        else:
-            message = f"**Задача завершена**\n{task_id} — завершено\n\n{tokens_line}\n{report_lines}"
-        lib.log_event(log_path, "INFO", "stop: message prepared", task_id=task_id, text=message)
-        lib.send_telegram_message(message, log_path)
+        lib.log_event(
+            log_path,
+            "INFO",
+            "stop: completion tracked",
+            task_id=task_id,
+            task_text=task_text,
+            tokens=tokens_line,
+            report=report_text,
+        )
         lib.save_stats(script_repo, stats)
         if loop_count < 5:
             sys.stdout.write(json.dumps({"followup_message": "commit EVERYTHING+push with task ID and task description as commit message"}))

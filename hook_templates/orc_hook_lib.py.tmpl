@@ -14,7 +14,6 @@ DEFAULT_LOG_LEVEL = "WARN"
 if str(ORC_ROOT) not in sys.path:
     sys.path.insert(0, str(ORC_ROOT))
 from orc_core.task_source import MarkdownTaskSource
-from orc_core.telegram import post_telegram_message, resolve_telegram_credentials, truncate_telegram_message
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
 
@@ -157,30 +156,6 @@ def parse_backlog_counts(path: Path) -> Tuple[int, int]:
     total = len(tasks)
     done = sum(1 for task in tasks if task.done)
     return total, done
-
-
-def send_telegram_message(message: str, log_path: Path) -> None:
-    disabled = os.environ.get("ORC_TELEGRAM_DISABLE", "").strip().lower()
-    if disabled in {"1", "true", "yes", "on"}:
-        log_event(log_path, "INFO", "telegram send disabled by env")
-        return
-    token, chat_id, _source = resolve_telegram_credentials(orc_root=ORC_ROOT, log_path=log_path, log_event=log_event)
-    if not token or not chat_id:
-        log_event(log_path, "ERROR", "telegram credentials missing")
-        return
-    log_event(log_path, "INFO", "telegram send requested", text=message)
-    message, truncated = truncate_telegram_message(message)
-    if truncated:
-        log_event(log_path, "WARN", "telegram message truncated", max_len=3800)
-    data, raw, error = post_telegram_message(token=token, chat_id=chat_id, message=message, timeout=15)
-    if error:
-        log_event(log_path, "ERROR", "telegram send failed", error=error)
-        return
-    if not isinstance(data, dict) or not data.get("ok"):
-        raw_preview = (raw or "")[:500]
-        log_event(log_path, "ERROR", "telegram send error", response=data, raw=raw_preview)
-        return
-    log_event(log_path, "INFO", "telegram sent", response=data)
 
 
 def load_stats(repo_root: Path) -> Dict[str, object]:

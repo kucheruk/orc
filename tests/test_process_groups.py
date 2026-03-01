@@ -38,6 +38,15 @@ class ProcessGroupsTest(unittest.TestCase):
         applied = terminate_process_group(321, Path("/tmp/orc.log"), label="agent")
         self.assertTrue(applied)
 
+    @patch("orc_core.process_groups.is_posix", return_value=True)
+    @patch("orc_core.process_groups._group_processes", return_value=[])
+    @patch("orc_core.process_groups.os.killpg", side_effect=PermissionError)
+    def test_terminate_process_group_returns_false_on_permission_error(
+        self, _killpg_mock, _group_processes_mock, _is_posix_mock
+    ) -> None:
+        applied = terminate_process_group(321, Path("/tmp/orc.log"), label="agent")
+        self.assertFalse(applied)
+
 
 if __name__ == "__main__":
     unittest.main()

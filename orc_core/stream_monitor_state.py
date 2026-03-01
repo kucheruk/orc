@@ -43,6 +43,23 @@ class MonitorSnapshot:
 
 
 class StreamMonitorState:
+    _TOTAL_TOKEN_KEYS = {
+        "tokens",
+        "tokencount",
+        "tokenstotal",
+        "totaltokens",
+    }
+    _PROMPT_TOKEN_KEYS = {
+        "prompttokens",
+        "inputtokens",
+        "input",
+    }
+    _COMPLETION_TOKEN_KEYS = {
+        "completiontokens",
+        "outputtokens",
+        "output",
+    }
+
     def __init__(self, task_id: str, started_at: float, summary_lines: int) -> None:
         self.task_id = task_id
         self.started_at = started_at
@@ -242,17 +259,12 @@ class StreamMonitorState:
             nonlocal max_tokens
             if isinstance(value, dict):
                 for key, inner in value.items():
-                    key_lower = key.lower()
-                    if key_lower in {
-                        "tokens",
-                        "token_count",
-                        "tokens_total",
-                        "total_tokens",
-                        "input_tokens",
-                        "output_tokens",
-                        "completion_tokens",
-                        "prompt_tokens",
-                    } and isinstance(inner, (int, float)):
+                    key_lower = self._normalize_token_key(key)
+                    if key_lower in (
+                        self._TOTAL_TOKEN_KEYS
+                        | self._PROMPT_TOKEN_KEYS
+                        | self._COMPLETION_TOKEN_KEYS
+                    ) and isinstance(inner, (int, float)):
                         candidate = int(inner)
                         if max_tokens is None or candidate > max_tokens:
                             max_tokens = candidate
@@ -321,28 +333,26 @@ class StreamMonitorState:
                 return candidate
         return None
 
+    def _normalize_token_key(self, key: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(key).strip().lower())
+
+    def _extract_token_metric(self, value: Dict[str, object], aliases: set[str]) -> Optional[int]:
+        for key, item in value.items():
+            if self._normalize_token_key(key) in aliases:
+                parsed = self._to_non_negative_int(item)
+                if parsed is not None:
+                    return parsed
+        return None
+
     def _extract_structured_token_entries(self, event: Dict[str, object]) -> list[tuple[str, int]]:
         request_id = self._extract_request_id(event) or ""
         entries: list[tuple[str, int]] = []
 
         def visit(value: object) -> None:
             if isinstance(value, dict):
-                total = (
-                    self._to_non_negative_int(value.get("total_tokens"))
-                    or self._to_non_negative_int(value.get("tokens_total"))
-                    or self._to_non_negative_int(value.get("token_count"))
-                    or self._to_non_negative_int(value.get("tokens"))
-                )
-                prompt = (
-                    self._to_non_negative_int(value.get("prompt_tokens"))
-                    or self._to_non_negative_int(value.get("input_tokens"))
-                    or self._to_non_negative_int(value.get("input"))
-                )
-                completion = (
-                    self._to_non_negative_int(value.get("completion_tokens"))
-                    or self._to_non_negative_int(value.get("output_tokens"))
-                    or self._to_non_negative_int(value.get("output"))
-                )
+                total = self._extract_token_metric(value, self._TOTAL_TOKEN_KEYS)
+                prompt = self._extract_token_metric(value, self._PROMPT_TOKEN_KEYS)
+                completion = self._extract_token_metric(value, self._COMPLETION_TOKEN_KEYS)
                 if total is None and (prompt is not None or completion is not None):
                     total = (prompt or 0) + (completion or 0)
                 if total is not None:

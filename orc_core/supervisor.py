@@ -13,7 +13,8 @@ from .hooks import (
 )
 from .logging import ORC_LOG_NAME, ORC_ROOT, debug_log, log_event, set_log_context
 from .notify import send_telegram_message
-from .process import acquire_lock, kill_process_tree, release_lock
+from .process import build_process_tree, is_pid_alive, kill_orphan_project_processes, kill_process_tree, acquire_lock, release_lock
+from .process_groups import terminate_process_group
 from .runner import launch_agent_stream_json
 from .task_state import (
     cleanup_stale_task_file as _cleanup_stale_task_file,
@@ -223,6 +224,43 @@ def _attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, tas
     return ok_commit
 
 
+def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
+    root_pid = getattr(monitor, "init_pid", None) or getattr(getattr(monitor, "proc", None), "pid", None)
+    process_group_id = getattr(monitor, "process_group_id", None)
+    workspace = str(getattr(monitor, "workdir", "") or "")
+    started_at = getattr(monitor, "started_at", None)
+    markers = ("agent", "orc.py", "pytest", "unittest", "pyenv-which")
+    if terminate_process_group(process_group_id, log_path, label=label):
+        if isinstance(root_pid, int) and root_pid > 0 and is_pid_alive(root_pid):
+            lingering = build_process_tree(root_pid)
+            if lingering:
+                log_event(
+                    log_path,
+                    "WARN",
+                    "cleanup post-check: lingering process tree",
+                    label=label,
+                    root_pid=root_pid,
+                    pids=lingering,
+                )
+                kill_process_tree(root_pid, log_path, label=f"{label}-postcheck")
+        kill_orphan_project_processes(
+            workspace,
+            log_path,
+            label=f"{label}-orphan-sweep",
+            started_after=started_at,
+            command_markers=markers,
+        )
+        return
+    kill_process_tree(root_pid, log_path, label=label)
+    kill_orphan_project_processes(
+        workspace,
+        log_path,
+        label=f"{label}-orphan-sweep",
+        started_after=started_at,
+        command_markers=markers,
+    )
+
+
 def _run_commit_phase(
     workdir: str,
     run_root: Path,
@@ -269,7 +307,7 @@ def _run_commit_phase(
         )
     finally:
         monitor.stop()
-        kill_process_tree(monitor.init_pid or monitor.proc.pid, log_path, label="commit-phase")
+        _cleanup_monitor_processes(monitor, log_path, label="commit-phase")
 
     if result not in {"completed", "followup_stuck"}:
         log_event(log_path, "ERROR", "commit phase failed", task_id=task_id, result=result)

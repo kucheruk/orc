@@ -56,10 +56,10 @@ def terminate_process_group(process_group_id: Optional[int], log_path: Path, lab
         return True
     except PermissionError:
         log_event(log_path, "WARN", "process group kill: terminate denied", label=label, pgid=process_group_id)
-        return True
+        return False
     except OSError as exc:
         log_event(log_path, "WARN", "process group kill: terminate failed", label=label, pgid=process_group_id, error=str(exc))
-        return True
+        return False
 
     _, alive = psutil.wait_procs(group_members, timeout=PROCESS_GROUP_TERM_TIMEOUT_SECONDS)
     if not alive:
@@ -73,11 +73,13 @@ def terminate_process_group(process_group_id: Optional[int], log_path: Path, lab
         return True
     except PermissionError:
         log_event(log_path, "WARN", "process group kill: kill denied", label=label, pgid=process_group_id)
-        return True
+        return False
     except OSError as exc:
         log_event(log_path, "WARN", "process group kill: kill failed", label=label, pgid=process_group_id, error=str(exc))
-        return True
-    return True
+        return False
+
+    _, still_alive = psutil.wait_procs(alive, timeout=PROCESS_GROUP_TERM_TIMEOUT_SECONDS)
+    return not bool(still_alive)
 
 
 def _group_processes(process_group_id: int) -> list[psutil.Process]:

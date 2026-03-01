@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, TextIO
 
 from .logging import log_event
+from .process_groups import resolve_process_group_id, subprocess_group_spawn_kwargs
 from .stream_monitor_state import MonitorSnapshot, StreamMonitorState
 
 GIT_STATS_TIMEOUT_SECONDS = 10.0
@@ -45,6 +46,7 @@ class StreamJsonMonitor:
         self.started_at = time.time()
         self.last_output_time = time.time()
         self.init_pid: Optional[int] = None
+        self.process_group_id: Optional[int] = None
         self.stderr_count = 0
         self.last_stderr_line = ""
         self.last_nudge_time = 0.0
@@ -140,6 +142,7 @@ class StreamJsonMonitor:
                 cwd=self.workdir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                **subprocess_group_spawn_kwargs(),
             )
         except Exception as exc:
             self._spawn_error = exc
@@ -148,6 +151,7 @@ class StreamJsonMonitor:
             raise
         self.proc.pid = self._proc.pid
         self.init_pid = self._proc.pid
+        self.process_group_id = resolve_process_group_id(self._proc.pid)
         self._spawned.set()
         if self._proc.stdout is None or self._proc.stderr is None:
             self.proc.returncode = 1

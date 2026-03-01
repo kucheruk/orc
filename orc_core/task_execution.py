@@ -13,7 +13,9 @@ from typing import Callable, Optional, Protocol
 
 from .hooks import update_task_restart_count, write_task_file
 from .logging import debug_log, log_event
-from .process import kill_process_tree
+from .notify import send_telegram_message
+from .process import build_process_tree, is_pid_alive, kill_orphan_project_processes, kill_process_tree
+from .process_groups import terminate_process_group
 from .quit_signal import is_stop_requested
 from .runner import launch_agent_stream_json
 from .stream_monitor_state import MonitorSnapshot
@@ -152,6 +154,43 @@ def _build_agent_output_log_path(run_root: Path, task_id: str) -> str:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     safe_task_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(task_id or "task"))[:80] or "task"
     return str(run_root / "raw-stream" / f"{stamp}__{safe_task_id}.log")
+
+
+def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
+    root_pid = getattr(monitor, "init_pid", None) or getattr(getattr(monitor, "proc", None), "pid", None)
+    process_group_id = getattr(monitor, "process_group_id", None)
+    workspace = str(getattr(monitor, "workdir", "") or "")
+    started_at = getattr(monitor, "started_at", None)
+    command_markers = ("agent", "orc.py", "pytest", "unittest", "pyenv-which")
+    if terminate_process_group(process_group_id, log_path, label=label):
+        if isinstance(root_pid, int) and root_pid > 0 and is_pid_alive(root_pid):
+            lingering = build_process_tree(root_pid)
+            if lingering:
+                log_event(
+                    log_path,
+                    "WARN",
+                    "cleanup post-check: lingering process tree",
+                    label=label,
+                    root_pid=root_pid,
+                    pids=lingering,
+                )
+                kill_process_tree(root_pid, log_path, label=f"{label}-postcheck")
+        kill_orphan_project_processes(
+            workspace,
+            log_path,
+            label=f"{label}-orphan-sweep",
+            started_after=started_at,
+            command_markers=command_markers,
+        )
+        return
+    kill_process_tree(root_pid, log_path, label=label)
+    kill_orphan_project_processes(
+        workspace,
+        log_path,
+        label=f"{label}-orphan-sweep",
+        started_after=started_at,
+        command_markers=command_markers,
+    )
 
 
 def _git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:
@@ -317,7 +356,7 @@ def _run_commit_phase(
         )
     finally:
         monitor.stop()
-        kill_process_tree(monitor.init_pid or monitor.proc.pid, log_path, label="commit-phase")
+        _cleanup_monitor_processes(monitor, log_path, label="commit-phase")
 
     if result != "completed":
         log_event(log_path, "ERROR", "commit phase failed", task_id=task_id, result=result)
@@ -430,6 +469,9 @@ class TaskExecutionEngine:
             )
             if not summary_text.strip():
                 log_event(self.log_path, "WARN", "telegram summary empty", task_id=current_task_id)
+            else:
+                header = f"{current_task_id} — {current_task_text}" if current_task_text else current_task_id
+                send_telegram_message(f"{header}\n\n{summary_text}", self.log_path)
             prompt_vars = SafeDict(
                 task_text=current_task_text,
                 task_id=current_task_id,
@@ -533,6 +575,8 @@ class TaskExecutionEngine:
 
         if not resume_existing:
             write_task_file(request.workdir, request.task, request.backlog_path, self.log_path, restart_count=0)
+            start_header = f"{task_id} — {task_text}" if task_text else task_id
+            send_telegram_message(f"Старт задачи\n{start_header}", self.log_path)
 
         prompt_vars = SafeDict(task_text=task_text, task_id=task_id, backlog=request.backlog_arg, workspace=request.workdir)
         prompt = request.prompt_template.format_map(prompt_vars)
@@ -584,7 +628,7 @@ class TaskExecutionEngine:
                 )
             finally:
                 active_monitor.stop()
-                kill_process_tree(active_monitor.init_pid or active_monitor.proc.pid, self.log_path, label="agent")
+                _cleanup_monitor_processes(active_monitor, self.log_path, label="agent")
 
             debug_log(
                 "H8",

@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .logging import debug_log, log_event
+from .process import kill_orphan_project_processes, kill_process_tree
+from .process_groups import terminate_process_group
 from .stream_monitor import StreamJsonMonitor
 from .stream_monitor_state import MonitorSnapshot
 
@@ -126,7 +128,20 @@ async def launch_agent_stream_json_async(
         agent_output_log_path=agent_output_log_path,
         snapshot_publisher=snapshot_publisher,
     )
-    monitor.set_progress(progress_done, progress_total)
+    try:
+        monitor.set_progress(progress_done, progress_total)
+    except Exception:
+        monitor.stop()
+        if not terminate_process_group(getattr(monitor, "process_group_id", None), log_path, label="agent-launch"):
+            kill_process_tree(monitor.init_pid or monitor.proc.pid, log_path, label="agent-launch")
+        kill_orphan_project_processes(
+            str(getattr(monitor, "workdir", "") or workdir),
+            log_path,
+            label="agent-launch-orphan-sweep",
+            started_after=getattr(monitor, "started_at", None),
+            command_markers=("agent", "orc.py", "pytest", "unittest", "pyenv-which"),
+        )
+        raise
     debug_log(
         "H1",
         "orc_core/runner.py:launch_agent_stream_json:spawned",

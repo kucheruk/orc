@@ -28,6 +28,7 @@ class _FakeMonitor:
     def __init__(self) -> None:
         self.proc = self._Proc()
         self.init_pid = None
+        self.process_group_id = None
         self.metrics = self._Metrics()
         self.last_output_time = 0.0
         self.ui_followup_prompt = False
@@ -95,12 +96,65 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
                 "orc_core.task_execution.wait_for_completion",
                 side_effect=KeyboardInterrupt,
             ), patch(
+                "orc_core.task_execution.kill_orphan_project_processes"
+            ) as orphan_sweep_mock, patch(
                 "orc_core.task_execution.kill_process_tree"
             ) as kill_mock:
                 with self.assertRaises(KeyboardInterrupt):
                     engine.execute(request)
         self.assertEqual(worker.monitor._stop_calls, 1)
         kill_mock.assert_called_once()
+        orphan_sweep_mock.assert_called_once()
+
+    def test_execute_prefers_process_group_cleanup(self) -> None:
+        worker = _FakeWorker()
+        worker.monitor.process_group_id = 4242
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            with patch("orc_core.task_execution.write_task_file"), patch(
+                "orc_core.task_execution.update_task_restart_count"
+            ), patch(
+                "orc_core.task_execution.wait_for_completion",
+                side_effect=KeyboardInterrupt,
+            ), patch(
+                "orc_core.task_execution.terminate_process_group",
+                return_value=True,
+            ) as terminate_group_mock, patch(
+                "orc_core.task_execution.kill_orphan_project_processes"
+            ) as orphan_sweep_mock, patch(
+                "orc_core.task_execution.kill_process_tree"
+            ) as kill_mock:
+                with self.assertRaises(KeyboardInterrupt):
+                    engine.execute(request)
+        terminate_group_mock.assert_called_once_with(4242, Path("/tmp/orc.log"), label="agent")
+        kill_mock.assert_not_called()
+        orphan_sweep_mock.assert_called_once()
+
+    def test_execute_falls_back_to_process_tree_cleanup_when_group_cleanup_not_applied(self) -> None:
+        worker = _FakeWorker()
+        worker.monitor.process_group_id = 4242
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            with patch("orc_core.task_execution.write_task_file"), patch(
+                "orc_core.task_execution.update_task_restart_count"
+            ), patch(
+                "orc_core.task_execution.wait_for_completion",
+                side_effect=KeyboardInterrupt,
+            ), patch(
+                "orc_core.task_execution.terminate_process_group",
+                return_value=False,
+            ) as terminate_group_mock, patch(
+                "orc_core.task_execution.kill_orphan_project_processes"
+            ) as orphan_sweep_mock, patch(
+                "orc_core.task_execution.kill_process_tree"
+            ) as kill_mock:
+                with self.assertRaises(KeyboardInterrupt):
+                    engine.execute(request)
+        terminate_group_mock.assert_called_once_with(4242, Path("/tmp/orc.log"), label="agent")
+        kill_mock.assert_called_once_with(12345, Path("/tmp/orc.log"), label="agent")
+        orphan_sweep_mock.assert_called_once()
 
 
 if __name__ == "__main__":

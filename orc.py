@@ -22,10 +22,25 @@ def _run_from_orc_project() -> int:
     ]
     env = os.environ.copy()
     env["ORC_BOOTSTRAPPED"] = "1"
+    proc: subprocess.Popen[str] | None = None
     try:
-        return subprocess.call(cmd, env=env)
+        proc = subprocess.Popen(
+            cmd,
+            env=env,
+            start_new_session=(os.name == "posix"),
+        )
+        return int(proc.wait())
     except KeyboardInterrupt:
-        # Keep Ctrl+C UX clean when bootstrap child is running.
+        # Keep Ctrl+C UX clean and avoid leaving child process running.
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=1.0)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
         return 130
 
 

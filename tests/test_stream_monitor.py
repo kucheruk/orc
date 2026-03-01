@@ -164,6 +164,70 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_status, "known")
         self.assertEqual(state.metrics.tokens_source, "structured")
 
+    def test_record_event_sums_camel_case_usage_from_result_event(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        event = {
+            "type": "result",
+            "request_id": "req-2",
+            "usage": {"inputTokens": 10, "outputTokens": 7, "cacheReadTokens": 100},
+        }
+        state.record_event(event)
+
+        self.assertEqual(state.metrics.tokens_total, 17)
+        self.assertEqual(state.metrics.tokens_status, "known")
+        self.assertEqual(state.metrics.tokens_source, "structured")
+
+    def test_duplicate_camel_case_usage_is_deduplicated_per_request(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        event = {
+            "type": "result",
+            "request_id": "req-dup",
+            "usage": {"inputTokens": 3, "outputTokens": 2},
+        }
+        state.record_event(event)
+        state.record_event(event)
+
+        self.assertEqual(state.metrics.tokens_total, 5)
+        self.assertEqual(state.metrics.tokens_source, "structured")
+
+    def test_structured_usage_takes_precedence_over_text_token_fallback(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        event = {
+            "type": "result",
+            "request_id": "req-3",
+            "usage": {"inputTokens": 8, "outputTokens": 4},
+            "message": {"content": [{"type": "text", "text": "2000 tokens"}]},
+        }
+        state.record_event(event)
+
+        self.assertEqual(state.metrics.tokens_total, 12)
+        self.assertEqual(state.metrics.tokens_source, "structured")
+
+    def test_same_usage_payload_counts_for_different_request_ids(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        event_one = {
+            "type": "result",
+            "request_id": "req-A",
+            "usage": {"inputTokens": 5, "outputTokens": 5},
+        }
+        event_two = {
+            "type": "result",
+            "request_id": "req-B",
+            "usage": {"inputTokens": 5, "outputTokens": 5},
+        }
+        state.record_event(event_one)
+        state.record_event(event_two)
+
+        self.assertEqual(state.metrics.tokens_total, 20)
+
     def test_event_summary_contains_useful_context(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 

@@ -49,7 +49,6 @@ def main() -> int:
     if not task.get("start_notified"):
         backlog_path = task.get("backlog_path")
         task_id = task.get("task_id") or ""
-        task_text = task.get("task_text") or ""
         total, done = (0, 0)
         if backlog_path:
             try:
@@ -58,15 +57,10 @@ def main() -> int:
                 lib.log_event(log_path, "ERROR", "start: backlog parse failed", error=str(exc))
         stats = lib.load_stats(script_repo)
         stats = lib.ensure_started(stats, done)
-        report = lib.build_report(stats, total, done)
-        report_text = lib.format_report(report)
-        message = f"**Старт задачи**\n{task_id} — {task_text}\n\n{report_text}"
-        lib.log_event(log_path, "INFO", "start: message prepared", task_id=task_id, text=message)
-        lib.send_telegram_message(message, log_path)
         task["start_notified"] = True
         lib.write_json(task_file, task)
         lib.save_stats(script_repo, stats)
-        lib.log_event(log_path, "INFO", "start: notified", task_id=task_id)
+        lib.log_event(log_path, "INFO", "start: tracked", task_id=task_id)
     return 0
 
 
