@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+require_command() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Missing required command: $cmd" >&2
+    exit 1
+  fi
+}
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$repo_root" ]]; then
+  echo "Run this script inside a git repository." >&2
+  exit 1
+fi
+
+cd "$repo_root"
+
+require_command git
+require_command pbcopy
+require_command file
+require_command awk
+require_command sort
+
+tracked_file_list="$(mktemp -t blob_tracked.XXXXXX)"
+blob_output="$(mktemp -t blob_output.XXXXXX)"
+stats_file="$(mktemp -t blob_stats.XXXXXX)"
+cleanup() {
+  rm -f "$tracked_file_list" "$blob_output" "$stats_file"
+}
+trap cleanup EXIT
+
+git ls-files > "$tracked_file_list"
+
+ordered_files=()
+included_manifest=$'\n'
+
+is_included() {
+  local path="$1"
+  case "$included_manifest" in
+    *$'\n'"$path"$'\n'*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+mark_included() {
+  local path="$1"
+  included_manifest="${included_manifest}${path}"$'\n'
+}
+
+is_doc_extension() {
+  local path="$1"
+  case "$path" in
+    *.md|*.mdx|*.markdown|*.rst|*.adoc|*.txt) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_probably_text() {
+  local path="$1"
+  local mime
+  mime="$(file --brief --mime-type "$path" 2>/dev/null || true)"
+  case "$mime" in
+    text/*) return 0 ;;
+    application/json|application/xml|application/x-sh|application/x-yaml|application/javascript)
+      return 0
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+add_file_if_possible() {
+  local path="$1"
+  if is_included "$path"; then
+    return
+  fi
+  if [[ -f "$path" && -r "$path" ]]; then
+    ordered_files+=("$path")
+    mark_included "$path"
+  fi
+}
+
+for path in README.md techspec.md AGENTS.md; do
+  add_file_if_possible "$path"
+done
+
+while IFS= read -r path; do
+  case "$path" in
+    research/*) continue ;;
+  esac
+  case "$path" in
+    docs/*) add_file_if_possible "$path" ;;
+  esac
+done < "$tracked_file_list"
+
+while IFS= read -r path; do
+  case "$path" in
+    research/*) continue ;;
+  esac
+  if is_included "$path"; then
+    continue
+  fi
+  if is_doc_extension "$path"; then
+    add_file_if_possible "$path"
+  fi
+done < "$tracked_file_list"
+
+while IFS= read -r path; do
+  case "$path" in
+    research/*) continue ;;
+  esac
+  if is_included "$path"; then
+    continue
+  fi
+  if [[ -f "$path" && -r "$path" ]] && is_probably_text "$path"; then
+    add_file_if_possible "$path"
+  fi
+done < "$tracked_file_list"
+
+if [[ "${#ordered_files[@]}" -eq 0 ]]; then
+  echo "No files selected for blob." >&2
+  exit 1
+fi
+
+total_files=0
+total_bytes=0
+
+{
+  printf "# Repo blob for LLM analysis\n"
+  printf "# Root: %s\n" "$repo_root"
+  printf "# Generated at: %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+} > "$blob_output"
+
+for path in "${ordered_files[@]}"; do
+  bytes="$(wc -c < "$path")"
+  bytes="${bytes//[[:space:]]/}"
+
+  filename="$(basename "$path")"
+  if [[ "$filename" == *.* ]]; then
+    ext="${filename##*.}"
+  else
+    ext="<no_ext>"
+  fi
+
+  total_files=$((total_files + 1))
+  total_bytes=$((total_bytes + bytes))
+  printf "%s|%s\n" "$ext" "$bytes" >> "$stats_file"
+
+  {
+    printf "\n===== FILE: %s =====\n" "$path"
+    cat "$path"
+    printf "\n"
+  } >> "$blob_output"
+done
+
+pbcopy < "$blob_output"
+
+printf "Copied %d files to clipboard (%d bytes).\n" "$total_files" "$total_bytes"
+printf "\nStats by extension:\n"
+printf "%-12s %10s %14s\n" "extension" "files" "bytes"
+printf "%-12s %10s %14s\n" "---------" "-----" "-----"
+
+awk -F'|' '
+  {
+    count[$1]++
+    bytes[$1] += $2
+  }
+  END {
+    for (ext in count) {
+      printf "%s|%d|%d\n", ext, count[ext], bytes[ext]
+    }
+  }
+' "$stats_file" | sort -t'|' -k3,3nr | while IFS='|' read -r ext count bytes; do
+  printf "%-12s %10d %14d\n" "$ext" "$count" "$bytes"
+done
