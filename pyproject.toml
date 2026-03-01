@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "orc"
 version = "0.1.0"
@@ -5,9 +9,20 @@ description = "ORC backlog orchestrator for Cursor Agent"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "markdown-it-py>=4.0.0",
+  "psutil>=6.0.0",
   "rich>=13.9.4",
   "textual>=0.88.1",
 ]
 
+[project.scripts]
+orc = "orc_core.cli_app:main"
+
 [tool.uv]
-package = false
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["orc_core"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"prompts" = "prompts"

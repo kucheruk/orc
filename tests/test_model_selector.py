@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -66,6 +67,12 @@ class ModelSelectorCommandTest(unittest.TestCase):
         run_mock.return_value.returncode = 0
         run_mock.return_value.stdout = "\n\n"
         run_mock.return_value.stderr = ""
+        with self.assertRaises(ModelSelectionError):
+            list_supported_models()
+
+    @patch("orc_core.model_selector.subprocess.run")
+    def test_list_supported_models_raises_on_timeout(self, run_mock) -> None:
+        run_mock.side_effect = subprocess.TimeoutExpired(cmd="agent --list-models", timeout=15.0)
         with self.assertRaises(ModelSelectionError):
             list_supported_models()
 

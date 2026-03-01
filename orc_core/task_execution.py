@@ -22,6 +22,8 @@ from .task_source import Task
 from .text_parse import clean_summary_lines
 from .ui import ui_error, ui_info, ui_warn
 
+GIT_COMMAND_TIMEOUT_SECONDS = 20.0
+
 
 class SafeDict(dict):
     def __missing__(self, key: str) -> str:
@@ -146,6 +148,12 @@ def _write_prompt_file(run_root: Path, prompt: str, tag: str) -> Path:
     return prompt_path
 
 
+def _build_agent_output_log_path(run_root: Path, task_id: str) -> str:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    safe_task_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(task_id or "task"))[:80] or "task"
+    return str(run_root / "raw-stream" / f"{stamp}__{safe_task_id}.log")
+
+
 def _git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:
     try:
         result = subprocess.run(
@@ -155,7 +163,11 @@ def _git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired:
+        log_event(log_path, "ERROR", "git status timeout", timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS)
+        return False, ""
     except Exception as exc:
         log_event(log_path, "ERROR", "git status failed", error=str(exc))
         return False, ""
@@ -192,7 +204,18 @@ def _git_run(workdir: str, log_path: Path, args: list[str], label: str) -> tuple
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired:
+        log_event(
+            log_path,
+            "ERROR",
+            "git command timeout",
+            label=label,
+            timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS,
+            args=" ".join(args),
+        )
+        return False, "", "timeout", 124
     except Exception as exc:
         log_event(log_path, "ERROR", "git command failed", label=label, error=str(exc), args=" ".join(args))
         return False, "", str(exc), 1
@@ -250,6 +273,7 @@ def _run_commit_phase(
     task_id: str,
     tag: str,
     log_path: Path,
+    agent_output_log_path: Optional[str],
 ) -> bool:
     ok, porcelain = _git_status_porcelain(request.workdir, log_path)
     if ok and not porcelain.strip():
@@ -273,7 +297,7 @@ def _run_commit_phase(
             task_id=f"{task_id}::commit",
             progress_done=request.progress_done,
             progress_total=request.progress_total,
-            agent_output_log_path=request.agent_output_log_path,
+            agent_output_log_path=agent_output_log_path,
             snapshot_publisher=request.snapshot_publisher,
         )
     except Exception as exc:
@@ -372,6 +396,14 @@ class TaskExecutionEngine:
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResult:
         task_id = request.task.task_id
         task_text = request.task.text
+        effective_agent_output_log_path = request.agent_output_log_path or _build_agent_output_log_path(request.run_root, task_id)
+        log_event(
+            self.log_path,
+            "INFO",
+            "agent output log selected",
+            task_id=task_id,
+            agent_output_log_path=effective_agent_output_log_path,
+        )
         resume_existing = request.task_path.exists()
         resume_id: Optional[str] = None
 
@@ -411,6 +443,7 @@ class TaskExecutionEngine:
                 current_task_id,
                 current_tag,
                 self.log_path,
+                effective_agent_output_log_path,
             ):
                 ui_error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
                 return TaskExecutionResult(status="failed", reason="commit_phase_failed")
@@ -524,7 +557,7 @@ class TaskExecutionEngine:
                     task_id=task_id,
                     progress_done=request.progress_done,
                     progress_total=request.progress_total,
-                    agent_output_log_path=request.agent_output_log_path,
+                    agent_output_log_path=effective_agent_output_log_path,
                     snapshot_publisher=request.snapshot_publisher,
                     resume_id=resume_id if resume_existing else None,
                     resume_latest=False,
@@ -534,22 +567,24 @@ class TaskExecutionEngine:
                 ui_error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
                 return TaskExecutionResult(status="failed", reason="agent_not_found")
 
-            result = wait_for_completion(
-                task_path=request.task_path,
-                monitor=active_monitor,
-                poll=request.poll,
-                stall_timeout=request.stall_timeout,
-                task_ttl=request.task_ttl,
-                log_path=self.log_path,
-                nudge_after=request.nudge_after,
-                nudge_cooldown=request.nudge_cooldown,
-                nudge_text=request.nudge_text,
-                task_id=task_id,
-                task_text=task_text,
-                escape_requested=is_stop_requested,
-            )
-            active_monitor.stop()
-            kill_process_tree(active_monitor.init_pid or active_monitor.proc.pid, self.log_path, label="agent")
+            try:
+                result = wait_for_completion(
+                    task_path=request.task_path,
+                    monitor=active_monitor,
+                    poll=request.poll,
+                    stall_timeout=request.stall_timeout,
+                    task_ttl=request.task_ttl,
+                    log_path=self.log_path,
+                    nudge_after=request.nudge_after,
+                    nudge_cooldown=request.nudge_cooldown,
+                    nudge_text=request.nudge_text,
+                    task_id=task_id,
+                    task_text=task_text,
+                    escape_requested=is_stop_requested,
+                )
+            finally:
+                active_monitor.stop()
+                kill_process_tree(active_monitor.init_pid or active_monitor.proc.pid, self.log_path, label="agent")
 
             debug_log(
                 "H8",

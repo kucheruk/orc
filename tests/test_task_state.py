@@ -2,12 +2,13 @@
 # -*- coding: utf-8 -*-
 
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from orc_core.atomic_io import write_json_atomic
-from orc_core.task_state import update_task_conversation_id
+from orc_core.task_state import get_resume_id_from_agent_ls, update_task_conversation_id
 
 
 class TaskStateAtomicWriteTest(unittest.TestCase):
@@ -35,6 +36,13 @@ class TaskStateAtomicWriteTest(unittest.TestCase):
 
             payload = task_path.read_text(encoding="utf-8")
             self.assertIn('"conversation_id": "conv-123"', payload)
+
+    @patch("orc_core.task_state.subprocess.run")
+    def test_get_resume_id_from_agent_ls_timeout_returns_none(self, run_mock) -> None:
+        run_mock.side_effect = subprocess.TimeoutExpired(cmd="agent ls", timeout=15.0)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            resume_id = get_resume_id_from_agent_ls(tmpdir, Path(tmpdir) / ".orc" / "orc.log")
+        self.assertIsNone(resume_id)
 
 
 if __name__ == "__main__":

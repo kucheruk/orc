@@ -332,6 +332,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
+                agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
             )
 
         self.assertFalse(ok)
@@ -362,6 +363,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
+                agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
             )
 
         self.assertTrue(ok)
@@ -392,6 +394,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
+                agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
             )
 
         self.assertFalse(ok)
@@ -414,6 +417,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
+                agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
             )
 
         self.assertTrue(ok)
@@ -434,9 +438,27 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
+                agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
             )
 
         self.assertFalse(ok)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    def test_execute_sets_default_agent_output_log_path_when_missing(self, *_mocks) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = engine.execute(self._request(tmpdir))
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 1)
+        launch_path = worker.launch_kwargs[0]["agent_output_log_path"]
+        self.assertTrue(isinstance(launch_path, str) and launch_path.endswith(".log"))
+        self.assertIn(".orc/run/raw-stream/", launch_path)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ from typing import Optional
 from .atomic_io import write_json_atomic
 from .logging import log_event
 
+AGENT_LS_TIMEOUT_SECONDS = 15.0
+
 
 def create_temp_backlog(workdir: str, task_text: str, log_path: Path) -> tuple[Path, str]:
     run_dir = Path(workdir) / ".orc" / "tmp"
@@ -143,7 +145,11 @@ def get_resume_id_from_agent_ls(workdir: str, log_path: Path) -> Optional[str]:
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=AGENT_LS_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired:
+        log_event(log_path, "ERROR", "agent ls timeout", timeout_seconds=AGENT_LS_TIMEOUT_SECONDS)
+        return None
     except Exception as exc:
         log_event(log_path, "ERROR", "agent ls failed", error=str(exc))
         return None

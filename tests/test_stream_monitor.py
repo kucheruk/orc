@@ -24,26 +24,46 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         updated_snapshot = state.build_snapshot()
         self.assertGreaterEqual(updated_snapshot.last_event_at, initial_snapshot.last_event_at)
 
-    def test_reasoning_chunks_are_kept_as_distinct_lines(self) -> None:
+    def test_reasoning_delta_and_completed_build_readable_sentence(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
-        state.append_reasoning_fragment("Prior")
-        state.append_reasoning_fragment("itizing user commit preference")
+        state.record_event({"type": "thinking", "subtype": "delta", "text": "**Preparing"})
+        state.record_event({"type": "thinking", "subtype": "delta", "text": " onboarding"})
+        state.record_event({"type": "thinking", "subtype": "delta", "text": " plan**"})
+        state.record_event({"type": "thinking", "subtype": "completed"})
 
-        self.assertEqual(len(state._recent_reasoning), 2)
-        self.assertEqual(state._recent_reasoning[0], "Prior")
-        self.assertEqual(state._recent_reasoning[1], "itizing user commit preference")
+        self.assertEqual(len(state._recent_reasoning), 1)
+        self.assertEqual(state._recent_reasoning[-1], "Preparing onboarding plan")
 
-    def test_reasoning_chunks_keep_spaces_between_words(self) -> None:
+    def test_reasoning_flushes_buffer_when_completed_missing(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
-        state.append_reasoning_fragment("Acknowledging")
-        state.append_reasoning_fragment("task DB-005 and preparing initial steps")
+        state.record_event({"type": "thinking", "subtype": "delta", "text": "Split"})
+        state.record_event({"type": "thinking", "subtype": "delta", "text": " across"})
+        state.record_event({"type": "tool_call", "subtype": "started", "tool_name": "ReadFile"})
 
-        self.assertEqual(state._recent_reasoning[-2], "Acknowledging")
-        self.assertEqual(state._recent_reasoning[-1], "task DB-005 and preparing initial steps")
+        self.assertEqual(state._recent_reasoning[-1], "Split across")
+
+    def test_assistant_update_stream_is_collected_into_reasoning(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": "Собираю"}]}})
+        state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": " plan"}]}})
+        state.record_event({"type": "tool_call", "subtype": "started", "tool_name": "ReadFile"})
+
+        self.assertIn("Собираю", state.reasoning_lines_for_panel()[-1])
+
+    def test_assistant_update_delta_is_hidden_from_event_feed(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": "часть"}]}})
+        state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": " фразы"}]}})
+
+        self.assertEqual(state.build_snapshot().recent_events, [])
 
     def test_reasoning_strips_basic_markdown(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
@@ -114,6 +134,25 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         self.assertIn("tool_call:started", summary)
         self.assertIn("ReadFile", summary)
+
+    def test_tool_call_with_nested_payload_populates_recent_commands(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_call": {
+                    "readToolCall": {
+                        "args": {"path": "/tmp/a.txt"},
+                    }
+                },
+            }
+        )
+
+        snapshot = state.build_snapshot()
+        self.assertIn("read", [cmd.lower() for cmd in snapshot.recent_commands])
 
     def test_maybe_report_updates_state_and_requests_render(self) -> None:
         monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)

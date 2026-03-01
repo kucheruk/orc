@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Protocol
 
-from .task_contract import parse_task_line, render_task_line_with_mark
+from .backlog_markdown_parser import mark_task_done_in_lines, parse_backlog_markdown
 
 
 @dataclass(frozen=True)
@@ -40,19 +40,9 @@ class MarkdownTaskSource:
         self.path = path
 
     def list_tasks(self) -> List[Task]:
-        tasks: List[Task] = []
-        for line in self.path.read_text(encoding="utf-8", errors="replace").splitlines():
-            parsed = parse_task_line(line)
-            if not parsed or not parsed.task_id:
-                continue
-            tasks.append(
-                Task(
-                    task_id=parsed.task_id,
-                    text=parsed.text,
-                    done=parsed.mark.lower() == "x",
-                )
-            )
-        return tasks
+        raw = self.path.read_text(encoding="utf-8", errors="replace")
+        parsed = parse_backlog_markdown(raw)
+        return [Task(task_id=item.task_id, text=item.text, done=item.done) for item in parsed]
 
     def get_first_open_task(self) -> Optional[Task]:
         for task in self.list_tasks():
@@ -88,18 +78,10 @@ class MarkdownTaskSource:
         return found
 
     def mark_task_done(self, task_id: str) -> bool:
-        lines = self.path.read_text(encoding="utf-8", errors="replace").splitlines()
-        found = False
-        changed = False
-        for i, line in enumerate(lines):
-            parsed = parse_task_line(line)
-            if not parsed or parsed.task_id != task_id:
-                continue
-            found = True
-            if parsed.mark.lower() == "x":
-                continue
-            lines[i] = render_task_line_with_mark(parsed, "x")
-            changed = True
+        content = self.path.read_text(encoding="utf-8", errors="replace")
+        lines = content.splitlines()
+        parsed = parse_backlog_markdown(content)
+        found, changed = mark_task_done_in_lines(lines, task_id, parsed)
         if found and changed:
             self.path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return found

@@ -54,6 +54,8 @@ class StreamMonitorState:
         self._recent_files: Deque[str] = deque(maxlen=10)
         self._recent_events: Deque[str] = deque(maxlen=8)
         self._recent_reasoning: Deque[str] = deque(maxlen=12)
+        self._reasoning_buffer = ""
+        self._reasoning_stream_kind = ""
         self._progress_done = 0
         self._progress_total = 1
         self._spinner_idx = 0
@@ -107,6 +109,69 @@ class StreamMonitorState:
         if not chunk.strip():
             return
         self._recent_reasoning.append(self._trim_fragment(chunk.strip()))
+
+    def _flush_reasoning_buffer(self) -> None:
+        buffered = self.normalize_reasoning_fragment(self._reasoning_buffer)
+        self._reasoning_buffer = ""
+        self._reasoning_stream_kind = ""
+        if not buffered.strip():
+            return
+        lines = clean_summary_lines(buffered.splitlines())
+        for line in lines[-5:]:
+            self.append_reasoning_fragment(line[:220])
+
+    def _reasoning_stream_kind_for_event(self, event_type: str, subtype: str) -> str:
+        event_lower = str(event_type or "").strip().lower()
+        subtype_lower = str(subtype or "").strip().lower()
+        if event_lower in {"thinking", "analysis"}:
+            return event_lower
+        if event_lower == "assistant" and subtype_lower in {"update", "delta"}:
+            return "assistant_update"
+        if event_lower in {"assistant", "message"} and subtype_lower in {"reasoning", "analysis", "thinking"}:
+            return subtype_lower or "reasoning"
+        return ""
+
+    def _extract_reasoning_fragment(self, event: Dict[str, object], fallback_text: str) -> str:
+        value = event.get("text")
+        if isinstance(value, str) and value:
+            return value
+        return fallback_text
+
+    def _remember_reasoning_from_stream(
+        self,
+        event: Dict[str, object],
+        event_type: str,
+        subtype: str,
+        fallback_text: str,
+    ) -> None:
+        stream_kind = self._reasoning_stream_kind_for_event(event_type, subtype)
+        if not stream_kind:
+            if self._reasoning_buffer:
+                self._flush_reasoning_buffer()
+            return
+
+        subtype_lower = str(subtype or "").strip().lower()
+        fragment = self._extract_reasoning_fragment(event, fallback_text)
+
+        if self._reasoning_stream_kind and self._reasoning_stream_kind != stream_kind and self._reasoning_buffer:
+            self._flush_reasoning_buffer()
+        self._reasoning_stream_kind = stream_kind
+
+        if subtype_lower == "delta":
+            self._reasoning_buffer += fragment
+            return
+        if stream_kind == "assistant_update" and subtype_lower in {"update", "delta", ""}:
+            self._reasoning_buffer += fragment
+            return
+        if subtype_lower in {"completed", "complete", "done", "end"}:
+            self._flush_reasoning_buffer()
+            return
+
+        # Non-delta reasoning events can contain complete text payload.
+        if self._reasoning_buffer:
+            self._flush_reasoning_buffer()
+        if fragment.strip():
+            self.append_reasoning_fragment(fragment[:220])
 
     def reasoning_lines_for_panel(self, max_width: int = 90, max_lines: int = 5) -> list[str]:
         width = max(24, max_width)
@@ -263,6 +328,24 @@ class StreamMonitorState:
         return result
 
     def _remember_command(self, event: Dict[str, object]) -> None:
+        event_type = str(event.get("type") or "")
+        if event_type == "tool_call":
+            for key in ("tool_name", "tool", "name", "function"):
+                value = event.get(key)
+                if isinstance(value, str) and value.strip():
+                    self._recent_commands.append(value.strip()[:180])
+                    return
+
+            tool_call_payload = event.get("tool_call")
+            if isinstance(tool_call_payload, dict):
+                for payload_key in tool_call_payload.keys():
+                    if not isinstance(payload_key, str) or not payload_key.strip():
+                        continue
+                    # Cursor stream-json often sends nested keys like readToolCall/shellToolCall.
+                    command_name = re.sub(r"ToolCall$", "", payload_key.strip())
+                    self._recent_commands.append(command_name[:180])
+                    return
+
         for key, value in self._iter_values(event):
             if not isinstance(key, str) or not isinstance(value, str):
                 continue
@@ -287,12 +370,16 @@ class StreamMonitorState:
                     self._recent_files.append(path[:200])
 
     def _is_reasoning_event(self, event: Dict[str, object]) -> bool:
-        markers = ("reason", "analysis", "think", "thought")
-        event_type = str(event.get("type") or "").lower()
-        subtype = str(event.get("subtype") or "").lower()
-        if any(marker in event_type for marker in markers):
+        event_type = str(event.get("type") or "")
+        subtype = str(event.get("subtype") or "")
+        if self._reasoning_stream_kind_for_event(event_type, subtype):
             return True
-        if any(marker in subtype for marker in markers):
+        markers = ("reason", "analysis", "think", "thought")
+        event_type_lower = event_type.lower()
+        subtype_lower = subtype.lower()
+        if any(marker in event_type_lower for marker in markers):
+            return True
+        if any(marker in subtype_lower for marker in markers):
             return True
         for key, _ in self._iter_values(event):
             if isinstance(key, str) and any(marker in key.lower() for marker in markers):
@@ -335,6 +422,7 @@ class StreamMonitorState:
 
         event_type = str(event.get("type") or "")
         subtype = str(event.get("subtype") or "")
+        stream_kind = self._reasoning_stream_kind_for_event(event_type, subtype)
         self._last_event_type = event_type or "event"
         self._last_event_note = subtype or "update"
         if event_type == "tool_call" and subtype == "started":
@@ -343,7 +431,8 @@ class StreamMonitorState:
         tokens = self.extract_tokens(event)
         structured_entries = self._extract_structured_token_entries(event)
         text = self._extract_text(event)
-        self._recent_events.append(self._summarize_event(event, text))
+        if not (stream_kind == "assistant_update" and str(subtype or "").strip().lower() in {"update", "delta", ""}):
+            self._recent_events.append(self._summarize_event(event, text))
         if structured_entries:
             total_delta = 0
             for usage_key, usage_tokens in structured_entries:
@@ -368,7 +457,7 @@ class StreamMonitorState:
             preview = self._line_buffer[-1] if self._line_buffer else ""
             if preview:
                 self._last_event_note = preview[:80]
-            self._remember_reasoning(event, text)
+        self._remember_reasoning_from_stream(event, event_type, subtype, text)
 
         self._remember_command(event)
         self._remember_paths(event)

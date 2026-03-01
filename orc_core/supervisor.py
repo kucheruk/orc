@@ -28,6 +28,8 @@ from .supervisor_lifecycle import (
 from .task_execution import TaskExecutionEngine
 from .ui import ui_error, ui_info, ui_warn
 
+GIT_COMMAND_TIMEOUT_SECONDS = 20.0
+
 TASK_FILE_NAME = "orc-task.json"
 LOCK_FILE_NAME = "orc.lock"
 
@@ -121,7 +123,11 @@ def _git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired:
+        log_event(log_path, "ERROR", "git status timeout", timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS)
+        return False, ""
     except Exception as exc:
         log_event(log_path, "ERROR", "git status failed", error=str(exc))
         return False, ""
@@ -158,7 +164,18 @@ def _git_run(workdir: str, log_path: Path, args: list[str], label: str) -> tuple
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired:
+        log_event(
+            log_path,
+            "ERROR",
+            "git command timeout",
+            label=label,
+            timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS,
+            args=" ".join(args),
+        )
+        return False, "", "timeout", 124
     except Exception as exc:
         log_event(log_path, "ERROR", "git command failed", label=label, error=str(exc), args=" ".join(args))
         return False, "", str(exc), 1

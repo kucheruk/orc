@@ -5,13 +5,14 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 from .logging import debug_log, log_event
 from .notify import send_telegram_message
 from .process import is_pid_alive
 
 PROCESS_EXIT_GRACE_SECONDS = 3.0
+DONE_BACKLOG_IDLE_GRACE_SECONDS = 20.0
 DEBUG_SESSION_LOG_PATH = Path("/Users/vetinary/work/orc/.cursor/debug-bbb5e7.log")
 DEBUG_SESSION_ID = "bbb5e7"
 
@@ -59,7 +60,6 @@ def _session_debug_log(hypothesis_id: str, location: str, message: str, data: di
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
     except Exception:
         return
-
 def wait_for_completion(
     task_path: Path,
     monitor,
@@ -118,9 +118,15 @@ def wait_for_completion(
             log_event(log_path, "ERROR", "agent pid missing while task still active", task_id=task_id)
             return "process_exited"
         now = time.time()
+        if _task_done_in_backlog(task_path) and (now - monitor.last_output_time) >= DONE_BACKLOG_IDLE_GRACE_SECONDS:
+            log_event(log_path, "INFO", "task marked done and agent idle; treating as completed", task_id=task_id)
+            try:
+                task_path.unlink()
+            except Exception:
+                pass
+            return "completed"
         if (now - last_heartbeat_time) >= 20.0:
             last_heartbeat_time = now
-            #region agent log
             _session_debug_log(
                 "H3",
                 "orc_core/supervisor_lifecycle.py:wait_for_completion:heartbeat",
@@ -137,12 +143,10 @@ def wait_for_completion(
                     "proc_returncode": monitor.proc.poll(),
                 },
             )
-            #endregion
         maybe_report_started = time.time()
         monitor.maybe_report()
         maybe_report_duration = time.time() - maybe_report_started
         if maybe_report_duration >= 2.0:
-            #region agent log
             _session_debug_log(
                 "H2",
                 "orc_core/supervisor_lifecycle.py:wait_for_completion:maybe_report",
@@ -154,13 +158,6 @@ def wait_for_completion(
                     "proc_returncode": monitor.proc.poll(),
                 },
             )
-            #endregion
-        stats_key = (
-            monitor.metrics.total_lines,
-            monitor.metrics.command_count,
-            monitor.metrics.total_output_chars,
-            int(monitor.metrics.tokens_total or 0),
-        )
         tokens_value = monitor.metrics.tokens_total
         if tokens_value is not None:
             if last_tokens_value is None or tokens_value != last_tokens_value:
@@ -270,6 +267,9 @@ def wait_for_process_exit(
                 raise KeyboardInterrupt
             log_event(log_path, "INFO", "escape interrupt cancelled", label=label)
         monitor.maybe_report()
+        if _monitor_pid_missing(monitor):
+            log_event(log_path, "ERROR", "phase agent pid missing while still running", label=label)
+            return "process_exited"
         if stop_on_followup_prompt and getattr(monitor, "ui_followup_prompt", False):
             log_event(log_path, "WARN", "follow-up prompt visible during phase", label=label)
             return "waiting_for_input"

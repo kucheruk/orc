@@ -16,6 +16,8 @@ if str(ORC_ROOT) not in sys.path:
 from orc_core.task_source import MarkdownTaskSource
 from orc_core.telegram import post_telegram_message, resolve_telegram_credentials, truncate_telegram_message
 
+GIT_COMMAND_TIMEOUT_SECONDS = 20.0
+
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -64,7 +66,12 @@ def git_has_changes(repo_root: Path, log_path: Optional[Path] = None) -> bool:
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired:
+        if log_path:
+            log_event(log_path, "ERROR", "git status timeout", timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS)
+        return True
     except Exception as exc:
         if log_path:
             log_event(log_path, "ERROR", "git status failed", error=str(exc))
@@ -105,7 +112,12 @@ def git_has_recent_commit(repo_root: Path, since_iso: str, log_path: Optional[Pa
             stderr=subprocess.PIPE,
             text=True,
             check=False,
+            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired:
+        if log_path:
+            log_event(log_path, "ERROR", "git log timeout", timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS)
+        return False
     except Exception as exc:
         if log_path:
             log_event(log_path, "ERROR", "git log failed", error=str(exc))

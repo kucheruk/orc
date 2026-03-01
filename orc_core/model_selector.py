@@ -11,6 +11,7 @@ from typing import Optional
 
 DEFAULT_MODEL = "gpt-5.3-codex"
 MODEL_STATE_PATH = Path(".orc") / "model-selection.json"
+AGENT_LIST_MODELS_TIMEOUT_SECONDS = 15.0
 
 
 class ModelSelectionError(RuntimeError):
@@ -56,9 +57,12 @@ def list_supported_models() -> list[str]:
             text=True,
             check=False,
             env={**os.environ, "TERM": "dumb", "NO_COLOR": "1"},
+            timeout=AGENT_LIST_MODELS_TIMEOUT_SECONDS,
         )
     except FileNotFoundError as exc:
         raise ModelSelectionError("Команда agent недоступна для получения списка моделей.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ModelSelectionError("Не удалось выполнить `agent --list-models`: timeout.") from exc
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
         raise ModelSelectionError(f"Не удалось выполнить `agent --list-models`: {stderr or 'unknown error'}")

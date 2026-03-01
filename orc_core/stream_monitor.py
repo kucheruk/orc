@@ -13,6 +13,8 @@ from typing import Callable, Dict, Iterable, Optional, TextIO
 from .logging import log_event
 from .stream_monitor_state import MonitorSnapshot, StreamMonitorState
 
+GIT_STATS_TIMEOUT_SECONDS = 10.0
+
 
 class _ProcessProxy:
     def __init__(self) -> None:
@@ -59,6 +61,7 @@ class StreamJsonMonitor:
             self._agent_output_file = path.open("a", encoding="utf-8")
             self._agent_output_file.write(f"# stream start task_id={self.task_id}\n")
             self._agent_output_file.flush()
+            log_event(self.log_path, "INFO", "agent output stream enabled", task_id=self.task_id, path=str(path))
 
         self._state = StreamMonitorState(task_id=task_id, started_at=self.started_at, summary_lines=summary_lines)
         self.metrics = self._state.metrics
@@ -207,7 +210,10 @@ class StreamJsonMonitor:
                     stderr=subprocess.PIPE,
                     text=True,
                     check=False,
+                    timeout=GIT_STATS_TIMEOUT_SECONDS,
                 )
+            except subprocess.TimeoutExpired:
+                return None
             except Exception:
                 return None
             if result.returncode != 0:

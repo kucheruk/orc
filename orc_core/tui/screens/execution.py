@@ -77,7 +77,7 @@ class ExecutionScreen(Screen[None]):
         self.query_one("#stats_label", Label).update(
             f"Elapsed: {self._format_duration(elapsed)} | "
             f"Lines: {self.total_lines} | Commands: {self.commands_count} | "
-            f"Files: {self.files_edited}{git_part} | Tokens: {self.tokens_total} | Last: {self.last_event}{debug_part}"
+            f"Files: {self.files_edited}{git_part} | Tokens: {self.tokens_total}{debug_part}"
         )
         idle_seconds = max(time.time() - self.last_event_at, 0.0)
         self.query_one("#activity_label", Label).update(self._activity_markup(idle_seconds))

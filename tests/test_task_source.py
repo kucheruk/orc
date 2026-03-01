@@ -123,6 +123,56 @@ class TaskSourceTest(unittest.TestCase):
         self.assertIn("- [x] REFACT-012 done copy", backlog_text)
         self.assertIn("- [x] REFACT-012 open copy", backlog_text)
 
+    def test_list_tasks_supports_link_wrapped_id(self) -> None:
+        tmpdir, path = self._write_backlog("- [ ] [TASK-201](https://example.com) linked title\n")
+        self.addCleanup(tmpdir.cleanup)
+        source = MarkdownTaskSource(path)
+
+        tasks = source.list_tasks()
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].task_id, "TASK-201")
+        self.assertEqual(tasks[0].text, "TASK-201 linked title")
+        self.assertFalse(tasks[0].done)
+
+    def test_list_tasks_supports_nested_checklists(self) -> None:
+        tmpdir, path = self._write_backlog(
+            "- [ ] TASK-300 parent\n"
+            "  - [x] TASK-301 child done\n"
+            "  - [ ] TASK-302 child open\n"
+        )
+        self.addCleanup(tmpdir.cleanup)
+        source = MarkdownTaskSource(path)
+
+        tasks = source.list_tasks()
+
+        self.assertEqual([task.task_id for task in tasks], ["TASK-300", "TASK-301", "TASK-302"])
+        self.assertEqual([task.done for task in tasks], [False, True, False])
+
+    def test_list_tasks_ignores_checkbox_like_lines_in_code_fence(self) -> None:
+        tmpdir, path = self._write_backlog(
+            "```md\n"
+            "- [ ] TASK-900 not real\n"
+            "```\n"
+            "- [ ] TASK-901 real\n"
+        )
+        self.addCleanup(tmpdir.cleanup)
+        source = MarkdownTaskSource(path)
+
+        tasks = source.list_tasks()
+
+        self.assertEqual([task.task_id for task in tasks], ["TASK-901"])
+
+    def test_mark_task_done_preserves_markdown_formatting(self) -> None:
+        tmpdir, path = self._write_backlog("- [ ] [TASK-777](https://example.com) сохранить формат\n")
+        self.addCleanup(tmpdir.cleanup)
+        source = MarkdownTaskSource(path)
+
+        marked = source.mark_task_done("TASK-777")
+
+        self.assertTrue(marked)
+        self.assertIn("- [x] [TASK-777](https://example.com) сохранить формат", path.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

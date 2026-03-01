@@ -43,6 +43,36 @@ class _FakeMonitor:
 
 
 class SupervisorLifecycleTest(unittest.TestCase):
+    def test_wait_for_completion_treats_done_backlog_idle_agent_as_completed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [x] REFACT-777 done\n", encoding="utf-8")
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text(
+                '{"task_id":"REFACT-777","backlog_path":"%s"}' % str(backlog_path),
+                encoding="utf-8",
+            )
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.proc = SimpleNamespace(pid=None, returncode=None, poll=lambda: None)
+            monitor.last_output_time = time.time() - 1000.0
+
+            with patch("orc_core.supervisor_lifecycle.DONE_BACKLOG_IDLE_GRACE_SECONDS", 0.01):
+                result = wait_for_completion(
+                    task_path=task_path,
+                    monitor=monitor,
+                    poll=0.01,
+                    stall_timeout=600.0,
+                    task_ttl=30.0,
+                    log_path=Path(tmpdir) / "orc.log",
+                    nudge_after=10,
+                    nudge_cooldown=300.0,
+                    nudge_text="continue",
+                    task_id="REFACT-777",
+                    task_text="repro",
+                )
+
+        self.assertEqual(result, "completed")
+
     def test_wait_for_completion_treats_missing_agent_pid_as_completed_when_backlog_done(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backlog_path = Path(tmpdir) / "BACKLOG.md"
@@ -114,19 +144,20 @@ class SupervisorLifecycleTest(unittest.TestCase):
             monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
             monitor.last_output_time = time.time() - 1000.0
 
-            result = wait_for_completion(
-                task_path=task_path,
-                monitor=monitor,
-                poll=0.01,
-                stall_timeout=600.0,
-                task_ttl=0.2,
-                log_path=Path(tmpdir) / "orc.log",
-                nudge_after=10,
-                nudge_cooldown=300.0,
-                nudge_text="continue",
-                task_id="REFACT-005",
-                task_text="repro",
-            )
+            with patch("orc_core.supervisor_lifecycle.DONE_BACKLOG_IDLE_GRACE_SECONDS", 9999.0):
+                result = wait_for_completion(
+                    task_path=task_path,
+                    monitor=monitor,
+                    poll=0.01,
+                    stall_timeout=600.0,
+                    task_ttl=0.2,
+                    log_path=Path(tmpdir) / "orc.log",
+                    nudge_after=10,
+                    nudge_cooldown=300.0,
+                    nudge_text="continue",
+                    task_id="REFACT-005",
+                    task_text="repro",
+                )
 
         self.assertEqual(result, "stalled")
 

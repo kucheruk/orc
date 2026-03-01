@@ -31,6 +31,11 @@ class _FailingEngine:
         return TaskExecutionResult(status="failed", reason=self.reason)
 
 
+class _ExplodingEngine:
+    def execute(self, _request):
+        raise RuntimeError("boom")
+
+
 def _args(backlog: str) -> Namespace:
     return Namespace(
         mode="backlog",
@@ -244,6 +249,36 @@ class BacklogOrchestratorTest(unittest.TestCase):
         self.assertEqual(orchestrator.last_failure_reason, "missing_conversation_id")
         ui_error.assert_called_once()
         self.assertIn("missing_conversation_id", ui_error.call_args.args[0])
+
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    @patch("orc_core.backlog_orchestrator.ui_error")
+    def test_unexpected_engine_exception_is_converted_to_failed_result(self, ui_error, hooks_config, hooks) -> None:
+        hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
+        hooks_config.return_value = Path("/tmp/hooks.json")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [ ] TASK-001 first\n", encoding="utf-8")
+            orchestrator = BacklogOrchestrator(
+                workdir=tmpdir,
+                backlog_path=backlog_path,
+                args=_args("BACKLOG.md"),
+                task_path=Path(tmpdir) / ".cursor" / "orc-task.json",
+                run_root=Path(tmpdir) / ".orc" / "run",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+                prompt_template="{task_id}",
+                continue_template="{task_id}",
+                commit_template="{task_id}",
+                engine=_ExplodingEngine(),
+                sleep_fn=lambda _seconds: None,
+            )
+
+            rc = orchestrator.run()
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(orchestrator.last_failure_reason, "unexpected_engine_exception:RuntimeError")
+        ui_error.assert_called_once()
+        self.assertIn("unexpected_engine_exception:RuntimeError", ui_error.call_args.args[0])
 
 
 if __name__ == "__main__":

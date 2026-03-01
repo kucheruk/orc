@@ -121,38 +121,53 @@ class BacklogOrchestrator:
             short = (open_task.text[:120] + "…") if len(open_task.text) > 120 else open_task.text
             ui_info(f"▶️ Текущая задача: {open_task.task_id} — {short}")
 
-            result = self.engine.execute(
-                TaskExecutionRequest(
-                    task=open_task,
-                    backlog_path=self.backlog_path,
-                    backlog_arg=self.args.backlog,
-                    task_path=self.task_path,
-                    workdir=self.workdir,
-                    run_root=self.run_root,
-                    model=self.args.model,
-                    commit_model=(self.args.commit_model or "").strip() or self.args.model,
-                    prompt_template=self.prompt_template,
-                    continue_template=self.continue_template,
-                    commit_template=self.commit_template,
-                    commit_phase=bool(self.args.commit_phase),
-                    allow_fallback_commits=bool(getattr(self.args, "allow_fallback_commits", False)),
-                    poll=self.args.poll,
-                    stall_timeout=self.args.stall_timeout,
-                    task_ttl=self.args.task_ttl,
-                    max_restarts=self.args.max_restarts,
-                    report_interval=self.args.report_interval,
-                    summary_lines=self.args.summary_lines,
-                    nudge_after=self.args.nudge_after,
-                    nudge_cooldown=self.args.nudge_cooldown,
-                    nudge_text=self.args.nudge_text,
-                    commit_stall_timeout=self.args.commit_stall_timeout,
-                    commit_ttl=self.args.commit_ttl,
-                    progress_done=done,
-                    progress_total=total,
-                    agent_output_log_path=str(getattr(self.args, "agent_output_log_path", "") or "").strip() or None,
-                    snapshot_publisher=self.snapshot_publisher,
+            try:
+                result = self.engine.execute(
+                    TaskExecutionRequest(
+                        task=open_task,
+                        backlog_path=self.backlog_path,
+                        backlog_arg=self.args.backlog,
+                        task_path=self.task_path,
+                        workdir=self.workdir,
+                        run_root=self.run_root,
+                        model=self.args.model,
+                        commit_model=(self.args.commit_model or "").strip() or self.args.model,
+                        prompt_template=self.prompt_template,
+                        continue_template=self.continue_template,
+                        commit_template=self.commit_template,
+                        commit_phase=bool(self.args.commit_phase),
+                        allow_fallback_commits=bool(getattr(self.args, "allow_fallback_commits", False)),
+                        poll=self.args.poll,
+                        stall_timeout=self.args.stall_timeout,
+                        task_ttl=self.args.task_ttl,
+                        max_restarts=self.args.max_restarts,
+                        report_interval=self.args.report_interval,
+                        summary_lines=self.args.summary_lines,
+                        nudge_after=self.args.nudge_after,
+                        nudge_cooldown=self.args.nudge_cooldown,
+                        nudge_text=self.args.nudge_text,
+                        commit_stall_timeout=self.args.commit_stall_timeout,
+                        commit_ttl=self.args.commit_ttl,
+                        progress_done=done,
+                        progress_total=total,
+                        agent_output_log_path=str(getattr(self.args, "agent_output_log_path", "") or "").strip() or None,
+                        snapshot_publisher=self.snapshot_publisher,
+                    )
                 )
-            )
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                self.last_failure_reason = f"unexpected_engine_exception:{type(exc).__name__}"
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "task execution crashed unexpectedly",
+                    reason=self.last_failure_reason,
+                    task_id=open_task.task_id,
+                    error=str(exc),
+                )
+                ui_error(f"❌ Задача упала из-за внутренней ошибки ORC: {self.last_failure_reason}")
+                return 1
 
             if result.status == "failed":
                 self.last_failure_reason = result.reason or "execution_failed"
