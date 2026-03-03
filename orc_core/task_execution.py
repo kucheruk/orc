@@ -731,7 +731,7 @@ class TaskExecutionEngine:
                 )
 
         if not resume_existing:
-            write_task_file(request.workdir, request.task, request.backlog_path, self.log_path, restart_count=0)
+            write_task_file(request.base_workdir, request.task, request.backlog_path, self.log_path, restart_count=0)
             start_header = f"{task_id} — {task_text}" if task_text else task_id
             send_telegram_message(f"Старт задачи\n{start_header}", self.log_path)
 
@@ -805,6 +805,10 @@ class TaskExecutionEngine:
             if result == "waiting_for_input":
                 log_event(self.log_path, "INFO", "agent waiting for follow-up input", task_id=task_id)
                 delay = max(request.nudge_cooldown, request.poll, 1.0)
+                ui_warn(
+                    f"[orc] агент запросил follow-up ввод; продолжу цикл через {delay:.1f}s "
+                    "(resume сохранен, задача не потеряна)"
+                )
                 return TaskExecutionResult(status="continue", reason="waiting_for_input", delay_seconds=delay)
             try:
                 from .task_source import MarkdownTaskSource
