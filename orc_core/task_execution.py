@@ -885,18 +885,19 @@ class TaskExecutionEngine:
                 if runtime_done:
                     log_event(
                         self.log_path,
-                        "ERROR",
-                        "backlog invariant violated: task marked done only in runtime worktree backlog",
+                        "WARN",
+                        "task marked done in runtime worktree backlog after non-completed monitor result; treating as completed",
                         task_id=task_id,
                         monitor_result=result,
                         base_backlog_path=str(base_backlog_path),
                         runtime_backlog_path=str(runtime_backlog_path),
                     )
-                    ui_error(
-                        "❌ Задача отмечена завершенной в worktree backlog, но не в base backlog. "
-                        "Интеграция worktree -> base нарушена."
-                    )
-                    return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
+                    if request.task_path.exists():
+                        try:
+                            request.task_path.unlink()
+                        except Exception as exc:
+                            log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
+                    return _finalize_completed(task_id, task_text, tag, active_monitor)
             except Exception as exc:
                 log_event(
                     self.log_path,

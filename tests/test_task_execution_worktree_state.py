@@ -129,6 +129,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
 
     @patch("orc_core.task_execution._cleanup_monitor_processes")
     @patch("orc_core.task_execution.wait_for_completion", return_value="stalled")
+    @patch("orc_core.task_execution.send_telegram_message")
     def test_fails_fast_when_task_done_only_in_worktree_backlog(self, *_mocks) -> None:
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
