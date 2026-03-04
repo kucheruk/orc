@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 
 import json
-import time
 from pathlib import Path
 from typing import Tuple
 
 from .atomic_io import write_json_atomic, write_text_atomic
 from .backlog import Task
 from .logging import log_event, now_iso
+from .task_state import write_task_runtime_state
 
 
 def _render_hook_script(template_path: Path, replacements: dict[str, str]) -> str:
@@ -99,11 +99,9 @@ def write_task_file(workdir: str, task: Task, backlog_path: Path, log_path: Path
         "conversation_id": "",
         "created_at": now_iso(),
         "restart_count": restart_count,
-        "active_seconds": 0.0,
-        "last_heartbeat_at": time.time(),
-        "run_id": "",
     }
     write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
+    write_task_runtime_state(task_path, task.task_id)
     log_event(log_path, "INFO", "task file written", path=str(task_path), task_id=task.task_id)
     return task_path
 

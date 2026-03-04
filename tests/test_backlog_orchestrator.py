@@ -203,6 +203,10 @@ class BacklogOrchestratorTest(unittest.TestCase):
         self.assertFalse(engine.calls[0].allow_fallback_commits)
         self.assertEqual(engine.calls[0].agent_env["ORC_BASE_WORKSPACE"], tmpdir)
         self.assertEqual(engine.calls[0].agent_env["ORC_TASK_FILE"], str(Path(tmpdir) / ".cursor" / "orc-task.json"))
+        self.assertEqual(
+            engine.calls[0].agent_env["ORC_TASK_RUNTIME_FILE"],
+            str(Path(tmpdir) / ".cursor" / "orc-task-runtime.json"),
+        )
 
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")

@@ -70,6 +70,21 @@ Example:
 }
 ```
 
+### Runtime Task File
+
+Path: `<repo>/.cursor/orc-task-runtime.json`
+
+Example:
+```json
+{
+  "version": 1,
+  "task_id": "AUTH-03",
+  "active_seconds": 0.0,
+  "last_heartbeat_at": 0.0,
+  "run_id": ""
+}
+```
+
 ### Hook Configuration
 
 Path: `<repo>/.cursor/hooks.json`
@@ -127,6 +142,7 @@ Example:
    - Otherwise run continue prompt for that task.
 4. If no task file exists:
    - Create task file with ID and backlog path.
+   - Create runtime task file for monitor heartbeat state.
    - Ensure repo hook scripts exist.
    - Ensure `<repo>/.cursor/hooks.json` has the hook entries.
    - Launch agent with default prompt.
@@ -139,6 +155,7 @@ Example:
 
 - If task file is missing: exit.
 - Else capture and store `conversation_id` if not already set.
+- Does not modify runtime heartbeat file.
 - Append to `.orc/orc-hook.log`:
   - `beforeSubmitPrompt`
   - `stored conversation_id=...`
@@ -150,7 +167,9 @@ Example:
 - If conversation ID mismatch: log but continue (no early exit).
 - If task ID found in backlog:
   - Ensure the line is `[x]` (no title edits).
+  - Read `active_seconds` from `.cursor/orc-task-runtime.json` (or `ORC_TASK_RUNTIME_FILE` override).
   - Delete `.cursor/orc-task.json`.
+  - Delete `.cursor/orc-task-runtime.json`.
   - Emit followup JSON.
 - If task ID not found: log and exit.
 

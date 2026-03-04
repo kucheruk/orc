@@ -35,6 +35,7 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             script_path = worktree_dir / ".cursor" / "hooks" / "orc_before_submit.py"
 
             task_path = base_dir / ".cursor" / "orc-task.json"
+            runtime_task_path = base_dir / ".cursor" / "orc-task-runtime.json"
             task_path.parent.mkdir(parents=True, exist_ok=True)
             task_path.write_text(
                 json.dumps(
@@ -48,8 +49,22 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            runtime_task_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "task_id": "TASK-001",
+                        "active_seconds": 15.0,
+                        "last_heartbeat_at": 0.0,
+                        "run_id": "run-1",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
             env = os.environ.copy()
             env["ORC_TASK_FILE"] = str(task_path)
+            env["ORC_TASK_RUNTIME_FILE"] = str(runtime_task_path)
             env["ORC_BASE_WORKSPACE"] = str(base_dir)
 
             result = _run_hook(
@@ -75,6 +90,7 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             backlog_path.write_text("- [ ] TASK-001 demo\n", encoding="utf-8")
 
             task_path = base_dir / ".cursor" / "orc-task.json"
+            runtime_task_path = base_dir / ".cursor" / "orc-task-runtime.json"
             task_path.parent.mkdir(parents=True, exist_ok=True)
             task_path.write_text(
                 json.dumps(
@@ -89,8 +105,22 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            runtime_task_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "task_id": "TASK-001",
+                        "active_seconds": 7.0,
+                        "last_heartbeat_at": 0.0,
+                        "run_id": "run-1",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
             env = os.environ.copy()
             env["ORC_TASK_FILE"] = str(task_path)
+            env["ORC_TASK_RUNTIME_FILE"] = str(runtime_task_path)
             env["ORC_BASE_WORKSPACE"] = str(base_dir)
 
             result = _run_hook(
@@ -101,6 +131,7 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("- [x] TASK-001 demo", backlog_path.read_text(encoding="utf-8"))
             self.assertFalse(task_path.exists())
+            self.assertFalse(runtime_task_path.exists())
 
 
 if __name__ == "__main__":

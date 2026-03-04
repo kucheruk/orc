@@ -38,7 +38,9 @@ def main() -> int:
 
     env_task_file = str(os.environ.get("ORC_TASK_FILE") or "").strip()
     task_file = Path(env_task_file) if env_task_file else (script_repo / ".cursor" / "orc-task.json")
+    runtime_task_file = lib.resolve_runtime_task_file(task_file)
     lib.log_event(log_path, "INFO", "stop: task file resolved", task_file=str(task_file))
+    lib.log_event(log_path, "INFO", "stop: runtime task file resolved", runtime_task_file=str(runtime_task_file))
     lib.log_event(
         log_path,
         "INFO",
@@ -104,6 +106,12 @@ def main() -> int:
             task_file.unlink()
         except Exception as exc:
             lib.log_event(log_path, "ERROR", "stop: failed to delete task file", error=str(exc))
+        try:
+            runtime_task_file.unlink()
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            lib.log_event(log_path, "ERROR", "stop: failed to delete runtime task file", error=str(exc))
         loop_count = int(data.get("loop_count") or 0)
         task_text = str(task.get("task_text") or "").strip()
         task_notes_path = script_repo / "tasks" / f"{task_id}.md"
@@ -124,7 +132,7 @@ def main() -> int:
         stats = lib.load_stats(script_repo)
         task_tokens = lib.read_task_tokens(script_repo)
         stats = lib.update_tokens(stats, task_id, task_tokens)
-        task_active_seconds = float(task.get("active_seconds") or 0.0)
+        task_active_seconds = lib.read_task_active_seconds(runtime_task_file, str(task_id))
         stats = lib.record_task_duration(stats, task_id, task_active_seconds)
         report = lib.build_report(stats, total, done)
         report_text = lib.format_report(report)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -566,6 +567,74 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         terminate_group_mock.assert_called_once_with(None, Path("/tmp/orc.log"), label="stream-monitor-stop")
         kill_tree_mock.assert_called_once_with(12345, Path("/tmp/orc.log"), label="stream-monitor-stop")
+
+    def test_runtime_heartbeat_updates_runtime_file_only(self) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            task_path = root / ".cursor" / "orc-task.json"
+            runtime_path = root / ".cursor" / "orc-task-runtime.json"
+            task_path.parent.mkdir(parents=True, exist_ok=True)
+            task_path.write_text(
+                json.dumps({"task_id": "TASK-001", "conversation_id": "conv-123"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            runtime_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "task_id": "TASK-001",
+                        "active_seconds": 3.0,
+                        "last_heartbeat_at": time.time() - 5.0,
+                        "run_id": "run-1",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            monitor._task_runtime_state_path = runtime_path
+            monitor.task_id = "TASK-001"
+            monitor._run_id = "run-1"
+            monitor.log_path = root / ".orc" / "orc.log"
+
+            monitor._update_task_runtime_state()
+
+            task_payload = json.loads(task_path.read_text(encoding="utf-8"))
+            runtime_payload = json.loads(runtime_path.read_text(encoding="utf-8"))
+        self.assertEqual(task_payload.get("conversation_id"), "conv-123")
+        self.assertGreater(runtime_payload.get("active_seconds", 0.0), 3.0)
+        self.assertEqual(runtime_payload.get("run_id"), "run-1")
+
+    def test_runtime_heartbeat_does_not_overwrite_task_conversation_state(self) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            task_path = root / ".cursor" / "orc-task.json"
+            runtime_path = root / ".cursor" / "orc-task-runtime.json"
+            task_path.parent.mkdir(parents=True, exist_ok=True)
+            task_path.write_text(
+                json.dumps({"task_id": "TASK-001", "conversation_id": ""}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            runtime_path.write_text(
+                json.dumps(
+                    {"version": 1, "task_id": "TASK-001", "active_seconds": 0.0, "last_heartbeat_at": 0.0, "run_id": ""},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            task_payload = json.loads(task_path.read_text(encoding="utf-8"))
+            task_payload["conversation_id"] = "conv-123"
+            task_path.write_text(json.dumps(task_payload, ensure_ascii=False), encoding="utf-8")
+            monitor._task_runtime_state_path = runtime_path
+            monitor.task_id = "TASK-001"
+            monitor._run_id = "run-1"
+            monitor.log_path = root / ".orc" / "orc.log"
+
+            monitor._update_task_runtime_state()
+
+            final_task_payload = json.loads(task_path.read_text(encoding="utf-8"))
+        self.assertEqual(final_task_payload.get("conversation_id"), "conv-123")
 
 
 if __name__ == "__main__":

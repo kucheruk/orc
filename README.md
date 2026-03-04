@@ -83,7 +83,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 Когда `orc.py` запускается для репозитория, он создаёт:
 
-- `.cursor/orc-task.json` — состояние текущей задачи для хуков
+- `.cursor/orc-task.json` — основное состояние текущей задачи для хуков (task metadata, conversation_id, restart_count)
+- `.cursor/orc-task-runtime.json` — runtime heartbeat (active_seconds, last_heartbeat_at, run_id), single-writer файл монитора
 - `.cursor/hooks/orc_before_submit.py` — hook для сохранения `conversation_id`
 - `.cursor/hooks/orc_stop.py` — hook, который завершает задачу и отправляет follow‑up
 - `.cursor/hooks.json` — конфигурация хуков Cursor
@@ -101,6 +102,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
    - Иначе запустить агента в режиме “continue” для сохранённой задачи.
 3. Если активной задачи нет:
    - Создать `.cursor/orc-task.json` с `task_id`, `task_text`, `backlog_path`, `workspace_root`.
+   - Инициализировать `.cursor/orc-task-runtime.json` для heartbeat runtime-метрик.
    - Убедиться, что хуки созданы, а `.cursor/hooks.json` содержит нужные записи.
    - Запустить агента с дефолтным промптом для этой задачи.
 4. Подождать, пока stop‑hook удалит `.cursor/orc-task.json`.
@@ -145,9 +147,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 - логирует детали в `.orc/orc-hook.log`
 
 В worktree-режиме источник истины task state остаётся в base workspace:
-- ORC пишет `.cursor/orc-task.json` в base workspace;
+- ORC пишет `.cursor/orc-task.json` и `.cursor/orc-task-runtime.json` в base workspace;
 - агент запускается в task worktree;
-- путь к task state передаётся в хуки через `ORC_TASK_FILE`, а base workspace через `ORC_BASE_WORKSPACE`.
+- путь к task state передаётся в хуки через `ORC_TASK_FILE`, путь к runtime state через `ORC_TASK_RUNTIME_FILE`, а base workspace через `ORC_BASE_WORKSPACE`.
 
 ## Диагностика проблем
 

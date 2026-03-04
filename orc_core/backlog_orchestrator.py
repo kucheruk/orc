@@ -12,6 +12,7 @@ from .hooks import ensure_repo_hooks, ensure_repo_hooks_config
 from .logging import log_event
 from .quit_signal import is_quit_after_task_requested
 from .stream_monitor_state import MonitorSnapshot
+from .task_state import delete_runtime_state_file, runtime_state_path
 from .task_execution import TaskExecutionEngine, TaskExecutionRequest
 from .task_source import MarkdownTaskSource, Task
 from .ui import ui_error, ui_info
@@ -107,6 +108,7 @@ class BacklogOrchestrator:
                     log_event(self.log_path, "ERROR", "drop: failed to read task file (still deleting)", error=str(exc))
                 try:
                     self.task_path.unlink()
+                    delete_runtime_state_file(self.task_path, self.log_path, reason="drop_active_task_state")
                     log_event(
                         self.log_path,
                         "WARN",
@@ -194,6 +196,7 @@ class BacklogOrchestrator:
                         agent_output_log_path=str(getattr(self.args, "agent_output_log_path", "") or "").strip() or None,
                         agent_env={
                             "ORC_TASK_FILE": str(self.task_path),
+                            "ORC_TASK_RUNTIME_FILE": str(runtime_state_path(self.task_path)),
                             "ORC_BASE_WORKSPACE": str(Path(self.workdir)),
                         },
                         snapshot_publisher=self.snapshot_publisher,

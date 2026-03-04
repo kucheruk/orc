@@ -11,6 +11,7 @@ from .atomic_io import write_json_atomic
 from .logging import log_event
 
 AGENT_LS_TIMEOUT_SECONDS = 15.0
+TASK_RUNTIME_FILE_NAME = "orc-task-runtime.json"
 
 
 def create_temp_backlog(workdir: str, task_text: str, log_path: Path) -> tuple[Path, str]:
@@ -31,6 +32,69 @@ def load_task_payload(task_path: Path) -> dict:
         return payload if isinstance(payload, dict) else {}
     except Exception:
         return {}
+
+
+def runtime_state_path(task_path: Path) -> Path:
+    return task_path.with_name(TASK_RUNTIME_FILE_NAME)
+
+
+def load_runtime_payload(runtime_path: Path) -> dict:
+    try:
+        payload = json.loads(runtime_path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def init_runtime_payload(task_id: str) -> dict:
+    return {
+        "version": 1,
+        "task_id": str(task_id or "").strip(),
+        "active_seconds": 0.0,
+        "last_heartbeat_at": 0.0,
+        "run_id": "",
+    }
+
+
+def write_task_runtime_state(task_path: Path, task_id: str) -> Path:
+    runtime_path = runtime_state_path(task_path)
+    payload = init_runtime_payload(task_id)
+    write_json_atomic(runtime_path, payload, ensure_ascii=False, indent=2)
+    return runtime_path
+
+
+def read_task_active_seconds(task_path: Path, expected_task_id: str = "") -> float:
+    payload = load_runtime_payload(runtime_state_path(task_path))
+    if not payload:
+        return 0.0
+    task_id = str(expected_task_id or "").strip()
+    payload_task_id = str(payload.get("task_id") or "").strip()
+    if task_id and payload_task_id and payload_task_id != task_id:
+        return 0.0
+    try:
+        return max(float(payload.get("active_seconds") or 0.0), 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def delete_runtime_state_file(task_path: Path, log_path: Path, reason: str) -> bool:
+    runtime_path = runtime_state_path(task_path)
+    if not runtime_path.exists():
+        return False
+    try:
+        runtime_path.unlink()
+        log_event(log_path, "WARN", "runtime state file removed", reason=reason, runtime_path=str(runtime_path))
+        return True
+    except Exception as exc:
+        log_event(
+            log_path,
+            "ERROR",
+            "failed to remove runtime state file",
+            reason=reason,
+            error=str(exc),
+            runtime_path=str(runtime_path),
+        )
+        return False
 
 
 def delete_task_file(
@@ -68,6 +132,7 @@ def delete_task_file(
     try:
         task_path.unlink()
         log_event(log_path, "WARN", "task file removed", reason=reason, task_path=str(task_path))
+        delete_runtime_state_file(task_path, log_path, reason=f"{reason}:task_removed")
         return True
     except Exception as exc:
         log_event(log_path, "ERROR", "failed to remove task file", reason=reason, error=str(exc), task_path=str(task_path))

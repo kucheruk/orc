@@ -123,9 +123,13 @@ class HooksAtomicWriteTest(unittest.TestCase):
             self.assertTrue(task_path.exists())
             payload = json.loads(task_path.read_text(encoding="utf-8"))
             self.assertEqual(payload.get("task_id"), "TASK-001")
-            self.assertEqual(payload.get("active_seconds"), 0.0)
-            self.assertIn("last_heartbeat_at", payload)
-            self.assertEqual(payload.get("run_id"), "")
+            self.assertNotIn("active_seconds", payload)
+            self.assertNotIn("last_heartbeat_at", payload)
+            self.assertNotIn("run_id", payload)
+            runtime_payload = json.loads((tmpdir / ".cursor" / "orc-task-runtime.json").read_text(encoding="utf-8"))
+            self.assertEqual(runtime_payload.get("task_id"), "TASK-001")
+            self.assertEqual(runtime_payload.get("active_seconds"), 0.0)
+            self.assertEqual(runtime_payload.get("run_id"), "")
 
     def test_update_task_restart_count_does_not_use_path_write_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir_str:

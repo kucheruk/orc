@@ -10,6 +10,7 @@ from typing import Callable, Optional
 from .logging import debug_log, log_event
 from .notify import send_telegram_message
 from .process import is_pid_alive
+from .task_state import delete_runtime_state_file
 
 PROCESS_EXIT_GRACE_SECONDS = 3.0
 DONE_BACKLOG_IDLE_GRACE_SECONDS = 20.0
@@ -114,6 +115,7 @@ def wait_for_completion(
                 log_event(log_path, "INFO", "agent pid missing and task marked done; treating as completed", task_id=task_id)
                 try:
                     task_path.unlink()
+                    delete_runtime_state_file(task_path, log_path, reason="pid_missing_task_done")
                 except Exception:
                     pass
                 return "completed"
@@ -124,6 +126,7 @@ def wait_for_completion(
             log_event(log_path, "INFO", "task marked done and agent idle; treating as completed", task_id=task_id)
             try:
                 task_path.unlink()
+                delete_runtime_state_file(task_path, log_path, reason="idle_task_done")
             except Exception:
                 pass
             return "completed"
@@ -191,6 +194,7 @@ def wait_for_completion(
                         log_event(log_path, "INFO", "task marked done during exit grace window", task_id=task_id)
                         try:
                             task_path.unlink()
+                            delete_runtime_state_file(task_path, log_path, reason="exit_grace_task_done")
                         except Exception:
                             pass
                         return "completed"

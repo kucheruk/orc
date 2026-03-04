@@ -17,6 +17,7 @@ from .logging import log_event
 from .process import kill_process_tree
 from .process_groups import resolve_process_group_id, subprocess_group_spawn_kwargs, terminate_process_group
 from .stream_monitor_state import MonitorSnapshot, StreamMonitorState
+from .task_state import init_runtime_payload, load_runtime_payload, runtime_state_path
 from .task_source import MarkdownTaskSource
 
 GIT_STATS_TIMEOUT_SECONDS = 10.0
@@ -80,6 +81,10 @@ class StreamJsonMonitor:
         self._last_git_stats_time = 0.0
         task_state_override = str(self._child_env_overrides.get("ORC_TASK_FILE", "")).strip()
         self._task_state_path = Path(task_state_override) if task_state_override else (Path(self.workdir) / ".cursor" / "orc-task.json")
+        runtime_override = str(self._child_env_overrides.get("ORC_TASK_RUNTIME_FILE", "")).strip()
+        self._task_runtime_state_path = (
+            Path(runtime_override) if runtime_override else runtime_state_path(self._task_state_path)
+        )
         self._stats_path = Path(self.workdir) / ".orc" / "orc-stats.json"
         self._run_id = f"{int(self.started_at)}-{self.task_id}"
         self._stop = threading.Event()
@@ -334,14 +339,11 @@ class StreamJsonMonitor:
         self._state.set_eta_seconds(avg_seconds * remaining if remaining > 0 else 0.0)
 
     def _update_task_runtime_state(self) -> None:
-        if not self._task_state_path.exists():
-            return
         now = time.time()
-        try:
-            payload = json.loads(self._task_state_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            log_event(self.log_path, "WARN", "task runtime heartbeat read failed", error=str(exc))
-            return
+        runtime_path = self._task_runtime_state_path
+        payload = load_runtime_payload(runtime_path)
+        if not payload:
+            payload = init_runtime_payload(self.task_id)
         if not isinstance(payload, dict):
             return
         if str(payload.get("task_id") or "").strip() != self.task_id:
@@ -355,7 +357,7 @@ class StreamJsonMonitor:
         payload["last_heartbeat_at"] = now
         payload["run_id"] = self._run_id
         try:
-            write_json_atomic(self._task_state_path, payload, ensure_ascii=False, indent=2)
+            write_json_atomic(runtime_path, payload, ensure_ascii=False, indent=2)
         except Exception as exc:
             log_event(self.log_path, "WARN", "task runtime heartbeat write failed", error=str(exc))
 

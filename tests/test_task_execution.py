@@ -446,8 +446,12 @@ class TaskExecutionEngineTest(unittest.TestCase):
             other_backlog = Path(tmpdir) / "OTHER_BACKLOG.md"
             other_backlog.write_text("- [ ] TASK-999 old\n", encoding="utf-8")
             request.task_path.write_text(
-                '{"task_id":"TASK-999","task_text":"old task","backlog_path":"%s","conversation_id":"conv-1","active_seconds":999.0}'
+                '{"task_id":"TASK-999","task_text":"old task","backlog_path":"%s","conversation_id":"conv-1"}'
                 % str(other_backlog),
+                encoding="utf-8",
+            )
+            request.task_path.with_name("orc-task-runtime.json").write_text(
+                '{"version":1,"task_id":"TASK-999","active_seconds":999.0,"last_heartbeat_at":0.0,"run_id":""}',
                 encoding="utf-8",
             )
 
@@ -455,6 +459,35 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(wait_for_completion.call_args.kwargs.get("elapsed_before_start"), 0.0)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    def test_resume_elapsed_baseline_reads_runtime_state(
+        self,
+        wait_for_completion,
+        *_mocks,
+    ) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            request.task_path.parent.mkdir(parents=True, exist_ok=True)
+            request.task_path.write_text(
+                '{"task_id":"TASK-001","task_text":"test task","backlog_path":"%s","conversation_id":"conv-1"}'
+                % str(request.backlog_path),
+                encoding="utf-8",
+            )
+            request.task_path.with_name("orc-task-runtime.json").write_text(
+                '{"version":1,"task_id":"TASK-001","active_seconds":42.5,"last_heartbeat_at":0.0,"run_id":""}',
+                encoding="utf-8",
+            )
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(wait_for_completion.call_args.kwargs.get("elapsed_before_start"), 42.5)
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")

@@ -26,6 +26,7 @@ from .quit_signal import is_stop_requested
 from .runner import launch_agent_stream_json
 from .stream_monitor_state import MonitorSnapshot
 from .supervisor_lifecycle import wait_for_completion, wait_for_process_exit
+from .task_state import delete_runtime_state_file, read_task_active_seconds, runtime_state_path
 from .task_source import Task
 from .text_parse import clean_summary_lines
 from .ui import ui_error, ui_info, ui_warn
@@ -594,6 +595,9 @@ class TaskExecutionEngine:
         task_text = request.task.text
         base_backlog_path = request.backlog_path
         runtime_backlog_path = _resolve_runtime_backlog_path(request)
+        task_runtime_path = runtime_state_path(request.task_path)
+        effective_agent_env = dict(request.agent_env or {})
+        effective_agent_env.setdefault("ORC_TASK_RUNTIME_FILE", str(task_runtime_path))
         effective_agent_output_log_path = request.agent_output_log_path or _build_agent_output_log_path(request.run_root, task_id)
         log_event(
             self.log_path,
@@ -781,15 +785,11 @@ class TaskExecutionEngine:
                 raw_conversation_id = active.get("conversation_id", None)
                 resume_id = str(raw_conversation_id or "").strip() or None
                 raw_restart_count = active.get("restart_count", 0)
-                raw_active_seconds = active.get("active_seconds", 0.0)
                 try:
                     persisted_restart_count = max(int(raw_restart_count), 0)
                 except (TypeError, ValueError):
                     persisted_restart_count = 0
-                try:
-                    elapsed_before_start = max(float(raw_active_seconds), 0.0)
-                except (TypeError, ValueError):
-                    elapsed_before_start = 0.0
+                elapsed_before_start = read_task_active_seconds(request.task_path, expected_task_id=str(active_task_id or ""))
             except Exception as exc:
                 log_event(self.log_path, "ERROR", "failed to read task file", error=str(exc))
                 ui_warn(
@@ -826,6 +826,7 @@ class TaskExecutionEngine:
                     ui_info(f"✅ {active_task_id} уже отмечена [x]. Удаляю {request.task_path} и продолжаю.")
                     try:
                         request.task_path.unlink()
+                        delete_runtime_state_file(request.task_path, self.log_path, reason="stale_done_task_file")
                     except Exception as exc:
                         log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
                     return TaskExecutionResult(status="continue", reason="stale_done_task_file")
@@ -890,7 +891,7 @@ class TaskExecutionEngine:
                     progress_done=request.progress_done,
                     progress_total=request.progress_total,
                     agent_output_log_path=effective_agent_output_log_path,
-                    agent_env=request.agent_env,
+                    agent_env=effective_agent_env,
                     snapshot_publisher=request.snapshot_publisher,
                     resume_id=resume_id if resume_existing else None,
                     resume_latest=False,
@@ -981,6 +982,7 @@ class TaskExecutionEngine:
                     if request.task_path.exists():
                         try:
                             request.task_path.unlink()
+                            delete_runtime_state_file(request.task_path, self.log_path, reason="base_backlog_marked_done")
                         except Exception as exc:
                             log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
                     return _finalize_completed(task_id, task_text, tag, active_monitor)
@@ -997,6 +999,7 @@ class TaskExecutionEngine:
                     if request.task_path.exists():
                         try:
                             request.task_path.unlink()
+                            delete_runtime_state_file(request.task_path, self.log_path, reason="runtime_backlog_marked_done")
                         except Exception as exc:
                             log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
                     return _finalize_completed(task_id, task_text, tag, active_monitor)

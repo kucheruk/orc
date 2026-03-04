@@ -44,6 +44,26 @@ def write_json(path: Path, payload: dict) -> None:
     write_json_atomic(path, payload, ensure_ascii=False, indent=2)
 
 
+def resolve_runtime_task_file(task_file: Path) -> Path:
+    env_runtime_file = str(os.environ.get("ORC_TASK_RUNTIME_FILE") or "").strip()
+    if env_runtime_file:
+        return Path(env_runtime_file)
+    return task_file.with_name("orc-task-runtime.json")
+
+
+def read_task_active_seconds(runtime_task_file: Path, expected_task_id: str) -> float:
+    payload = read_json(runtime_task_file, {})
+    if not isinstance(payload, dict):
+        return 0.0
+    runtime_task_id = str(payload.get("task_id") or "").strip()
+    if expected_task_id and runtime_task_id and runtime_task_id != expected_task_id:
+        return 0.0
+    try:
+        return max(float(payload.get("active_seconds") or 0.0), 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def git_has_changes(repo_root: Path, log_path: Optional[Path] = None) -> bool:
     try:
         result = subprocess.run(
