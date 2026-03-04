@@ -101,6 +101,9 @@ class BacklogOrchestratorTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         create_worktree.assert_called_once()
         cleanup_worktree.assert_called_once()
+        self.assertGreaterEqual(hooks.call_count, 2)
+        self.assertEqual(hooks.call_args_list[0].args[0], tmpdir)
+        self.assertEqual(hooks.call_args_list[1].args[0], "/tmp/repo/.orc/worktrees/TASK-001-1")
 
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
@@ -134,6 +137,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual([call.task.task_id for call in engine.calls], ["TASK-001", "TASK-002"])
+        hooks.assert_called()
 
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
@@ -197,6 +201,8 @@ class BacklogOrchestratorTest(unittest.TestCase):
         self.assertEqual(engine.calls[0].progress_done, 0)
         self.assertEqual(engine.calls[0].progress_total, 1)
         self.assertFalse(engine.calls[0].allow_fallback_commits)
+        self.assertEqual(engine.calls[0].agent_env["ORC_BASE_WORKSPACE"], tmpdir)
+        self.assertEqual(engine.calls[0].agent_env["ORC_TASK_FILE"], str(Path(tmpdir) / ".cursor" / "orc-task.json"))
 
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")

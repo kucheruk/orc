@@ -78,7 +78,8 @@ class StreamJsonMonitor:
         self._report_interval = max(report_interval, 1.0)
         self._last_report_time = 0.0
         self._last_git_stats_time = 0.0
-        self._task_state_path = Path(self.workdir) / ".cursor" / "orc-task.json"
+        task_state_override = str(self._child_env_overrides.get("ORC_TASK_FILE", "")).strip()
+        self._task_state_path = Path(task_state_override) if task_state_override else (Path(self.workdir) / ".cursor" / "orc-task.json")
         self._stats_path = Path(self.workdir) / ".orc" / "orc-stats.json"
         self._run_id = f"{int(self.started_at)}-{self.task_id}"
         self._stop = threading.Event()

@@ -156,6 +156,7 @@ class BacklogOrchestrator:
                     return 1
 
             execution_workdir = active_worktree.worktree_path if active_worktree is not None else self.workdir
+            self._ensure_hooks_for_workspace(execution_workdir)
             try:
                 result = self.engine.execute(
                     TaskExecutionRequest(
@@ -191,6 +192,10 @@ class BacklogOrchestrator:
                         progress_done=done,
                         progress_total=total,
                         agent_output_log_path=str(getattr(self.args, "agent_output_log_path", "") or "").strip() or None,
+                        agent_env={
+                            "ORC_TASK_FILE": str(self.task_path),
+                            "ORC_BASE_WORKSPACE": str(Path(self.workdir)),
+                        },
                         snapshot_publisher=self.snapshot_publisher,
                     )
                 )
@@ -254,6 +259,14 @@ class BacklogOrchestrator:
         before_path, stop_path = ensure_repo_hooks(self.workdir)
         hooks_path = ensure_repo_hooks_config(self.workdir, before_path, stop_path, self.log_path)
         log_event(self.log_path, "INFO", "hooks ready", hooks_config=str(hooks_path))
+
+    def _ensure_hooks_for_workspace(self, workdir: str) -> None:
+        target = str(workdir or "").strip()
+        if not target or target == self.workdir:
+            return
+        before_path, stop_path = ensure_repo_hooks(target)
+        hooks_path = ensure_repo_hooks_config(target, before_path, stop_path, self.log_path)
+        log_event(self.log_path, "INFO", "worktree hooks ready", hooks_config=str(hooks_path), workdir=target)
 
     async def run_async(self) -> int:
         return await asyncio.to_thread(self.run)

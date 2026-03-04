@@ -10,6 +10,27 @@ from orc_core.runner import launch_agent_stream_json
 
 class RunnerLaunchTest(unittest.TestCase):
     @patch("orc_core.runner.StreamJsonMonitor")
+    def test_passes_agent_env_into_monitor(self, monitor_cls_mock) -> None:
+        monitor_instance = MagicMock()
+        monitor_cls_mock.return_value = monitor_instance
+
+        launch_agent_stream_json(
+            workdir=".",
+            prompt_path=Path(__file__),
+            model="gpt-5.3-codex",
+            log_path=Path("/tmp/orc.log"),
+            report_interval=2.0,
+            summary_lines=25,
+            task_id="TASK-1",
+            agent_env={"ORC_TASK_FILE": "/tmp/task.json", "ORC_BASE_WORKSPACE": "/tmp/base"},
+        )
+
+        self.assertEqual(
+            monitor_cls_mock.call_args.kwargs["child_env_overrides"],
+            {"ORC_TASK_FILE": "/tmp/task.json", "ORC_BASE_WORKSPACE": "/tmp/base"},
+        )
+
+    @patch("orc_core.runner.StreamJsonMonitor")
     def test_resume_latest_uses_continue_flag(self, monitor_cls_mock) -> None:
         monitor_instance = MagicMock()
         monitor_cls_mock.return_value = monitor_instance

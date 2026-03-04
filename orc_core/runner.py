@@ -4,7 +4,7 @@
 import asyncio
 import shlex
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Mapping, Optional
 
 from .logging import debug_log, log_event
 from .process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
@@ -24,6 +24,7 @@ def launch_agent_stream_json(
     progress_done: int = 0,
     progress_total: int = 1,
     agent_output_log_path: Optional[str] = None,
+    agent_env: Optional[Mapping[str, str]] = None,
     snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
     resume_id: Optional[str] = None,
     resume_latest: bool = False,
@@ -41,6 +42,7 @@ def launch_agent_stream_json(
             progress_done=progress_done,
             progress_total=progress_total,
             agent_output_log_path=agent_output_log_path,
+            agent_env=agent_env,
             snapshot_publisher=snapshot_publisher,
             resume_id=resume_id,
             resume_latest=resume_latest,
@@ -61,6 +63,7 @@ async def launch_agent_stream_json_async(
     progress_done: int = 0,
     progress_total: int = 1,
     agent_output_log_path: Optional[str] = None,
+    agent_env: Optional[Mapping[str, str]] = None,
     snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
     resume_id: Optional[str] = None,
     resume_latest: bool = False,
@@ -78,6 +81,7 @@ async def launch_agent_stream_json_async(
             "progress_done": progress_done,
             "progress_total": progress_total,
             "agent_output_log_path": agent_output_log_path,
+            "agent_env": dict(agent_env or {}),
             "snapshot_publisher": bool(snapshot_publisher),
             "resume_id": resume_id,
             "resume_latest": resume_latest,
@@ -126,6 +130,7 @@ async def launch_agent_stream_json_async(
         task_id=task_id,
         workdir=workdir,
         agent_output_log_path=agent_output_log_path,
+        child_env_overrides=dict(agent_env or {}),
         snapshot_publisher=snapshot_publisher,
     )
     try:

@@ -89,7 +89,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 - `.cursor/hooks.json` — конфигурация хуков Cursor
 - `.orc/orc-hook.log` — лог работы хуков
 
-Если `.cursor/orc-task.json` отсутствует, хуки ничего не делают.
+Если `.cursor/orc-task.json` отсутствует, хуки ничего не делают.  
+В режиме `use_task_worktrees=True` ORC также подготавливает `.cursor/hooks*` в активном task worktree перед запуском агента.
 
 ## Алгоритм orc.py (в общих чертах)
 
@@ -124,10 +125,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### beforeSubmitPrompt
 
-Читает JSON из stdin и, если в репозитории есть `.cursor/orc-task.json`, то:
+Читает JSON из stdin и, если доступен task state, то:
 
 - забирает `conversation_id` из payload
-- сохраняет его в `.cursor/orc-task.json` (если ещё не был сохранён)
+- сохраняет его в task state (`ORC_TASK_FILE`, либо fallback в `.cursor/orc-task.json`)
 - пишет лог в `.orc/orc-hook.log`
 
 ### stop
@@ -136,12 +137,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 - проверяет соответствие `conversation_id` (если он задан)
 - отмечает строку с task ID в `BACKLOG.md` как `[x]`
-- удаляет `.cursor/orc-task.json`
+- удаляет task state (`ORC_TASK_FILE`, либо fallback в `.cursor/orc-task.json`)
 - пишет follow‑up JSON:
   ```
   {"followup_message":"commit+push with task ID and task description as commit message"}
   ```
 - логирует детали в `.orc/orc-hook.log`
+
+В worktree-режиме источник истины task state остаётся в base workspace:
+- ORC пишет `.cursor/orc-task.json` в base workspace;
+- агент запускается в task worktree;
+- путь к task state передаётся в хуки через `ORC_TASK_FILE`, а base workspace через `ORC_BASE_WORKSPACE`.
 
 ## Диагностика проблем
 

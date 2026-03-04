@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional, Protocol
+from typing import Callable, Mapping, Optional, Protocol
 
 from .hooks import update_task_restart_count, write_task_file
 from .logging import debug_log, log_event
@@ -73,6 +73,7 @@ class TaskExecutionRequest:
     progress_done: int
     progress_total: int
     agent_output_log_path: Optional[str] = None
+    agent_env: Optional[Mapping[str, str]] = None
     snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None
 
 
@@ -98,6 +99,7 @@ class TaskWorker(Protocol):
         progress_done: int,
         progress_total: int,
         agent_output_log_path: Optional[str] = None,
+        agent_env: Optional[Mapping[str, str]] = None,
         snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
         resume_id: Optional[str] = None,
         resume_latest: bool = False,
@@ -120,6 +122,7 @@ class AgentTaskWorker:
         progress_done: int,
         progress_total: int,
         agent_output_log_path: Optional[str] = None,
+        agent_env: Optional[Mapping[str, str]] = None,
         snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
         resume_id: Optional[str] = None,
         resume_latest: bool = False,
@@ -136,6 +139,7 @@ class AgentTaskWorker:
             progress_done=progress_done,
             progress_total=progress_total,
             agent_output_log_path=agent_output_log_path,
+            agent_env=agent_env,
             snapshot_publisher=snapshot_publisher,
             resume_id=resume_id,
             resume_latest=resume_latest,
@@ -424,6 +428,7 @@ def _run_commit_phase(
             progress_done=request.progress_done,
             progress_total=request.progress_total,
             agent_output_log_path=agent_output_log_path,
+            agent_env=request.agent_env,
             snapshot_publisher=request.snapshot_publisher,
         )
     except Exception as exc:
@@ -547,6 +552,7 @@ def _run_merge_expert_phase(
             progress_done=request.progress_done,
             progress_total=request.progress_total,
             agent_output_log_path=agent_output_log_path,
+            agent_env=request.agent_env,
             snapshot_publisher=request.snapshot_publisher,
         )
     except Exception as exc:
@@ -884,6 +890,7 @@ class TaskExecutionEngine:
                     progress_done=request.progress_done,
                     progress_total=request.progress_total,
                     agent_output_log_path=effective_agent_output_log_path,
+                    agent_env=request.agent_env,
                     snapshot_publisher=request.snapshot_publisher,
                     resume_id=resume_id if resume_existing else None,
                     resume_latest=False,
