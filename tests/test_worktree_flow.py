@@ -65,6 +65,44 @@ class WorktreeFlowTest(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.already_integrated)
 
+    @patch("orc_core.worktree_flow._git")
+    def test_cleanup_worktree_force_removes_when_only_orc_runtime_dirty(self, git_mock) -> None:
+        session = worktree_flow.WorktreeSession(
+            base_workdir="/tmp/repo",
+            worktree_path="/tmp/repo/.orc/worktrees/TASK-001",
+            branch_name="orc/TASK-001",
+            task_id="TASK-001",
+        )
+        git_mock.side_effect = [
+            (False, "", "contains modified files", 128),  # regular remove failed
+            (True, " M .orc/backlog-run/raw-stream/task.log\n", "", 0),  # status in worktree
+            (True, "", "", 0),  # force remove succeeded
+            (True, "", "", 0),  # prune
+        ]
+
+        worktree_flow.cleanup_task_worktree(session, Path("/tmp/orc.log"))
+
+        self.assertEqual(
+            git_mock.call_args_list[2].args[1],
+            ["git", "worktree", "remove", "--force", session.worktree_path],
+        )
+
+    @patch("orc_core.worktree_flow._git")
+    def test_cleanup_worktree_fails_when_dirty_paths_not_in_orc(self, git_mock) -> None:
+        session = worktree_flow.WorktreeSession(
+            base_workdir="/tmp/repo",
+            worktree_path="/tmp/repo/.orc/worktrees/TASK-001",
+            branch_name="orc/TASK-001",
+            task_id="TASK-001",
+        )
+        git_mock.side_effect = [
+            (False, "", "contains modified files", 128),  # regular remove failed
+            (True, " M BACKLOG.md\n", "", 0),  # status has non-runtime change
+        ]
+
+        with self.assertRaises(RuntimeError):
+            worktree_flow.cleanup_task_worktree(session, Path("/tmp/orc.log"))
+
 
 if __name__ == "__main__":
     unittest.main()

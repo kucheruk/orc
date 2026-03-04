@@ -106,7 +106,34 @@ def create_task_worktree(
 def cleanup_task_worktree(session: WorktreeSession, log_path: Path) -> None:
     ok, _, stderr, _ = _git(session.base_workdir, ["git", "worktree", "remove", session.worktree_path])
     if not ok:
-        raise RuntimeError(f"failed to remove worktree: {stderr.strip()}")
+        status_ok, status_out, status_err, _ = _git(session.worktree_path, ["git", "status", "--porcelain"])
+        if not status_ok:
+            raise RuntimeError(f"failed to remove worktree: {stderr.strip()} (status check failed: {status_err.strip()})")
+        dirty_paths = []
+        for raw_line in status_out.splitlines():
+            line = raw_line.rstrip("\n")
+            if len(line) < 4:
+                continue
+            path = line[3:].strip()
+            if path:
+                dirty_paths.append(path)
+        only_runtime_artifacts = bool(dirty_paths) and all(path.startswith(".orc/") for path in dirty_paths)
+        if not only_runtime_artifacts:
+            raise RuntimeError(f"failed to remove worktree: {stderr.strip()}")
+        log_event(
+            log_path,
+            "WARN",
+            "worktree cleanup fallback: force remove due to runtime artifacts",
+            task_id=session.task_id,
+            worktree_path=session.worktree_path,
+            dirty_paths=dirty_paths[:20],
+        )
+        ok_force, _, stderr_force, _ = _git(
+            session.base_workdir,
+            ["git", "worktree", "remove", "--force", session.worktree_path],
+        )
+        if not ok_force:
+            raise RuntimeError(f"failed to force remove worktree: {stderr_force.strip()}")
     _git(session.base_workdir, ["git", "worktree", "prune"])
     log_event(
         log_path,
