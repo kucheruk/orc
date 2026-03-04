@@ -173,6 +173,35 @@ class TaskSourceTest(unittest.TestCase):
         self.assertTrue(marked)
         self.assertIn("- [x] [TASK-777](https://example.com) сохранить формат", path.read_text(encoding="utf-8"))
 
+    def test_report_link_marks_task_done_without_checkbox(self) -> None:
+        tmpdir, path = self._write_backlog(
+            "- [ ] INFRA-001 Solution Structure → tasks/INFRA-001.md\n"
+            "- [ ] INFRA-002 Next task\n"
+        )
+        self.addCleanup(tmpdir.cleanup)
+        source = MarkdownTaskSource(path)
+
+        tasks = source.list_tasks()
+
+        self.assertEqual([task.task_id for task in tasks], ["INFRA-001", "INFRA-002"])
+        self.assertEqual([task.done for task in tasks], [True, False])
+        self.assertTrue(source.is_task_done("INFRA-001"))
+        first_open = source.get_first_open_task()
+        self.assertIsNotNone(first_open)
+        assert first_open is not None
+        self.assertEqual(first_open.task_id, "INFRA-002")
+
+    def test_report_link_with_other_task_id_does_not_mark_done(self) -> None:
+        tmpdir, path = self._write_backlog("- [ ] INFRA-001 Solution Structure → tasks/INFRA-002.md\n")
+        self.addCleanup(tmpdir.cleanup)
+        source = MarkdownTaskSource(path)
+
+        tasks = source.list_tasks()
+
+        self.assertEqual(len(tasks), 1)
+        self.assertFalse(tasks[0].done)
+        self.assertFalse(source.is_task_done("INFRA-001"))
+
 
 if __name__ == "__main__":
     unittest.main()
