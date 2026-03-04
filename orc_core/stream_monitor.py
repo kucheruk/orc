@@ -10,7 +10,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Optional, TextIO
+from typing import Callable, Dict, Iterable, Mapping, Optional, TextIO
 
 from .atomic_io import write_json_atomic
 from .logging import log_event
@@ -41,6 +41,7 @@ class StreamJsonMonitor:
         task_id: str,
         workdir: str,
         agent_output_log_path: Optional[str] = None,
+        child_env_overrides: Optional[Mapping[str, str]] = None,
         snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
     ) -> None:
         self._agent_cmd = list(agent_cmd)
@@ -61,6 +62,7 @@ class StreamJsonMonitor:
         self.result_status: Optional[str] = None
         self.result_seen_at: Optional[float] = None
         self._agent_output_log_path = str(agent_output_log_path or "").strip() or None
+        self._child_env_overrides = {str(key): str(value) for key, value in (child_env_overrides or {}).items()}
         self._snapshot_publisher = snapshot_publisher
         self._agent_output_file: Optional[TextIO] = None
         if self._agent_output_log_path:
@@ -148,6 +150,7 @@ class StreamJsonMonitor:
         try:
             child_env = os.environ.copy()
             child_env["ORC_RUN_TOKEN"] = self.run_token
+            child_env.update(self._child_env_overrides)
             self._proc = await asyncio.create_subprocess_exec(
                 *self._agent_cmd,
                 cwd=self.workdir,
@@ -282,7 +285,7 @@ class StreamJsonMonitor:
             }
             path = Path(self.workdir) / ".orc" / "orc-metrics.json"
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            write_json_atomic(path, payload, ensure_ascii=False, indent=2)
         except Exception as exc:
             log_event(self.log_path, "ERROR", "metrics snapshot write failed", error=str(exc))
 
