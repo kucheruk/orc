@@ -186,13 +186,16 @@ class StreamJsonMonitor:
             self._agent_output_file.write("\n")
         self._agent_output_file.flush()
 
+    async def _append_agent_output_async(self, stream_name: str, payload: str) -> None:
+        await asyncio.to_thread(self._append_agent_output, stream_name, payload)
+
     async def _read_stdout(self, stream: asyncio.StreamReader) -> None:
         while not self._stop.is_set():
             line = await stream.readline()
             if not line:
                 return
             decoded = line.decode("utf-8", errors="replace")
-            self._append_agent_output("stdout", decoded)
+            await self._append_agent_output_async("stdout", decoded)
             raw = decoded.strip()
             if not raw:
                 continue
@@ -211,7 +214,7 @@ class StreamJsonMonitor:
             if not line:
                 return
             decoded = line.decode("utf-8", errors="replace")
-            self._append_agent_output("stderr", decoded)
+            await self._append_agent_output_async("stderr", decoded)
             raw = decoded.strip()
             if not raw:
                 continue
