@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Tuple
 
-from .atomic_io import write_json_atomic
+from .atomic_io import write_json_atomic, write_text_atomic
 from .backlog import Task
 from .logging import log_event, now_iso
 
@@ -21,7 +21,7 @@ def _render_hook_script(template_path: Path, replacements: dict[str, str]) -> st
 def _write_if_changed(path: Path, content: str) -> None:
     if path.exists() and path.read_text(encoding="utf-8") == content:
         return
-    path.write_text(content, encoding="utf-8")
+    write_text_atomic(path, content, encoding="utf-8")
 
 
 def ensure_repo_hooks(workdir: str) -> Tuple[Path, Path]:
@@ -73,7 +73,7 @@ def ensure_repo_hooks_config(workdir: str, before_path: Path, stop_path: Path, l
             stop_list.append({"command": stop_cmd})
             log_event(log_path, "INFO", f"{label}: added stop", command=stop_cmd)
 
-        hooks_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json_atomic(hooks_path, data, ensure_ascii=False, indent=2)
 
     cursor_dir = Path(workdir) / ".cursor"
     cursor_dir.mkdir(parents=True, exist_ok=True)

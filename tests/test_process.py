@@ -82,6 +82,17 @@ class ProcessLockTest(unittest.TestCase):
                 acquire_lock(lock_path, log_path)
             self.assertEqual(exc_info.exception.code, 3)
 
+    def test_acquire_lock_does_not_use_path_write_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            lock_path = root / ".orc" / "orc.lock"
+            log_path = root / ".orc" / "orc.log"
+            with patch.object(Path, "write_text", side_effect=RuntimeError("Path.write_text should not be used")):
+                acquire_lock(lock_path, log_path)
+            payload = json.loads(lock_path.read_text(encoding="utf-8"))
+            self.assertIn("pid", payload)
+            self.assertIn("started_at", payload)
+
 
 class OrphanSweepTest(unittest.TestCase):
     @patch("orc_core.process.log_event")

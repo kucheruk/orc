@@ -38,6 +38,12 @@ class ModelSelectorStateTest(unittest.TestCase):
     def test_default_model_constant(self) -> None:
         self.assertEqual(DEFAULT_MODEL, "gpt-5.3-codex")
 
+    def test_save_last_selected_model_does_not_use_path_write_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(Path, "write_text", side_effect=RuntimeError("Path.write_text should not be used")):
+                save_last_selected_model(tmpdir, "gpt-5.3-codex")
+            self.assertEqual(load_last_selected_model(tmpdir), "gpt-5.3-codex")
+
 
 class ModelSelectorCommandTest(unittest.TestCase):
     @patch("orc_core.model_selector.subprocess.run")

@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import psutil
 
+from .atomic_io import write_json_atomic
 from .logging import log_event, now_iso
 
 ORPHAN_SWEEP_COMMAND_MARKERS = (
@@ -52,8 +53,7 @@ def acquire_lock(lock_path: Path, log_path: Path) -> None:
         except Exception as exc:
             log_event(log_path, "ERROR", "lockfile: failed to remove stale lock", error=str(exc))
     payload = {"pid": os.getpid(), "started_at": now_iso()}
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(lock_path, payload, ensure_ascii=False, indent=2)
     log_event(log_path, "INFO", "lockfile: acquired", pid=os.getpid())
 
 

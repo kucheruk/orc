@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orc_core.atomic_io import write_json_atomic
-from orc_core.hooks import ensure_repo_hooks, write_task_file
+from orc_core.hooks import ensure_repo_hooks, ensure_repo_hooks_config, write_task_file
 from orc_core.hooks import update_task_restart_count
 from orc_core.task_source import MarkdownTaskSource, Task
 
@@ -150,6 +150,24 @@ class HooksAtomicWriteTest(unittest.TestCase):
                 update_task_restart_count(task_path, log_path, restart_count=2)
 
             self.assertIn('"restart_count": 2', task_path.read_text(encoding="utf-8"))
+
+    def test_ensure_repo_hooks_config_does_not_use_path_write_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir_str:
+            tmpdir = Path(tmpdir_str)
+            before_path = tmpdir / ".cursor" / "hooks" / "orc_before_submit.py"
+            stop_path = tmpdir / ".cursor" / "hooks" / "orc_stop.py"
+            before_path.parent.mkdir(parents=True, exist_ok=True)
+            before_path.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            stop_path.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            log_path = tmpdir / ".orc" / "orc.log"
+
+            with patch.object(Path, "write_text", side_effect=RuntimeError("Path.write_text should not be used")):
+                hooks_path = ensure_repo_hooks_config(str(tmpdir), before_path, stop_path, log_path)
+
+            payload = json.loads(hooks_path.read_text(encoding="utf-8"))
+            hooks_payload = payload.get("hooks", {})
+            self.assertIn("beforeSubmitPrompt", hooks_payload)
+            self.assertIn("stop", hooks_payload)
 
 
 if __name__ == "__main__":

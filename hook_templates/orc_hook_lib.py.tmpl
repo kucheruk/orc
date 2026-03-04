@@ -3,7 +3,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -13,6 +12,7 @@ LOG_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
 DEFAULT_LOG_LEVEL = "WARN"
 if str(ORC_ROOT) not in sys.path:
     sys.path.insert(0, str(ORC_ROOT))
+from orc_core.atomic_io import write_json_atomic
 from orc_core.task_source import MarkdownTaskSource
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
@@ -41,20 +41,7 @@ def read_json(path: Path, default):
 
 
 def write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
-        raise
+    write_json_atomic(path, payload, ensure_ascii=False, indent=2)
 
 
 def git_has_changes(repo_root: Path, log_path: Optional[Path] = None) -> bool:

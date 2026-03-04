@@ -9,6 +9,8 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from .atomic_io import write_json_atomic
+
 DEFAULT_MODEL = "gpt-5.3-codex"
 MODEL_STATE_PATH = Path(".orc") / "model-selection.json"
 AGENT_LIST_MODELS_TIMEOUT_SECONDS = 15.0
@@ -106,7 +108,7 @@ def save_last_selected_model(workdir: str, model: str) -> None:
     path = Path(workdir) / MODEL_STATE_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"last_selected_model": model}
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(path, payload, ensure_ascii=False, indent=2)
 
 
 def choose_model_interactive(models: list[str], default_model: str) -> str:

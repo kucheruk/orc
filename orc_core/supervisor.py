@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
+from .atomic_io import write_text_atomic
 from .backlog_orchestrator import BacklogOrchestrator
 from .hooks import (
     ensure_repo_hooks,
@@ -54,7 +55,7 @@ def _write_prompt_file(run_root: Path, prompt: str, tag: str) -> Path:
     prompt_dir = run_root / "prompts"
     prompt_dir.mkdir(parents=True, exist_ok=True)
     prompt_path = prompt_dir / f"{tag}.txt"
-    prompt_path.write_text(prompt, encoding="utf-8")
+    write_text_atomic(prompt_path, prompt, encoding="utf-8")
     return prompt_path
 
 
