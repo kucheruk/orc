@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -430,6 +431,34 @@ class TaskExecutionEngineTest(unittest.TestCase):
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    def test_existing_task_file_with_other_backlog_resets_elapsed_baseline(
+        self,
+        wait_for_completion,
+        *_mocks,
+    ) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            request.task_path.parent.mkdir(parents=True, exist_ok=True)
+            other_backlog = Path(tmpdir) / "OTHER_BACKLOG.md"
+            other_backlog.write_text("- [ ] TASK-999 old\n", encoding="utf-8")
+            request.task_path.write_text(
+                '{"task_id":"TASK-999","task_text":"old task","backlog_path":"%s","conversation_id":"conv-1","active_seconds":999.0}'
+                % str(other_backlog),
+                encoding="utf-8",
+            )
+
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(wait_for_completion.call_args.kwargs.get("elapsed_before_start"), 0.0)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
     def test_resume_flow_uses_reasoned_resume_prompt_on_restart(self, wait_for_completion, *_mocks) -> None:
         wait_for_completion.side_effect = ["ttl_exceeded", "completed"]
@@ -455,7 +484,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="waiting_for_input")
-    def test_waiting_for_input_returns_continue_without_restart(self, *_mocks) -> None:
+    def test_waiting_for_input_returns_continue_with_budget_tick(self, *_mocks) -> None:
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
@@ -468,6 +497,29 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.reason, "waiting_for_input")
         self.assertEqual(result.delay_seconds, 7.0)
         self.assertEqual(worker.launch_calls, 1)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="waiting_for_input")
+    @patch("orc_core.task_execution.send_telegram_message")
+    def test_waiting_for_input_resume_restores_restart_count_and_fails_on_budget(self, *_mocks) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir, max_restarts=1)
+            request.task_path.parent.mkdir(parents=True, exist_ok=True)
+            request.task_path.write_text(
+                '{"task_id":"TASK-001","task_text":"test task","backlog_path":"%s","conversation_id":"conv-1","restart_count":1}'
+                % str(request.backlog_path),
+                encoding="utf-8",
+            )
+            result = engine.execute(request)
+            state_after = json.loads(request.task_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "max_restarts_exceeded")
+        self.assertEqual(worker.launch_calls, 1)
+        self.assertEqual(int(state_after.get("restart_count", -1)), 2)
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")

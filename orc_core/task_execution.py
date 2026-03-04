@@ -756,6 +756,8 @@ class TaskExecutionEngine:
             {"task_path": str(request.task_path), "exists": resume_existing},
         )
 
+        persisted_restart_count = 0
+        elapsed_before_start = 0.0
         if resume_existing:
             try:
                 active = json.loads(request.task_path.read_text(encoding="utf-8"))
@@ -764,6 +766,16 @@ class TaskExecutionEngine:
                 active_backlog_raw = str(active.get("backlog_path") or "").strip()
                 raw_conversation_id = active.get("conversation_id", None)
                 resume_id = str(raw_conversation_id or "").strip() or None
+                raw_restart_count = active.get("restart_count", 0)
+                raw_active_seconds = active.get("active_seconds", 0.0)
+                try:
+                    persisted_restart_count = max(int(raw_restart_count), 0)
+                except (TypeError, ValueError):
+                    persisted_restart_count = 0
+                try:
+                    elapsed_before_start = max(float(raw_active_seconds), 0.0)
+                except (TypeError, ValueError):
+                    elapsed_before_start = 0.0
             except Exception as exc:
                 log_event(self.log_path, "ERROR", "failed to read task file", error=str(exc))
                 ui_warn(
@@ -789,6 +801,8 @@ class TaskExecutionEngine:
                 )
                 resume_existing = False
                 resume_id = None
+                persisted_restart_count = 0
+                elapsed_before_start = 0.0
 
             if resume_existing and active_task_id and request.task_path.exists():
                 from .task_source import MarkdownTaskSource
@@ -829,6 +843,8 @@ class TaskExecutionEngine:
                     "resume selection",
                     conversation_id=resume_id or "",
                     resume_from_latest=False,
+                    restart_count=persisted_restart_count,
+                    active_seconds=elapsed_before_start,
                 )
 
         if not resume_existing:
@@ -844,7 +860,7 @@ class TaskExecutionEngine:
         prompt_path = _write_prompt_file(request.run_root, prompt, tag)
         resume_prompt_text = request.nudge_text if resume_existing else None
 
-        restart_count = 0
+        restart_count = persisted_restart_count if resume_existing else 0
         while True:
             update_task_restart_count(request.task_path, self.log_path, restart_count)
             log_event(self.log_path, "INFO", "launching agent", task_id=task_id, restart_count=restart_count)
@@ -876,6 +892,7 @@ class TaskExecutionEngine:
                     poll=request.poll,
                     stall_timeout=request.stall_timeout,
                     task_ttl=request.task_ttl,
+                    elapsed_before_start=elapsed_before_start,
                     log_path=self.log_path,
                     nudge_after=request.nudge_after,
                     nudge_cooldown=request.nudge_cooldown,
@@ -904,7 +921,27 @@ class TaskExecutionEngine:
             if result == "completed":
                 return _finalize_completed(task_id, task_text, tag, active_monitor)
             if result == "waiting_for_input":
-                log_event(self.log_path, "INFO", "agent waiting for follow-up input", task_id=task_id)
+                restart_count += 1
+                update_task_restart_count(request.task_path, self.log_path, restart_count)
+                log_event(
+                    self.log_path,
+                    "INFO",
+                    "waiting_for_input_budget_tick",
+                    task_id=task_id,
+                    restart_count=restart_count,
+                    max_restarts=request.max_restarts,
+                )
+                if restart_count > request.max_restarts:
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "max restarts exceeded while waiting for input",
+                        task_id=task_id,
+                        restart_count=restart_count,
+                        max_restarts=request.max_restarts,
+                    )
+                    ui_error("❌ Агент зациклился на запросе follow-up ввода. Лимит перезапусков исчерпан.")
+                    return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")
                 delay = max(request.nudge_cooldown, request.poll, 1.0)
                 ui_warn(
                     f"[orc] агент запросил follow-up ввод; продолжу цикл через {delay:.1f}s "

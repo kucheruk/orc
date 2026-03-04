@@ -72,6 +72,7 @@ def wait_for_completion(
     nudge_text: str,
     task_id: str,
     task_text: str,
+    elapsed_before_start: float = 0.0,
     escape_requested: Optional[Callable[[], bool]] = None,
     confirm_exit: Optional[Callable[[], bool]] = None,
 ) -> str:
@@ -89,6 +90,7 @@ def wait_for_completion(
             "exists": task_path.exists(),
             "stall_timeout": stall_timeout,
             "task_ttl": task_ttl,
+            "elapsed_before_start": elapsed_before_start,
             "poll": poll,
         },
     )
@@ -223,13 +225,14 @@ def wait_for_completion(
                 },
             )
             return "stalled"
-        if time.time() - start_time > task_ttl:
+        total_elapsed = elapsed_before_start + (time.time() - start_time)
+        if total_elapsed > task_ttl:
             log_event(log_path, "ERROR", "task ttl exceeded", task_ttl=task_ttl)
             debug_log(
                 "H6",
                 "orc_core/supervisor_lifecycle.py:wait_for_completion:ttl",
                 "task ttl exceeded",
-                {"task_ttl": task_ttl, "elapsed": time.time() - start_time},
+                {"task_ttl": task_ttl, "elapsed": total_elapsed},
             )
             return "ttl_exceeded"
         time.sleep(max(poll, 0.2))

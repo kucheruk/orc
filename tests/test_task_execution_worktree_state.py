@@ -118,10 +118,12 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
             result_second = engine.execute(request)
 
             self.assertEqual(result_first.status, "continue")
-            self.assertEqual(result_second.status, "continue")
+            self.assertEqual(result_second.status, "failed")
+            self.assertEqual(result_second.reason, "max_restarts_exceeded")
             self.assertTrue(request.task_path.exists())
             state = json.loads(request.task_path.read_text(encoding="utf-8"))
             self.assertEqual(state["workspace_root"], str(base_dir))
+            self.assertEqual(int(state.get("restart_count", -1)), 2)
 
         self.assertEqual(send_telegram_message_mock.call_count, 1)
         start_message, _ = send_telegram_message_mock.call_args[0]

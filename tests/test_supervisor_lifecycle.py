@@ -235,6 +235,31 @@ class SupervisorLifecycleTest(unittest.TestCase):
 
         self.assertEqual(result, "waiting_for_input")
 
+    def test_wait_for_completion_ttl_counts_elapsed_before_start(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text("{}", encoding="utf-8")
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
+            monitor.last_output_time = time.time()
+
+            result = wait_for_completion(
+                task_path=task_path,
+                monitor=monitor,
+                poll=0.01,
+                stall_timeout=30.0,
+                task_ttl=1.0,
+                elapsed_before_start=5.0,
+                log_path=Path(tmpdir) / "orc.log",
+                nudge_after=10,
+                nudge_cooldown=300.0,
+                nudge_text="continue",
+                task_id="REFACT-021",
+                task_text="repro",
+            )
+
+        self.assertEqual(result, "ttl_exceeded")
+
     def test_wait_for_completion_exit_zero_grace_window_allows_task_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             task_path = Path(tmpdir) / "orc-task.json"
