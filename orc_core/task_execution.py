@@ -173,6 +173,51 @@ def _resolve_runtime_backlog_path(request: TaskExecutionRequest) -> Path:
     return Path(request.workdir) / candidate
 
 
+def _read_task_report_text(workdir: str, task_id: str, log_path: Path) -> str:
+    report_path = Path(workdir) / "tasks" / f"{task_id}.md"
+    if not report_path.exists():
+        return ""
+    try:
+        return report_path.read_text(encoding="utf-8").strip()
+    except Exception as exc:
+        log_event(log_path, "ERROR", "failed to read task report markdown", task_id=task_id, error=str(exc))
+        return ""
+
+
+def _is_fragmented_summary_lines(lines: list[str]) -> bool:
+    if len(lines) < 5:
+        return False
+    short_lines = sum(1 for line in lines if len(line) <= 12)
+    return short_lines >= int(len(lines) * 0.7)
+
+
+def _normalize_fragmented_summary_text(summary_text: str) -> str:
+    lines = [line.strip() for line in (summary_text or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+    if not _is_fragmented_summary_lines(lines):
+        return "\n".join(lines)
+    merged = " ".join(lines)
+    merged = re.sub(r"\s+([,.;:!?])", r"\1", merged)
+    merged = re.sub(r"(\()\s+", r"\1", merged)
+    merged = re.sub(r"\s+(\))", r"\1", merged)
+    merged = re.sub(r"\s*/\s*", "/", merged)
+    merged = re.sub(r"\s*-\s*", "-", merged)
+    merged = re.sub(r"\s+", " ", merged).strip()
+    return merged
+
+
+def _build_completion_message(*, task_id: str, workdir: str, summary_text: str, log_path: Path) -> str:
+    header = f"✅ Задача завершена: {task_id}"
+    task_report = _read_task_report_text(workdir, task_id, log_path)
+    if task_report:
+        return f"{header}\n\n{task_report}"
+    normalized_summary = _normalize_fragmented_summary_text(summary_text)
+    if normalized_summary:
+        return f"{header}\n\n{normalized_summary}"
+    return f"{header}\n\n(Отчёт отсутствует: пустой tasks/{task_id}.md и пустой summary.)"
+
+
 def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
     root_pid = getattr(monitor, "init_pid", None) or getattr(getattr(monitor, "proc", None), "pid", None)
     process_group_id = getattr(monitor, "process_group_id", None)
@@ -560,7 +605,10 @@ class TaskExecutionEngine:
             raw_summary_text = monitor.get_summary_text()
             raw_lines = raw_summary_text.splitlines() if raw_summary_text else []
             cleaned_lines = clean_summary_lines(raw_lines)
-            summary_text = "\n".join(cleaned_lines[-request.summary_lines :])
+            if _is_fragmented_summary_lines(cleaned_lines):
+                summary_text = _normalize_fragmented_summary_text("\n".join(cleaned_lines))
+            else:
+                summary_text = "\n".join(cleaned_lines[-request.summary_lines :])
             tokens = monitor.metrics.tokens_total if monitor.metrics.tokens_total is not None else "-"
             files_edited = monitor.metrics.files_edited if monitor.metrics.files_edited is not None else "-"
             ui_info(
@@ -576,11 +624,13 @@ class TaskExecutionEngine:
                     "summary_lines": summary_text.count("\n") + 1 if summary_text else 0,
                 },
             )
-            if not summary_text.strip():
-                log_event(self.log_path, "WARN", "telegram summary empty", task_id=current_task_id)
-            else:
-                header = f"{current_task_id} — {current_task_text}" if current_task_text else current_task_id
-                send_telegram_message(f"{header}\n\n{summary_text}", self.log_path)
+            completion_message = _build_completion_message(
+                task_id=current_task_id,
+                workdir=request.workdir,
+                summary_text=summary_text,
+                log_path=self.log_path,
+            )
+            send_telegram_message(completion_message, self.log_path)
             prompt_vars = SafeDict(
                 task_text=current_task_text,
                 task_id=current_task_id,

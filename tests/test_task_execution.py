@@ -67,6 +67,45 @@ class _EmptySummaryWorker(_FakeWorker):
         return _EmptySummaryMonitor()
 
 
+class _FragmentedSummaryMonitor(_FakeMonitor):
+    def get_summary_text(self) -> str:
+        return "\n".join(
+            [
+                "ента",
+                "(",
+                "build",
+                "/test",
+                "/",
+                "compose",
+                "/header",
+                "-check",
+                "),",
+                "после",
+                "чего",
+                "доб",
+                "ью",
+                "остав",
+                "шиеся",
+                "замеч",
+                "ания",
+                ",",
+                "если",
+                "что",
+                "-то",
+                "не",
+                "пройдет",
+                ".",
+            ]
+        )
+
+
+class _FragmentedSummaryWorker(_FakeWorker):
+    def launch(self, **kwargs):
+        self.launch_calls += 1
+        self.launch_kwargs.append(kwargs)
+        return _FragmentedSummaryMonitor()
+
+
 class _FailingWorker:
     def launch(self, **_kwargs):
         raise TypeError("missing required keyword-only arguments: progress_done and progress_total")
@@ -137,6 +176,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         start_message, _ = send_telegram_message_mock.call_args_list[0][0]
         finish_message, _ = send_telegram_message_mock.call_args_list[1][0]
         self.assertIn("Старт задачи", start_message)
+        self.assertIn("Задача завершена", finish_message)
         self.assertIn("TASK-001", finish_message)
         self.assertIn("done", finish_message)
 
@@ -154,9 +194,55 @@ class TaskExecutionEngineTest(unittest.TestCase):
             result = engine.execute(self._request(tmpdir))
 
         self.assertEqual(result.status, "completed")
-        self.assertEqual(send_telegram_message_mock.call_count, 1)
-        start_message, _ = send_telegram_message_mock.call_args[0]
+        self.assertEqual(send_telegram_message_mock.call_count, 2)
+        start_message, _ = send_telegram_message_mock.call_args_list[0][0]
+        finish_message, _ = send_telegram_message_mock.call_args_list[1][0]
         self.assertIn("Старт задачи", start_message)
+        self.assertIn("Задача завершена", finish_message)
+        self.assertIn("Отчёт отсутствует", finish_message)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    @patch("orc_core.task_execution.send_telegram_message")
+    def test_completed_uses_task_report_markdown_as_message_body(self, send_telegram_message_mock, wait_for_completion, *_mocks) -> None:
+        wait_for_completion.return_value = "completed"
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_report_dir = Path(tmpdir) / "tasks"
+            task_report_dir.mkdir(parents=True, exist_ok=True)
+            (task_report_dir / "TASK-001.md").write_text("Готово.\n\nПроверки выполнены.", encoding="utf-8")
+            result = engine.execute(self._request(tmpdir))
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(send_telegram_message_mock.call_count, 2)
+        finish_message, _ = send_telegram_message_mock.call_args_list[1][0]
+        self.assertIn("Задача завершена: TASK-001", finish_message)
+        self.assertIn("Готово.", finish_message)
+        self.assertNotIn("\n\ndone", finish_message)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    @patch("orc_core.task_execution.send_telegram_message")
+    def test_completed_normalizes_fragmented_fallback_summary(self, send_telegram_message_mock, wait_for_completion, *_mocks) -> None:
+        wait_for_completion.return_value = "completed"
+        worker = _FragmentedSummaryWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = engine.execute(self._request(tmpdir))
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(send_telegram_message_mock.call_count, 2)
+        finish_message, _ = send_telegram_message_mock.call_args_list[1][0]
+        self.assertIn("build/test/compose/header-check", finish_message)
+        self.assertIn("доб ью", finish_message)
+        self.assertIn("что-то", finish_message)
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
