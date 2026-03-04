@@ -33,6 +33,7 @@ class _FakeMonitor:
         self.last_output_time = 0.0
         self.ui_followup_prompt = False
         self.workdir = ""
+        self.run_token = "run-token-task-exec"
         self._stop_calls = 0
 
     def stop(self) -> None:
@@ -135,6 +136,10 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         terminate_group_mock.assert_called_once_with(4242, Path("/tmp/orc.log"), label="agent")
         kill_mock.assert_not_called()
         orphan_sweep_mock.assert_called_once()
+        self.assertEqual(orphan_sweep_mock.call_args.kwargs.get("run_token"), "run-token-task-exec")
+        markers = tuple(orphan_sweep_mock.call_args.kwargs.get("command_markers") or ())
+        self.assertIn("orc_stop.py", markers)
+        self.assertIn("orc_before_submit.py", markers)
 
     def test_execute_falls_back_to_process_tree_cleanup_when_group_cleanup_not_applied(self) -> None:
         worker = _FakeWorker()
@@ -160,6 +165,7 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         terminate_group_mock.assert_called_once_with(4242, Path("/tmp/orc.log"), label="agent")
         kill_mock.assert_called_once_with(12345, Path("/tmp/orc.log"), label="agent")
         orphan_sweep_mock.assert_called_once()
+        self.assertEqual(orphan_sweep_mock.call_args.kwargs.get("run_token"), "run-token-task-exec")
 
 
 if __name__ == "__main__":

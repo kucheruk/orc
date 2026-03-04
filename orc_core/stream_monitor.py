@@ -3,16 +3,19 @@
 
 import asyncio
 import json
+import os
 import subprocess
 import threading
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, TextIO
 
 from .atomic_io import write_json_atomic
 from .logging import log_event
-from .process_groups import resolve_process_group_id, subprocess_group_spawn_kwargs
+from .process import kill_process_tree
+from .process_groups import resolve_process_group_id, subprocess_group_spawn_kwargs, terminate_process_group
 from .stream_monitor_state import MonitorSnapshot, StreamMonitorState
 from .task_source import MarkdownTaskSource
 
@@ -49,6 +52,7 @@ class StreamJsonMonitor:
         self.last_output_time = time.time()
         self.init_pid: Optional[int] = None
         self.process_group_id: Optional[int] = None
+        self.run_token = uuid.uuid4().hex
         self.stderr_count = 0
         self.last_stderr_line = ""
         self.last_nudge_time = 0.0
@@ -142,11 +146,14 @@ class StreamJsonMonitor:
 
     async def _spawn_and_monitor(self) -> None:
         try:
+            child_env = os.environ.copy()
+            child_env["ORC_RUN_TOKEN"] = self.run_token
             self._proc = await asyncio.create_subprocess_exec(
                 *self._agent_cmd,
                 cwd=self.workdir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=child_env,
                 **subprocess_group_spawn_kwargs(),
             )
         except Exception as exc:
@@ -378,6 +385,10 @@ class StreamJsonMonitor:
 
     def stop(self) -> None:
         self._stop.set()
+        root_pid = self.init_pid or self.proc.pid
+        if isinstance(root_pid, int) and root_pid > 0 and self.proc.returncode is None:
+            if not terminate_process_group(self.process_group_id, self.log_path, label="stream-monitor-stop"):
+                kill_process_tree(root_pid, self.log_path, label="stream-monitor-stop")
         loop = self._loop
         if loop is not None and not loop.is_closed():
             try:
@@ -385,7 +396,7 @@ class StreamJsonMonitor:
             except RuntimeError:
                 pass
         if self._runner_thread.is_alive():
-            self._runner_thread.join(timeout=1.0)
+            self._runner_thread.join(timeout=2.0)
         if self._agent_output_file is not None:
             self._agent_output_file.close()
             self._agent_output_file = None

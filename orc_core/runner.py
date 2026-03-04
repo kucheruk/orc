@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .logging import debug_log, log_event
-from .process import kill_orphan_project_processes, kill_process_tree
+from .process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
 from .process_groups import terminate_process_group
 from .stream_monitor import StreamJsonMonitor
 from .stream_monitor_state import MonitorSnapshot
@@ -139,7 +139,8 @@ async def launch_agent_stream_json_async(
             log_path,
             label="agent-launch-orphan-sweep",
             started_after=getattr(monitor, "started_at", None),
-            command_markers=("agent", "orc.py", "pytest", "unittest", "pyenv-which"),
+            command_markers=ORPHAN_SWEEP_COMMAND_MARKERS,
+            run_token=str(getattr(monitor, "run_token", "") or "").strip() or None,
         )
         raise
     debug_log(

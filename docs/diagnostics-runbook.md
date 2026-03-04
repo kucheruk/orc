@@ -88,6 +88,19 @@ jq -c 'select(.event=="orc_crash_report") | {ts, exception_type, error, phase, w
 3. Сопоставьте время с `.orc/orc.log` и `.orc/orc-hook.log`.
 4. Если агент завершился, но задача не закрыта, проверьте записи про `stop-hook fallback`.
 
+## Диагностика orphan sweep и зависших python3
+
+При срабатывании orphan cleanup смотрите в `.orc/orc.log` событие `orphan sweep: terminate`.
+Теперь оно содержит:
+- `matches[].matched_by` — причина матча (`token`, `workspace`, `marker`);
+- `matches[].cwd` и `matches[].cmdline` (укороченный) для быстрого triage;
+- `workspace` и `pids`.
+
+Рекомендуемый порядок:
+1. Если `matched_by=token`, это процесс текущего ORC-запуска по `ORC_RUN_TOKEN`.
+2. Если `matched_by=workspace/marker`, проверьте что `cwd` действительно в нужном workspace.
+3. Если остались подозрительные `python3`, сопоставьте их с `.cursor/hooks/orc_stop.py` / `.cursor/hooks/orc_before_submit.py` в `cmdline`.
+
 ## Диагностика commit phase (fallback disabled / enabled)
 
 ### Симптом: commit phase завершилась ошибкой при грязном дереве

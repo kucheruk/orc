@@ -14,7 +14,13 @@ from typing import Callable, Optional, Protocol
 from .hooks import update_task_restart_count, write_task_file
 from .logging import debug_log, log_event
 from .notify import send_telegram_message
-from .process import build_process_tree, is_pid_alive, kill_orphan_project_processes, kill_process_tree
+from .process import (
+    ORPHAN_SWEEP_COMMAND_MARKERS,
+    build_process_tree,
+    is_pid_alive,
+    kill_orphan_project_processes,
+    kill_process_tree,
+)
 from .process_groups import terminate_process_group
 from .quit_signal import is_stop_requested
 from .runner import launch_agent_stream_json
@@ -223,7 +229,7 @@ def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
     process_group_id = getattr(monitor, "process_group_id", None)
     workspace = str(getattr(monitor, "workdir", "") or "")
     started_at = getattr(monitor, "started_at", None)
-    command_markers = ("agent", "orc.py", "pytest", "unittest", "pyenv-which")
+    run_token = str(getattr(monitor, "run_token", "") or "").strip() or None
     if terminate_process_group(process_group_id, log_path, label=label):
         if isinstance(root_pid, int) and root_pid > 0 and is_pid_alive(root_pid):
             lingering = build_process_tree(root_pid)
@@ -242,7 +248,8 @@ def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
             log_path,
             label=f"{label}-orphan-sweep",
             started_after=started_at,
-            command_markers=command_markers,
+            command_markers=ORPHAN_SWEEP_COMMAND_MARKERS,
+            run_token=run_token,
         )
         return
     kill_process_tree(root_pid, log_path, label=label)
@@ -251,7 +258,8 @@ def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
         log_path,
         label=f"{label}-orphan-sweep",
         started_after=started_at,
-        command_markers=command_markers,
+        command_markers=ORPHAN_SWEEP_COMMAND_MARKERS,
+        run_token=run_token,
     )
 
 

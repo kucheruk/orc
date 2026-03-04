@@ -14,7 +14,15 @@ from .hooks import (
 from .logging import ORC_LOG_NAME, ORC_ROOT, debug_log, log_event, set_log_context
 from .notify import send_telegram_message
 from .model_selector import DEFAULT_MODEL
-from .process import build_process_tree, is_pid_alive, kill_orphan_project_processes, kill_process_tree, acquire_lock, release_lock
+from .process import (
+    ORPHAN_SWEEP_COMMAND_MARKERS,
+    acquire_lock,
+    build_process_tree,
+    is_pid_alive,
+    kill_orphan_project_processes,
+    kill_process_tree,
+    release_lock,
+)
 from .process_groups import terminate_process_group
 from .role_config import ROLE_CODER, ROLE_HANDOFF, ROLE_MERGE_EXPERT, RoleProfileRegistry
 from .runner import launch_agent_stream_json
@@ -220,7 +228,7 @@ def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
     process_group_id = getattr(monitor, "process_group_id", None)
     workspace = str(getattr(monitor, "workdir", "") or "")
     started_at = getattr(monitor, "started_at", None)
-    markers = ("agent", "orc.py", "pytest", "unittest", "pyenv-which")
+    run_token = str(getattr(monitor, "run_token", "") or "").strip() or None
     if terminate_process_group(process_group_id, log_path, label=label):
         if isinstance(root_pid, int) and root_pid > 0 and is_pid_alive(root_pid):
             lingering = build_process_tree(root_pid)
@@ -239,7 +247,8 @@ def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
             log_path,
             label=f"{label}-orphan-sweep",
             started_after=started_at,
-            command_markers=markers,
+            command_markers=ORPHAN_SWEEP_COMMAND_MARKERS,
+            run_token=run_token,
         )
         return
     kill_process_tree(root_pid, log_path, label=label)
@@ -248,7 +257,8 @@ def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
         log_path,
         label=f"{label}-orphan-sweep",
         started_after=started_at,
-        command_markers=markers,
+        command_markers=ORPHAN_SWEEP_COMMAND_MARKERS,
+        run_token=run_token,
     )
 
 

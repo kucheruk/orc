@@ -76,6 +76,7 @@ class RunnerLaunchTest(unittest.TestCase):
         monitor_instance.proc.pid = 777
         monitor_instance.init_pid = 777
         monitor_instance.process_group_id = 1777
+        monitor_instance.run_token = "run-token-runner"
         monitor_instance.set_progress.side_effect = RuntimeError("boom")
         monitor_cls_mock.return_value = monitor_instance
 
@@ -95,6 +96,7 @@ class RunnerLaunchTest(unittest.TestCase):
         monitor_instance.stop.assert_called_once()
         kill_tree_mock.assert_not_called()
         orphan_sweep_mock.assert_called_once()
+        self.assertEqual(orphan_sweep_mock.call_args.kwargs.get("run_token"), "run-token-runner")
 
 
 if __name__ == "__main__":

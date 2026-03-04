@@ -6,11 +6,21 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import psutil
 
 from .logging import log_event, now_iso
+
+ORPHAN_SWEEP_COMMAND_MARKERS = (
+    "agent",
+    "orc.py",
+    "pytest",
+    "unittest",
+    "pyenv-which",
+    "orc_stop.py",
+    "orc_before_submit.py",
+)
 
 
 def is_pid_alive(pid: int) -> bool:
@@ -150,6 +160,7 @@ def kill_orphan_project_processes(
     *,
     started_after: Optional[float] = None,
     command_markers: Optional[Sequence[str]] = None,
+    run_token: Optional[str] = None,
 ) -> list[int]:
     """
     Best-effort sweep for detached orphan processes related to the workspace.
@@ -159,16 +170,30 @@ def kill_orphan_project_processes(
     if not workspace:
         return []
     try:
-        workspace_path = str(Path(workspace).resolve())
+        workspace_path_obj = Path(workspace).resolve()
     except Exception:
-        workspace_path = workspace
+        workspace_path_obj = Path(workspace)
+    workspace_path = str(workspace_path_obj)
     markers = [str(marker).strip().lower() for marker in (command_markers or ()) if str(marker).strip()]
+    token = str(run_token or "").strip()
 
     threshold = None
     if isinstance(started_after, (int, float)):
         threshold = float(started_after) - 2.0
 
-    matched: list[psutil.Process] = []
+    def _same_or_subpath(candidate: str) -> bool:
+        raw = str(candidate or "").strip()
+        if not raw:
+            return False
+        if not os.path.isabs(raw):
+            return False
+        try:
+            path_obj = Path(raw).resolve()
+        except Exception:
+            path_obj = Path(raw)
+        return path_obj == workspace_path_obj or workspace_path_obj in path_obj.parents
+
+    matched: list[Tuple[psutil.Process, str, str, str]] = []
     for proc in psutil.process_iter(["pid", "ppid", "cmdline", "cwd", "create_time", "name"]):
         try:
             if proc.pid == os.getpid():
@@ -185,23 +210,41 @@ def kill_orphan_project_processes(
             cmd_text = " ".join(str(part) for part in cmdline if part).lower()
             proc_name = str(info.get("name") or "").lower()
             cwd_raw = str(info.get("cwd") or "").strip()
-            in_workspace = cwd_raw.startswith(workspace_path) or any(
-                str(part).startswith(workspace_path) for part in cmdline if isinstance(part, str)
-            )
-            if not in_workspace:
-                continue
-            if markers and not any(marker in cmd_text or marker in proc_name for marker in markers):
-                continue
-            matched.append(proc)
+            matched_by = ""
+            if token:
+                try:
+                    env = proc.environ()
+                except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                    env = {}
+                if str(env.get("ORC_RUN_TOKEN") or "").strip() == token:
+                    matched_by = "token"
+
+            if not matched_by:
+                in_workspace = _same_or_subpath(cwd_raw) or any(
+                    _same_or_subpath(part) for part in cmdline if isinstance(part, str)
+                )
+                if not in_workspace:
+                    continue
+                if markers:
+                    if not any(marker in cmd_text or marker in proc_name for marker in markers):
+                        continue
+                    matched_by = "marker"
+                else:
+                    matched_by = "workspace"
+            matched.append((proc, matched_by, cwd_raw, cmd_text[:300]))
         except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied, ValueError):
             continue
 
     if not matched:
         return []
 
-    pids = [proc.pid for proc in matched]
-    log_event(log_path, "WARN", "orphan sweep: terminate", label=label, workspace=workspace_path, pids=pids)
-    for proc in matched:
+    pids = [proc.pid for proc, _, _, _ in matched]
+    matches = [
+        {"pid": proc.pid, "matched_by": matched_by, "cwd": cwd, "cmdline": cmd}
+        for proc, matched_by, cwd, cmd in matched
+    ]
+    log_event(log_path, "WARN", "orphan sweep: terminate", label=label, workspace=workspace_path, pids=pids, matches=matches)
+    for proc, _, _, _ in matched:
         try:
             proc.terminate()
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
@@ -209,7 +252,8 @@ def kill_orphan_project_processes(
         except psutil.AccessDenied:
             log_event(log_path, "WARN", "orphan sweep: terminate denied", label=label, pid=proc.pid)
 
-    _, alive = psutil.wait_procs(matched, timeout=1.0)
+    processes = [proc for proc, _, _, _ in matched]
+    _, alive = psutil.wait_procs(processes, timeout=1.0)
     if alive:
         alive_pids = [proc.pid for proc in alive]
         log_event(log_path, "WARN", "orphan sweep: kill", label=label, pids=alive_pids)

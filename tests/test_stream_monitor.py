@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from orc_core.stream_monitor import StreamJsonMonitor
 
@@ -519,11 +519,53 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         monitor._agent_output_file = None
         monitor._loop = MagicMock()
         monitor._loop.is_closed.return_value = True
+        monitor.log_path = Path("/tmp/orc.log")
+        monitor.process_group_id = None
+        monitor.init_pid = None
+        monitor.proc = SimpleNamespace(pid=None, returncode=0)
 
         monitor.stop()
 
         monitor._stop.set.assert_called_once()
         monitor._loop.call_soon_threadsafe.assert_not_called()
+
+    @patch("orc_core.stream_monitor.kill_process_tree")
+    @patch("orc_core.stream_monitor.terminate_process_group", return_value=True)
+    def test_stop_prefers_process_group_cleanup_for_alive_process(self, terminate_group_mock, kill_tree_mock) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        monitor._stop = MagicMock()
+        monitor._runner_thread = MagicMock()
+        monitor._runner_thread.is_alive.return_value = False
+        monitor._agent_output_file = None
+        monitor._loop = None
+        monitor.log_path = Path("/tmp/orc.log")
+        monitor.process_group_id = 4242
+        monitor.init_pid = 12345
+        monitor.proc = SimpleNamespace(pid=12345, returncode=None)
+
+        monitor.stop()
+
+        terminate_group_mock.assert_called_once_with(4242, Path("/tmp/orc.log"), label="stream-monitor-stop")
+        kill_tree_mock.assert_not_called()
+
+    @patch("orc_core.stream_monitor.kill_process_tree")
+    @patch("orc_core.stream_monitor.terminate_process_group", return_value=False)
+    def test_stop_falls_back_to_process_tree_cleanup_for_alive_process(self, terminate_group_mock, kill_tree_mock) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        monitor._stop = MagicMock()
+        monitor._runner_thread = MagicMock()
+        monitor._runner_thread.is_alive.return_value = False
+        monitor._agent_output_file = None
+        monitor._loop = None
+        monitor.log_path = Path("/tmp/orc.log")
+        monitor.process_group_id = None
+        monitor.init_pid = 12345
+        monitor.proc = SimpleNamespace(pid=12345, returncode=None)
+
+        monitor.stop()
+
+        terminate_group_mock.assert_called_once_with(None, Path("/tmp/orc.log"), label="stream-monitor-stop")
+        kill_tree_mock.assert_called_once_with(12345, Path("/tmp/orc.log"), label="stream-monitor-stop")
 
 
 if __name__ == "__main__":
