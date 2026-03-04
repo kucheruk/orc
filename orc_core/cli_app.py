@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--task", default="", help="Run a one-off task by creating a temporary backlog")
     ap.add_argument("--workspace", default=".")
     ap.add_argument("--model", default="")
+    ap.add_argument(
+        "--prompt-default",
+        default="",
+        help="Path to a single prompt file used as default for all phases (coder, continue, commit, merge_expert)",
+    )
     ap.add_argument("--prompt-template", default="", help="Path to a custom prompt template file")
     ap.add_argument("--continue-template", default="", help="Path to a custom continue prompt file")
     ap.add_argument("--commit-template", default="", help="Path to a custom commit prompt template file")
@@ -237,13 +242,25 @@ def main() -> int:
             ui_error(str(exc))
             return 2
 
+        prompt_default_path = str(args.prompt_default).strip()
+        prompt_default_text = ""
+        if prompt_default_path:
+            try:
+                prompt_default_text = role_registry.load_prompt(Path(prompt_default_path))
+            except FileNotFoundError as exc:
+                log_event(log_path, "ERROR", "prompt-default file missing", error=str(exc))
+                ui_error(f"--prompt-default file not found: {prompt_default_path}")
+                return 2
+            ui_info(f"[orc] prompt default: {prompt_default_path}")
+
         interactive_requested = _should_use_interactive_flow(args)
         model_loader = start_model_list_loading() if interactive_requested else None
 
         default_coder_model = role_registry.resolve_role(workdir, ROLE_CODER).model
         last_model = str(args.model).strip() or load_last_selected_model(workdir) or default_coder_model or DEFAULT_MODEL
         models = model_loader.result(timeout=30.0) if model_loader is not None else [DEFAULT_MODEL]
-        status_line = ""
+        prompt_default_status = f"Prompt default: {prompt_default_path}" if prompt_default_path else ""
+        status_line = prompt_default_status
         while True:
             initial_backlog_path = Path(workdir) / args.backlog
             if interactive_requested:
@@ -256,7 +273,7 @@ def main() -> int:
                     status_line=status_line,
                     workdir=workdir,
                 )
-                status_line = ""
+                status_line = prompt_default_status
             else:
                 _resolve_mode(args, initial_backlog_path)
             last_model = str(args.model).strip() or last_model
@@ -292,7 +309,11 @@ def main() -> int:
                     )
                     args.model = coder_config.model
                     template = coder_config.prompt
+                    if prompt_default_text and not str(args.prompt_template).strip():
+                        template = prompt_default_text
                     continue_template = role_registry.resolve_continue_prompt(str(args.continue_template).strip())
+                    if prompt_default_text and not str(args.continue_template).strip():
+                        continue_template = prompt_default_text
                     commit_template = ""
                     merge_expert_template = ""
                     merge_expert_model = ""
@@ -305,12 +326,16 @@ def main() -> int:
                         )
                         args.commit_model = handoff_config.model
                         commit_template = handoff_config.prompt
+                        if prompt_default_text and not str(args.commit_template).strip():
+                            commit_template = prompt_default_text
                     merge_expert_config = role_registry.resolve_role(
                         workdir,
                         ROLE_MERGE_EXPERT,
                     )
                     merge_expert_model = merge_expert_config.model
                     merge_expert_template = merge_expert_config.prompt
+                    if prompt_default_text:
+                        merge_expert_template = prompt_default_text
                 except FileNotFoundError as exc:
                     log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
                     ui_error(str(exc))
@@ -358,7 +383,8 @@ def main() -> int:
                     ui_error(f"❌ {_failure_message(orchestrator.last_failure_reason)}")
                 if interactive_requested and exit_code == 0 and str(args.mode).strip() == "single":
                     completed_task_id = str(args.task_id).strip()
-                    status_line = f"Задача {completed_task_id} завершена успешно" if completed_task_id else "Задача завершена успешно"
+                    task_done_msg = f"Задача {completed_task_id} завершена успешно" if completed_task_id else "Задача завершена успешно"
+                    status_line = f"{task_done_msg} | {prompt_default_status}" if prompt_default_status else task_done_msg
                     args.mode = ""
                     args.task_id = ""
                     args.prompt = ""
