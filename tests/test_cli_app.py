@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from orc_core import cli_app
-from orc_core.cli_app import _failure_message, _resolve_mode, _resolve_model, _resumable_task_id
+from orc_core.cli_app import _failure_message, _resolve_mode, _resolve_model, _resumable_task_id, _validate_inputs
 from orc_core.model_selector import DEFAULT_MODEL
 from orc_core.model_selector import ModelSelectionError
 from orc_core.start_menu import StartMenuChoice
@@ -184,6 +184,37 @@ class CliAppFailureMessageTest(unittest.TestCase):
         self.assertIn("custom_reason", message)
 
 
+class CliAppInputValidationTest(unittest.TestCase):
+    @patch("orc_core.cli_app.ui_error")
+    def test_validate_inputs_rejects_missing_orc_rule_in_gitignore(self, ui_error_mock) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / ".gitignore").write_text("bin/\nobj/\n", encoding="utf-8")
+            backlog = root / "BACKLOG.md"
+            backlog.write_text("- [ ] TASK-001 test\n", encoding="utf-8")
+            args = Namespace(mode="backlog", task_id="")
+
+            result = _validate_inputs(args, backlog, str(root), root / ".orc" / "orc.log")
+
+        self.assertFalse(result)
+        ui_error_mock.assert_called_once()
+        self.assertIn("copy-paste", ui_error_mock.call_args.args[0])
+
+    @patch("orc_core.cli_app.ui_error")
+    def test_validate_inputs_accepts_gitignore_with_orc_rule(self, ui_error_mock) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / ".gitignore").write_text(".orc/\n", encoding="utf-8")
+            backlog = root / "BACKLOG.md"
+            backlog.write_text("- [ ] TASK-001 test\n", encoding="utf-8")
+            args = Namespace(mode="backlog", task_id="")
+
+            result = _validate_inputs(args, backlog, str(root), root / ".orc" / "orc.log")
+
+        self.assertTrue(result)
+        ui_error_mock.assert_not_called()
+
+
 class CliAppResumeDetectionTest(unittest.TestCase):
     def test_resumable_task_id_returns_task_when_payload_valid(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -267,7 +298,7 @@ class CliAppTuiMouseReportingTest(unittest.TestCase):
             task="",
             workspace=".",
             model="gpt-5.3-codex",
-            prompt_default="",
+            prompt_coder="",
             prompt_template="",
             continue_template="",
             commit_template="",
@@ -344,7 +375,7 @@ class CliAppTuiMouseReportingTest(unittest.TestCase):
             task="",
             workspace=".",
             model="",
-            prompt_default="",
+            prompt_coder="",
             prompt_template="",
             continue_template="",
             commit_template="",
@@ -445,7 +476,7 @@ class CliAppCrashStdoutDiagnosticsTest(unittest.TestCase):
             task="",
             workspace=".",
             model="gpt-5.3-codex",
-            prompt_default="",
+            prompt_coder="",
             prompt_template="",
             continue_template="",
             commit_template="",
@@ -509,7 +540,7 @@ class CliAppCrashStdoutDiagnosticsTest(unittest.TestCase):
             task="",
             workspace=".",
             model="gpt-5.3-codex",
-            prompt_default="",
+            prompt_coder="",
             prompt_template="",
             continue_template="",
             commit_template="",
