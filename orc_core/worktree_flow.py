@@ -56,6 +56,18 @@ def _git(
     return result.returncode == 0, result.stdout or "", result.stderr or "", int(result.returncode)
 
 
+def detect_base_branch(workdir: str) -> str:
+    for candidate in ("main", "master"):
+        ok, _, _, _ = _git(workdir, ["git", "show-ref", "--verify", f"refs/heads/{candidate}"])
+        if ok:
+            return candidate
+    ok, stdout, _, _ = _git(workdir, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    current = stdout.strip() if ok else ""
+    if current and current != "HEAD":
+        return current
+    return "main"
+
+
 def create_task_worktree(
     *,
     base_workdir: str,

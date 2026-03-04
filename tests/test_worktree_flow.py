@@ -10,6 +10,23 @@ from orc_core import worktree_flow
 
 class WorktreeFlowTest(unittest.TestCase):
     @patch("orc_core.worktree_flow._git")
+    def test_detect_base_branch_prefers_main_when_exists(self, git_mock) -> None:
+        git_mock.side_effect = [
+            (True, "refs/heads/main\n", "", 0),
+        ]
+        branch = worktree_flow.detect_base_branch("/tmp/repo")
+        self.assertEqual(branch, "main")
+
+    @patch("orc_core.worktree_flow._git")
+    def test_detect_base_branch_falls_back_to_master(self, git_mock) -> None:
+        git_mock.side_effect = [
+            (False, "", "fatal: bad revision", 128),
+            (True, "refs/heads/master\n", "", 0),
+        ]
+        branch = worktree_flow.detect_base_branch("/tmp/repo")
+        self.assertEqual(branch, "master")
+
+    @patch("orc_core.worktree_flow._git")
     def test_cherry_pick_detects_conflict_by_unmerged_files(self, git_mock) -> None:
         git_mock.side_effect = [
             (False, "", "", 1),  # cherry-pick failed, no stderr hint

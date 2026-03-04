@@ -30,6 +30,7 @@ from .supervisor_lifecycle import (
 )
 from .task_execution import TaskExecutionEngine
 from .ui import ui_error, ui_info, ui_warn
+from .worktree_flow import detect_base_branch
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
 
@@ -419,6 +420,7 @@ def main() -> int:
 
     workdir = str(Path(args.workspace).resolve())
     set_log_context(workdir=workdir)
+    base_branch = detect_base_branch(workdir)
     orc_log_path = ORC_ROOT / ".orc" / ORC_LOG_NAME
     lock_path = Path(workdir) / ".orc" / LOCK_FILE_NAME
     temp_backlog_path: Optional[Path] = None
@@ -512,7 +514,7 @@ def main() -> int:
             engine=engine,
             merge_expert_model=merge_expert_model,
             integrate_to_main=True,
-            main_branch="main",
+            main_branch=base_branch,
         )
         return orchestrator.run()
     except KeyboardInterrupt:

@@ -81,6 +81,7 @@ class CliPromptDefaultMissingFileTest(unittest.TestCase):
 
 
 class CliPromptDefaultOverrideTest(unittest.TestCase):
+    @patch("orc_core.cli_app.detect_base_branch", return_value="master")
     @patch("orc_core.cli_app.release_lock")
     @patch("orc_core.cli_app.acquire_lock")
     @patch("orc_core.cli_app._cleanup_stale_task_file")
@@ -107,6 +108,7 @@ class CliPromptDefaultOverrideTest(unittest.TestCase):
         _cleanup_mock,
         _acquire_mock,
         _release_mock,
+        _detect_branch_mock,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             prompt_file = Path(tmpdir) / "universal.md"
@@ -128,6 +130,7 @@ class CliPromptDefaultOverrideTest(unittest.TestCase):
             self.assertEqual(kwargs["continue_template"], "UNIVERSAL PROMPT")
             self.assertEqual(kwargs["commit_template"], "UNIVERSAL PROMPT")
             self.assertEqual(kwargs["merge_expert_template"], "UNIVERSAL PROMPT")
+            self.assertEqual(kwargs["main_branch"], "master")
 
     @patch("orc_core.cli_app.release_lock")
     @patch("orc_core.cli_app.acquire_lock")

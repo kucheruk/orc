@@ -300,6 +300,37 @@ class BacklogOrchestratorTest(unittest.TestCase):
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
     @patch("orc_core.backlog_orchestrator.ui_error")
+    def test_worktree_base_invariant_failure_reason_is_exposed(self, ui_error, hooks_config, hooks) -> None:
+        hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
+        hooks_config.return_value = Path("/tmp/hooks.json")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [ ] TASK-001 first\n", encoding="utf-8")
+            orchestrator = BacklogOrchestrator(
+                workdir=tmpdir,
+                backlog_path=backlog_path,
+                args=_args("BACKLOG.md"),
+                task_path=Path(tmpdir) / ".cursor" / "orc-task.json",
+                run_root=Path(tmpdir) / ".orc" / "run",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+                prompt_template="{task_id}",
+                continue_template="{task_id}",
+                commit_template="{task_id}",
+                engine=_FailingEngine(reason="worktree_not_integrated_to_base"),
+                use_task_worktrees=False,
+                sleep_fn=lambda _seconds: None,
+            )
+
+            rc = orchestrator.run()
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(orchestrator.last_failure_reason, "worktree_not_integrated_to_base")
+        ui_error.assert_called_once()
+        self.assertIn("worktree_not_integrated_to_base", ui_error.call_args.args[0])
+
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
+    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    @patch("orc_core.backlog_orchestrator.ui_error")
     def test_unexpected_engine_exception_is_converted_to_failed_result(self, ui_error, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")

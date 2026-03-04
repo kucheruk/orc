@@ -163,6 +163,16 @@ def _build_agent_output_log_path(run_root: Path, task_id: str) -> str:
     return str(run_root / "raw-stream" / f"{stamp}__{safe_task_id}.log")
 
 
+def _resolve_runtime_backlog_path(request: TaskExecutionRequest) -> Path:
+    raw_arg = str(request.backlog_arg or "").strip()
+    if not raw_arg:
+        return request.backlog_path
+    candidate = Path(raw_arg)
+    if candidate.is_absolute():
+        return candidate
+    return Path(request.workdir) / candidate
+
+
 def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
     root_pid = getattr(monitor, "init_pid", None) or getattr(getattr(monitor, "proc", None), "pid", None)
     process_group_id = getattr(monitor, "process_group_id", None)
@@ -523,6 +533,8 @@ class TaskExecutionEngine:
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResult:
         task_id = request.task.task_id
         task_text = request.task.text
+        base_backlog_path = request.backlog_path
+        runtime_backlog_path = _resolve_runtime_backlog_path(request)
         effective_agent_output_log_path = request.agent_output_log_path or _build_agent_output_log_path(request.run_root, task_id)
         log_event(
             self.log_path,
@@ -530,6 +542,14 @@ class TaskExecutionEngine:
             "agent output log selected",
             task_id=task_id,
             agent_output_log_path=effective_agent_output_log_path,
+        )
+        log_event(
+            self.log_path,
+            "INFO",
+            "backlog resolution",
+            task_id=task_id,
+            base_backlog_path=str(base_backlog_path),
+            runtime_backlog_path=str(runtime_backlog_path),
         )
         resume_existing = request.task_path.exists()
         resume_id: Optional[str] = None
@@ -646,6 +666,37 @@ class TaskExecutionEngine:
                     )
                     ui_error(f"❌ Не удалось перенести commit в {request.main_branch}: {integration.error}")
                     return TaskExecutionResult(status="failed", reason="main_integration_failed")
+            try:
+                from .task_source import MarkdownTaskSource
+
+                base_done = MarkdownTaskSource(base_backlog_path).is_task_done(current_task_id)
+                runtime_done = False
+                if runtime_backlog_path != base_backlog_path:
+                    runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(current_task_id)
+                if runtime_done and not base_done:
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "backlog invariant violated after completion: task marked done only in runtime worktree backlog",
+                        task_id=current_task_id,
+                        base_backlog_path=str(base_backlog_path),
+                        runtime_backlog_path=str(runtime_backlog_path),
+                    )
+                    ui_error(
+                        "❌ После завершения задачи backlog в base не синхронизирован с worktree. "
+                        "Инвариант worktree -> base нарушен."
+                    )
+                    return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
+            except Exception as exc:
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "failed to validate backlog invariant after completion",
+                    task_id=current_task_id,
+                    error=str(exc),
+                    base_backlog_path=str(base_backlog_path),
+                    runtime_backlog_path=str(runtime_backlog_path),
+                )
             return TaskExecutionResult(status="completed", committed=commit_completed)
 
         debug_log(
@@ -692,7 +743,7 @@ class TaskExecutionEngine:
             if resume_existing and active_task_id and request.task_path.exists():
                 from .task_source import MarkdownTaskSource
 
-                if MarkdownTaskSource(request.backlog_path).is_task_done(active_task_id):
+                if MarkdownTaskSource(base_backlog_path).is_task_done(active_task_id):
                     log_event(self.log_path, "INFO", "task already marked done; removing task file", task_id=active_task_id)
                     ui_info(f"✅ {active_task_id} уже отмечена [x]. Удаляю {request.task_path} и продолжаю.")
                     try:
@@ -813,7 +864,11 @@ class TaskExecutionEngine:
             try:
                 from .task_source import MarkdownTaskSource
 
-                if MarkdownTaskSource(request.backlog_path).is_task_done(task_id):
+                base_done = MarkdownTaskSource(base_backlog_path).is_task_done(task_id)
+                runtime_done = False
+                if runtime_backlog_path != base_backlog_path:
+                    runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(task_id)
+                if base_done:
                     log_event(
                         self.log_path,
                         "WARN",
@@ -827,6 +882,21 @@ class TaskExecutionEngine:
                         except Exception as exc:
                             log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
                     return _finalize_completed(task_id, task_text, tag, active_monitor)
+                if runtime_done:
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "backlog invariant violated: task marked done only in runtime worktree backlog",
+                        task_id=task_id,
+                        monitor_result=result,
+                        base_backlog_path=str(base_backlog_path),
+                        runtime_backlog_path=str(runtime_backlog_path),
+                    )
+                    ui_error(
+                        "❌ Задача отмечена завершенной в worktree backlog, но не в base backlog. "
+                        "Интеграция worktree -> base нарушена."
+                    )
+                    return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
             except Exception as exc:
                 log_event(
                     self.log_path,

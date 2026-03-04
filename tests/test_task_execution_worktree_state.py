@@ -44,7 +44,11 @@ class _FakeMonitor:
 
 
 class _FakeWorker:
+    def __init__(self) -> None:
+        self.launch_calls = 0
+
     def launch(self, **_kwargs):
+        self.launch_calls += 1
         return _FakeMonitor()
 
 
@@ -122,6 +126,27 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertEqual(send_telegram_message_mock.call_count, 1)
         start_message, _ = send_telegram_message_mock.call_args[0]
         self.assertIn("Старт задачи", start_message)
+
+    @patch("orc_core.task_execution._cleanup_monitor_processes")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="stalled")
+    def test_fails_fast_when_task_done_only_in_worktree_backlog(self, *_mocks) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            base_dir = root / "base"
+            worktree_dir = root / "worktree"
+            base_dir.mkdir(parents=True, exist_ok=True)
+            worktree_dir.mkdir(parents=True, exist_ok=True)
+            request = _request(base_dir, worktree_dir)
+            (worktree_dir / "BACKLOG.md").write_text("- [x] TASK-001 test task\n", encoding="utf-8")
+
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "worktree_not_integrated_to_base")
+        self.assertEqual(worker.launch_calls, 1)
 
 
 if __name__ == "__main__":
