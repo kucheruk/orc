@@ -14,6 +14,8 @@ from .task_state import delete_runtime_state_file
 
 PROCESS_EXIT_GRACE_SECONDS = 3.0
 DONE_BACKLOG_IDLE_GRACE_SECONDS = 20.0
+TOKENS_STUCK_NOTICE_SECONDS = 15 * 60
+TOKENS_STUCK_NOTICE_LABEL = "15m"
 DEBUG_SESSION_LOG_PATH = Path("/Users/vetinary/work/orc/.cursor/debug-bbb5e7.log")
 DEBUG_SESSION_ID = "bbb5e7"
 
@@ -170,11 +172,16 @@ def wait_for_completion(
                 last_tokens_time = time.time()
             else:
                 since_tokens = time.time() - last_tokens_time
-                if since_tokens >= 300 and (time.time() - last_stuck_notice_time) >= 300:
+                if since_tokens >= TOKENS_STUCK_NOTICE_SECONDS and (
+                    time.time() - last_stuck_notice_time
+                ) >= TOKENS_STUCK_NOTICE_SECONDS:
                     last_stuck_notice_time = time.time()
-                    stuck_msg = f"{task_id} — agent stuck (tokens unchanged 5m)"
+                    stuck_msg = f"{task_id} — agent stuck (tokens unchanged {TOKENS_STUCK_NOTICE_LABEL})"
                     if task_text:
-                        stuck_msg = f"{task_id} — {task_text}\nagent stuck (tokens unchanged 5m)"
+                        stuck_msg = (
+                            f"{task_id} — {task_text}\n"
+                            f"agent stuck (tokens unchanged {TOKENS_STUCK_NOTICE_LABEL})"
+                        )
                     send_telegram_message(stuck_msg, log_path)
         if getattr(monitor, "result_status", None) == "success":
             if not task_path.exists():

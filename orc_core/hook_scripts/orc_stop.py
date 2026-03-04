@@ -129,7 +129,7 @@ def main() -> int:
             total, done = lib.parse_backlog_counts(Path(backlog_path))
         except Exception as exc:
             lib.log_event(log_path, "ERROR", "stop: backlog parse failed", error=str(exc))
-        stats = lib.load_stats(script_repo)
+        stats = lib.load_stats(base_workspace)
         task_tokens = lib.read_task_tokens(script_repo)
         stats = lib.update_tokens(stats, task_id, task_tokens)
         task_active_seconds = lib.read_task_active_seconds(runtime_task_file, str(task_id))
@@ -146,7 +146,7 @@ def main() -> int:
             tokens=tokens_line,
             report=report_text,
         )
-        lib.save_stats(script_repo, stats)
+        lib.save_stats(base_workspace, stats)
         if loop_count < 5:
             sys.stdout.write(json.dumps({"followup_message": "commit EVERYTHING+push with task ID and task description as commit message"}))
             sys.stdout.flush()

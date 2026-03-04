@@ -43,6 +43,70 @@ class _FakeMonitor:
 
 
 class SupervisorLifecycleTest(unittest.TestCase):
+    @patch("orc_core.supervisor_lifecycle.send_telegram_message")
+    @patch("orc_core.supervisor_lifecycle._session_debug_log")
+    @patch("orc_core.supervisor_lifecycle.time.sleep")
+    def test_wait_for_completion_sends_stuck_notice_after_15m_without_token_changes(
+        self,
+        _sleep_mock,
+        _session_debug_mock,
+        send_telegram_message_mock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text("{}", encoding="utf-8")
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
+            monitor.metrics.tokens_total = 42
+            monitor.last_output_time = 0.0
+
+            report_calls = {"count": 0}
+
+            def _maybe_report() -> None:
+                report_calls["count"] += 1
+                if report_calls["count"] >= 2:
+                    monitor.ui_followup_prompt = True
+
+            monitor.maybe_report = _maybe_report
+
+            with patch(
+                "orc_core.supervisor_lifecycle.time.time",
+                side_effect=[
+                    1000.0,  # start_time
+                    1000.0,  # initial last_tokens_time
+                    1000.1,  # loop#1 now
+                    1000.2,  # maybe_report_started
+                    1000.3,  # maybe_report_duration end
+                    1000.4,  # last_tokens_time update on first token read
+                    1000.5,  # stall check
+                    1000.6,  # ttl check
+                    1901.0,  # loop#2 now (>= 15m since last token update)
+                    1901.1,  # maybe_report_started
+                    1901.2,  # maybe_report_duration end
+                    1901.3,  # since_tokens check
+                    1901.4,  # cooldown check
+                    1901.5,  # last_stuck_notice_time update
+                ],
+            ):
+                result = wait_for_completion(
+                    task_path=task_path,
+                    monitor=monitor,
+                    poll=0.01,
+                    stall_timeout=9999.0,
+                    task_ttl=9999.0,
+                    log_path=Path(tmpdir) / "orc.log",
+                    nudge_after=10,
+                    nudge_cooldown=300.0,
+                    nudge_text="continue",
+                    task_id="PERSIST-001",
+                    task_text="MongoDB Connection & Configuration",
+                )
+
+        self.assertEqual(result, "waiting_for_input")
+        self.assertEqual(send_telegram_message_mock.call_count, 1)
+        stuck_message, _ = send_telegram_message_mock.call_args[0]
+        self.assertIn("tokens unchanged 15m", stuck_message)
+
     def test_wait_for_completion_treats_done_backlog_idle_agent_as_completed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backlog_path = Path(tmpdir) / "BACKLOG.md"

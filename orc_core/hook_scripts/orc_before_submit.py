@@ -71,11 +71,11 @@ def main() -> int:
                 total, done = lib.parse_backlog_counts(Path(backlog_path))
             except Exception as exc:
                 lib.log_event(log_path, "ERROR", "start: backlog parse failed", error=str(exc))
-        stats = lib.load_stats(script_repo)
+        stats = lib.load_stats(base_workspace)
         stats = lib.ensure_started(stats, done)
         task["start_notified"] = True
         lib.write_json(task_file, task)
-        lib.save_stats(script_repo, stats)
+        lib.save_stats(base_workspace, stats)
         lib.log_event(log_path, "INFO", "start: tracked", task_id=task_id)
     return 0
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -8,7 +9,8 @@ import orc_hook_lib as lib
 
 def main() -> int:
     script_repo = Path(__file__).resolve().parents[2]
-    orc_dir = script_repo / ".orc"
+    base_workspace = Path(str(os.environ.get("ORC_BASE_WORKSPACE") or "").strip() or str(script_repo))
+    orc_dir = base_workspace / ".orc"
     log_path = orc_dir / "orc-hook.log"
     try:
         raw = sys.stdin.read() or "{}"
@@ -46,11 +48,11 @@ def main() -> int:
                 total, done = lib.parse_backlog_counts(Path(backlog_path))
             except Exception as exc:
                 lib.log_event(log_path, "ERROR", "start: backlog parse failed", error=str(exc))
-        stats = lib.load_stats(script_repo)
+        stats = lib.load_stats(base_workspace)
         stats = lib.ensure_started(stats, done)
         task["start_notified"] = True
         lib.write_json(task_file, task)
-        lib.save_stats(script_repo, stats)
+        lib.save_stats(base_workspace, stats)
         lib.log_event(log_path, "INFO", "start: tracked", task_id=task_id)
     return 0
 
