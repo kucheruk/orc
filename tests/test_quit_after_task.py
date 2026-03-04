@@ -61,12 +61,15 @@ class QuitAfterTaskTest(unittest.TestCase):
     def tearDown(self) -> None:
         clear_stop_request()
 
-    def test_orc_app_action_sets_quit_after_task_only(self) -> None:
+    def test_orc_app_action_toggles_quit_after_task_only(self) -> None:
         app = OrcApp(lambda _publish: 0)
 
         app.action_request_quit_after_task()
 
         self.assertTrue(is_quit_after_task_requested())
+        self.assertFalse(is_stop_requested())
+        app.action_request_quit_after_task()
+        self.assertFalse(is_quit_after_task_requested())
         self.assertFalse(is_stop_requested())
 
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")

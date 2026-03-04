@@ -44,6 +44,11 @@
     padding: 1 2;
 }
 
+#mode_label {
+    height: 1;
+    margin-bottom: 1;
+}
+
 #recent_grid {
     grid-size: 2;
     grid-columns: 1fr 1fr;

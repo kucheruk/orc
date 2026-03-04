@@ -196,7 +196,7 @@ uv run python /path/to/orc/orc.py --workspace /path/to/repo
 
 #### Агент
 - `--model MODEL` — модель Cursor agent (по умолчанию: `gpt-5.2-codex`)
-- `--prompt-default PATH` — единый файл промпта для всех фаз (coder, continue, commit, merge_expert). Если файл не существует, ORC завершится с ошибкой. Более специфичные флаги (`--prompt-template`, `--continue-template`, `--commit-template`) имеют приоритет.
+- `--prompt-coder PATH` — дефолтный файл промпта только для coder-фазы. Если файл не существует, ORC завершится с ошибкой. На continue/commit/merge_expert не влияет.
 - `--prompt-template PATH` — путь к кастомному prompt‑шаблону (по умолчанию: `prompts/default.txt`)
 - `--continue-template PATH` — путь к prompt‑шаблону для continue (по умолчанию: `prompts/continue.txt`)
 
@@ -256,11 +256,11 @@ uv run python orc.py --workspace /path/to/myproject --reinit-hooks
 # Запуск с debug-логированием в системный temp-каталог
 uv run python orc.py --workspace /path/to/myproject --debug
 
-# Единый промпт для всех фаз
-uv run python orc.py --workspace /path/to/myproject --prompt-default specs/TASK-PROMPT.md
+# Единый промпт для coder-фазы
+uv run python orc.py --workspace /path/to/myproject --prompt-coder specs/TASK-PROMPT.md
 
-# Единый промпт + специфичный для commit phase
-uv run python orc.py --prompt-default specs/TASK-PROMPT.md --commit-template prompts/my-commit.txt
+# Кастомный coder-пrompt + отдельный commit-prompt
+uv run python orc.py --prompt-coder specs/TASK-PROMPT.md --commit-template prompts/my-commit.txt
 
 # Длинные задачи
 uv run python orc.py --workspace /path/to/myproject --task-ttl 43200 --stall-timeout 1200

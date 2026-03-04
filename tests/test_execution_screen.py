@@ -161,6 +161,26 @@ class ExecutionScreenRenderTest(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_mode_label_shows_quit_after_task_mode(self) -> None:
+        screen = ExecutionScreen()
+
+        class _TestApp(App[None]):
+            def compose(self):
+                yield screen
+
+        async def _run() -> None:
+            async with _TestApp().run_test() as pilot:
+                _ = pilot
+                screen.set_quit_after_task_requested(True)
+                mode = screen.query_one("#mode_label")
+                self.assertIn("QUIT AFTER TASK", str(mode.render()))
+                screen.set_quit_after_task_requested(False)
+                self.assertIn("Mode: normal", str(mode.render()))
+
+        import asyncio
+
+        asyncio.run(_run())
+
 
 if __name__ == "__main__":
     unittest.main()

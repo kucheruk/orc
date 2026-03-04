@@ -24,5 +24,13 @@ def request_quit_after_task() -> None:
     _QUIT_AFTER_TASK_EVENT.set()
 
 
+def toggle_quit_after_task() -> bool:
+    if _QUIT_AFTER_TASK_EVENT.is_set():
+        _QUIT_AFTER_TASK_EVENT.clear()
+        return False
+    _QUIT_AFTER_TASK_EVENT.set()
+    return True
+
+
 def is_quit_after_task_requested() -> bool:
     return _QUIT_AFTER_TASK_EVENT.is_set()

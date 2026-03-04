@@ -373,9 +373,9 @@ def main() -> int:
     ap.add_argument("--workspace", default=".")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument(
-        "--prompt-default",
+        "--prompt-coder",
         default="",
-        help="Path to a single prompt file used as default for all phases (coder, continue, commit, merge_expert)",
+        help="Path to a default coder prompt file (does not affect continue/commit/merge_expert phases)",
     )
     ap.add_argument("--prompt-template", default="", help="Path to a custom prompt template file")
     ap.add_argument("--continue-template", default="", help="Path to a custom continue prompt file")
@@ -425,15 +425,15 @@ def main() -> int:
     lock_path = Path(workdir) / ".orc" / LOCK_FILE_NAME
     temp_backlog_path: Optional[Path] = None
 
-    prompt_default_path = str(args.prompt_default).strip()
-    prompt_default_text = ""
-    if prompt_default_path:
+    prompt_coder_path = str(args.prompt_coder).strip()
+    prompt_coder_text = ""
+    if prompt_coder_path:
         try:
-            prompt_default_text = role_registry.load_prompt(Path(prompt_default_path))
+            prompt_coder_text = role_registry.load_prompt(Path(prompt_coder_path))
         except FileNotFoundError:
-            ui_error(f"--prompt-default file not found: {prompt_default_path}")
+            ui_error(f"--prompt-coder file not found: {prompt_coder_path}")
             return 2
-        ui_info(f"[orc] prompt default: {prompt_default_path}")
+        ui_info(f"[orc] prompt coder: {prompt_coder_path}")
 
     if args.telegram_test is not None:
         send_telegram_message(args.telegram_test, orc_log_path)
@@ -470,11 +470,9 @@ def main() -> int:
             )
             args.model = coder_config.model
             template = coder_config.prompt
-            if prompt_default_text and not str(args.prompt_template).strip():
-                template = prompt_default_text
+            if prompt_coder_text and not str(args.prompt_template).strip():
+                template = prompt_coder_text
             continue_prompt = role_registry.resolve_continue_prompt(str(args.continue_template).strip())
-            if prompt_default_text and not str(args.continue_template).strip():
-                continue_prompt = prompt_default_text
             commit_template = ""
             merge_expert_template = ""
             merge_expert_model = ""
@@ -487,13 +485,9 @@ def main() -> int:
                 )
                 args.commit_model = handoff_config.model
                 commit_template = handoff_config.prompt
-                if prompt_default_text and not str(args.commit_template).strip():
-                    commit_template = prompt_default_text
             merge_expert_config = role_registry.resolve_role(workdir, ROLE_MERGE_EXPERT)
             merge_expert_model = merge_expert_config.model
             merge_expert_template = merge_expert_config.prompt
-            if prompt_default_text:
-                merge_expert_template = prompt_default_text
         except FileNotFoundError as exc:
             log_event(orc_log_path, "ERROR", "prompt file missing", error=str(exc))
             return 2

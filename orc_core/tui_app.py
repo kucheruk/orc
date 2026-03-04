@@ -8,7 +8,7 @@ from textual import work
 from textual.app import App
 
 from .backlog_status import BacklogStatus
-from .quit_signal import clear_stop_request, request_quit_after_task, request_stop
+from .quit_signal import clear_stop_request, request_stop, toggle_quit_after_task
 from .start_menu import StartMenuChoice
 from .stream_monitor_state import MonitorSnapshot
 from .tui.messages import OrchestratorFinished, SnapshotUpdated
@@ -123,7 +123,8 @@ class OrcApp(App[int]):
         request_stop()
 
     def action_request_quit_after_task(self) -> None:
-        request_quit_after_task()
+        requested = toggle_quit_after_task()
+        self._execution_screen.set_quit_after_task_requested(requested)
 
 
 def run_start_menu(

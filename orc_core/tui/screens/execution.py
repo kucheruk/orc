@@ -32,10 +32,15 @@ class ExecutionScreen(Screen[None]):
     started_at = reactive(0.0)
     last_event_at = reactive(None)
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._quit_after_task_requested = False
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="exec_root"):
             yield Label("", id="task_label")
+            yield Label("", id="mode_label")
             yield Label("", id="stats_label")
             yield ProgressBar(total=1, id="progress")
             yield Label("", id="activity_label")
@@ -105,8 +110,15 @@ class ExecutionScreen(Screen[None]):
         progress_part = f" | Progress: {self.progress_done}/{self.progress_total}{delta}"
         self.query_one("#task_label", Label).update(f"{self.task_title}{progress_part}")
 
+    def _refresh_mode_label(self) -> None:
+        if self._quit_after_task_requested:
+            self.query_one("#mode_label", Label).update("[bold red]QUIT AFTER TASK: ACTIVE[/bold red]")
+            return
+        self.query_one("#mode_label", Label).update("[green]Mode: normal[/green]")
+
     def _refresh_stats_and_activity(self) -> None:
         elapsed = int(max(time.time() - self.started_at, 0.0))
+        self._refresh_mode_label()
         debug_log_path = get_debug_log_path()
         debug_part = f" | Debug log: {debug_log_path}" if debug_log_path is not None else ""
         git_part = f" | Git: [green]+{self.git_added}[/green] [red]-{self.git_deleted}[/red]"
@@ -168,3 +180,8 @@ class ExecutionScreen(Screen[None]):
         rows = lines if lines else [empty]
         for row in rows[-10:]:
             log.write(row)
+
+    def set_quit_after_task_requested(self, requested: bool) -> None:
+        self._quit_after_task_requested = requested
+        if self.is_mounted:
+            self._refresh_stats_and_activity()
