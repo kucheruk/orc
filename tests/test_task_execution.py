@@ -670,6 +670,30 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(worker.launch_kwargs[0]["progress_done"], 3)
         self.assertEqual(worker.launch_kwargs[0]["progress_total"], 9)
 
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")
+    @patch("orc_core.task_execution._git_status_porcelain")
+    def test_commit_phase_ignores_runtime_artifact_leftovers(self, git_status_mock, *_mocks) -> None:
+        worker = _FakeWorker()
+        git_status_mock.side_effect = [
+            (True, " M tracked.py\n"),
+            (True, " M .orc/backlog-run/raw-stream/task.log\n?? .cursor/orc-task-runtime.json\n"),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=False)
+            ok = task_execution._run_commit_phase(
+                worker=worker,
+                request=request,
+                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                task_id="TASK-001",
+                tag="tag",
+                log_path=Path(tmpdir) / ".orc" / "orc.log",
+                agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
+            )
+
+        self.assertTrue(ok)
+
     @patch("orc_core.task_execution._git_status_porcelain", return_value=(True, " M tracked.py\n"))
     def test_commit_phase_launch_failure_returns_false_not_exception(self, *_mocks) -> None:
         worker = _FailingWorker()

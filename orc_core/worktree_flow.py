@@ -10,6 +10,12 @@ from pathlib import Path
 from .logging import log_event
 
 GIT_TIMEOUT_SECONDS = 30.0
+INTEGRATION_SAFE_UNTRACKED_PREFIXES = (".orc/",)
+INTEGRATION_SAFE_UNTRACKED_EXACT = {
+    ".cursor/orc-stop-request.json",
+    ".cursor/orc-task.json",
+    ".cursor/orc-task-runtime.json",
+}
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,46 @@ def _git(
     except Exception as exc:  # pragma: no cover - defensive
         return False, "", str(exc), 1
     return result.returncode == 0, result.stdout or "", result.stderr or "", int(result.returncode)
+
+
+def _parse_git_porcelain(porcelain: str) -> tuple[list[str], list[str]]:
+    tracked: list[str] = []
+    untracked: list[str] = []
+    for raw_line in porcelain.splitlines():
+        line = raw_line.rstrip("\n")
+        if len(line) < 4:
+            continue
+        status = line[:2]
+        path = line[3:].strip()
+        if not path:
+            continue
+        if status == "??":
+            untracked.append(path)
+        else:
+            tracked.append(path)
+    return tracked, untracked
+
+
+def _is_integration_safe_untracked(path: str) -> bool:
+    normalized = path.strip()
+    if not normalized:
+        return False
+    if normalized in INTEGRATION_SAFE_UNTRACKED_EXACT:
+        return True
+    return normalized.startswith(INTEGRATION_SAFE_UNTRACKED_PREFIXES)
+
+
+def _is_empty_cherry_pick(stderr: str) -> bool:
+    text = (stderr or "").lower()
+    if "previous cherry-pick is now empty" in text:
+        return True
+    if "the previous cherry-pick is now empty" in text:
+        return True
+    if "cherry-pick is now empty" in text:
+        return True
+    if "nothing to commit" in text and "cherry-pick" in text:
+        return True
+    return False
 
 
 def detect_base_branch(workdir: str) -> str:
@@ -162,6 +208,8 @@ def _cherry_pick_commit(workdir: str, commit_sha: str) -> tuple[bool, bool, str]
     ok, _, stderr, _ = _git(workdir, ["git", "cherry-pick", "-x", commit_sha])
     if ok:
         return True, False, ""
+    if _is_empty_cherry_pick(stderr):
+        return False, False, stderr.strip()
     ok_conflicts, conflict_files, _, _ = _git(workdir, ["git", "diff", "--name-only", "--diff-filter=U"])
     if ok_conflicts and bool(conflict_files.strip()):
         return False, True, stderr.strip()
@@ -183,7 +231,20 @@ def integrate_commit_into_main(
     if not ok_status:
         return IntegrationResult(ok=False, conflict=False, error=f"git status failed: {status_err.strip()}")
     if status_out.strip():
-        return IntegrationResult(ok=False, conflict=False, error="base repository is dirty before integration")
+        tracked, untracked = _parse_git_porcelain(status_out)
+        unsafe_untracked = [path for path in untracked if not _is_integration_safe_untracked(path)]
+        safe_tracked = [path for path in tracked if _is_integration_safe_untracked(path)]
+        unsafe_tracked = [path for path in tracked if path not in safe_tracked]
+        if unsafe_tracked or unsafe_untracked:
+            return IntegrationResult(ok=False, conflict=False, error="base repository is dirty before integration")
+        log_event(
+            log_path,
+            "WARN",
+            "ignoring runtime artifacts before integration",
+            task_id=task_id,
+            tracked_runtime=safe_tracked[:20],
+            untracked_runtime=untracked[:20],
+        )
 
     ok_checkout, _, stderr_checkout, _ = _git(base_workdir, ["git", "checkout", main_branch])
     if not ok_checkout:
@@ -222,4 +283,14 @@ def integrate_commit_into_main(
             error=pick_error[:500],
         )
         return IntegrationResult(ok=False, conflict=True, error=pick_error)
+    if _is_empty_cherry_pick(pick_error):
+        log_event(
+            log_path,
+            "WARN",
+            "cherry-pick produced empty change; treating as already integrated",
+            task_id=task_id,
+            commit_sha=commit_sha,
+            branch=main_branch,
+        )
+        return IntegrationResult(ok=True, conflict=False, already_integrated=True)
     return IntegrationResult(ok=False, conflict=False, error=pick_error)

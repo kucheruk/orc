@@ -309,6 +309,23 @@ def _parse_git_porcelain(porcelain: str) -> tuple[list[str], list[str]]:
     return tracked, untracked
 
 
+def _runtime_artifact_paths_from_porcelain_lines(lines: list[str]) -> tuple[list[str], list[str]]:
+    runtime: list[str] = []
+    non_runtime: list[str] = []
+    for ln in lines:
+        path = ln[3:].strip() if len(ln) > 3 else ""
+        if (
+            path.startswith(".orc/")
+            or path == ".cursor/orc-task-runtime.json"
+            or path == ".cursor/orc-task.json"
+            or path == ".cursor/orc-stop-request.json"
+        ):
+            runtime.append(ln)
+        else:
+            non_runtime.append(ln)
+    return runtime, non_runtime
+
+
 def _git_run(workdir: str, log_path: Path, args: list[str], label: str) -> tuple[bool, str, str, int]:
     try:
         result = subprocess.run(
@@ -459,6 +476,19 @@ def _run_commit_phase(
     ok2, porcelain2 = _git_status_porcelain(request.workdir, log_path)
     if ok2 and porcelain2.strip():
         tracked, untracked = _parse_git_porcelain(porcelain2)
+        runtime_tracked, non_runtime_tracked = _runtime_artifact_paths_from_porcelain_lines(tracked)
+        runtime_untracked, non_runtime_untracked = _runtime_artifact_paths_from_porcelain_lines(untracked)
+        if runtime_tracked or runtime_untracked:
+            log_event(
+                log_path,
+                "WARN",
+                "commit phase: ignoring runtime artifacts in git status",
+                task_id=task_id,
+                tracked_runtime=len(runtime_tracked),
+                untracked_runtime=len(runtime_untracked),
+            )
+        tracked = non_runtime_tracked
+        untracked = non_runtime_untracked
         log_event(
             log_path,
             "WARN",
