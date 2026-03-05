@@ -66,6 +66,7 @@ class StreamMonitorState:
         r'"?([a-zA-Z_]+tokens|tokens[a-zA-Z_]*|token_count)"?\s*[:=]\s*"?([0-9]+(?:\.[0-9]+)?)"?',
         re.IGNORECASE,
     )
+    _WORKTREE_PREFIX_RE = re.compile(r"/[^\s\"']*?/.orc/worktrees/[^/\s\"']+")
 
     def __init__(self, task_id: str, started_at: float, summary_lines: int) -> None:
         self.task_id = task_id
@@ -443,6 +444,11 @@ class StreamMonitorState:
             return " ".join(value.split()).strip()
         return ""
 
+    def _shorten_worktree_paths(self, value: str) -> str:
+        if not value:
+            return value
+        return self._WORKTREE_PREFIX_RE.sub("[worktree]", value)
+
     def _tool_call_name(self, payload_key: str) -> str:
         normalized = re.sub(r"ToolCall$", "", payload_key.strip())
         return normalized.strip()
@@ -457,23 +463,23 @@ class StreamMonitorState:
         tool_name = self._tool_call_name(payload_key)
         tool_label = tool_name.lower() if tool_name else "tool"
 
-        command = self._string_arg(args.get("command"))
+        command = self._shorten_worktree_paths(self._string_arg(args.get("command")))
         if command:
             return command
 
-        path = self._string_arg(args.get("path"))
+        path = self._shorten_worktree_paths(self._string_arg(args.get("path")))
         if tool_label == "read" and path:
             return f"{tool_label} {path}"
 
         pattern = self._string_arg(args.get("pattern"))
         if tool_label in {"grep", "rg"} and pattern:
-            target_path = self._string_arg(args.get("path"))
+            target_path = self._shorten_worktree_paths(self._string_arg(args.get("path")))
             if target_path:
                 return f'{tool_label} "{pattern}" in {target_path}'
             return f'{tool_label} "{pattern}"'
 
         glob_pattern = self._string_arg(args.get("globPattern"))
-        target_dir = self._string_arg(args.get("targetDirectory"))
+        target_dir = self._shorten_worktree_paths(self._string_arg(args.get("targetDirectory")))
         if tool_label == "glob" and (glob_pattern or target_dir):
             left = f"{tool_label} {glob_pattern}".strip()
             if target_dir:
@@ -487,7 +493,7 @@ class StreamMonitorState:
                 continue
             normalized = self._string_arg(value)
             if normalized:
-                kv_parts.append(f"{key_name}={normalized}")
+                kv_parts.append(f"{key_name}={self._shorten_worktree_paths(normalized)}")
             elif isinstance(value, (int, float, bool)):
                 kv_parts.append(f"{key_name}={value}")
 
@@ -516,7 +522,7 @@ class StreamMonitorState:
                 if not val:
                     continue
                 if key_lower in {"command", "cmd", "shell_command"}:
-                    self._recent_commands.append(val[:180])
+                    self._recent_commands.append(self._shorten_worktree_paths(val)[:180])
                     return
 
             for key in ("tool_name", "tool", "name", "function"):
@@ -542,7 +548,7 @@ class StreamMonitorState:
             if not val:
                 continue
             if key_lower in {"command", "cmd", "shell_command"}:
-                self._recent_commands.append(val[:180])
+                self._recent_commands.append(self._shorten_worktree_paths(val)[:180])
                 return
             if key_lower in {"tool", "tool_name", "function", "name"} and "tool_call" in str(event.get("type") or ""):
                 self._recent_commands.append(val[:180])
@@ -553,7 +559,7 @@ class StreamMonitorState:
             if not isinstance(key, str) or not isinstance(value, str):
                 continue
             if key.lower() in {"path", "filepath", "file_path", "target_notebook"}:
-                path = value.strip()
+                path = self._shorten_worktree_paths(value.strip())
                 if path and path not in self._recent_files:
                     self._recent_files.append(path[:200])
 

@@ -367,6 +367,49 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         snapshot = state.build_snapshot()
         self.assertIn("git status --short", snapshot.recent_commands)
 
+    def test_tool_call_shell_command_replaces_worktree_prefix_in_recent_commands(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_name": "Shell",
+                "arguments": {
+                    "command": (
+                        "python "
+                        "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/scripts/run.py"
+                    )
+                },
+            }
+        )
+
+        command = state.build_snapshot().recent_commands[-1]
+        self.assertIn("python [worktree]/scripts/run.py", command)
+        self.assertNotIn("/.orc/worktrees/", command)
+
+    def test_tool_call_read_replaces_worktree_prefix_in_recent_commands(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_call": {
+                    "readToolCall": {
+                        "args": {
+                            "path": "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/src/main.py",
+                        }
+                    }
+                },
+            }
+        )
+
+        command = state.build_snapshot().recent_commands[-1]
+        self.assertEqual(command, "read [worktree]/src/main.py")
+
     def test_tool_call_glob_includes_pattern_and_directory(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
@@ -389,6 +432,30 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         command = state.build_snapshot().recent_commands[-1]
         self.assertIn("glob ADR/*.md", command)
         self.assertIn("/Users/vetinary/work/nadmozg", command)
+
+    def test_tool_call_glob_replaces_worktree_prefix_in_target_directory(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_call": {
+                    "globToolCall": {
+                        "args": {
+                            "globPattern": "**/*.py",
+                            "targetDirectory": "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/src",
+                        }
+                    }
+                },
+            }
+        )
+
+        command = state.build_snapshot().recent_commands[-1]
+        self.assertIn("glob **/*.py", command)
+        self.assertIn("[worktree]/src", command)
+        self.assertNotIn("/.orc/worktrees/", command)
 
     def test_tool_call_grep_includes_pattern_and_path(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
@@ -413,6 +480,30 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn('grep "class\\s+SafeJsonExtensions"', command)
         self.assertIn("/Users/vetinary/work/nadmozg/src", command)
 
+    def test_tool_call_grep_replaces_worktree_prefix_in_path(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_call": {
+                    "grepToolCall": {
+                        "args": {
+                            "pattern": "main\\(",
+                            "path": "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/src",
+                        }
+                    }
+                },
+            }
+        )
+
+        command = state.build_snapshot().recent_commands[-1]
+        self.assertIn('grep "main\\("', command)
+        self.assertIn("[worktree]/src", command)
+        self.assertNotIn("/.orc/worktrees/", command)
+
     def test_tool_call_unknown_payload_uses_key_value_fallback(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
@@ -435,6 +526,70 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         command = state.build_snapshot().recent_commands[-1]
         self.assertIn("custom foo=bar", command)
         self.assertIn("n=7", command)
+
+    def test_tool_call_unknown_payload_replaces_worktree_prefix_in_fallback_values(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_call": {
+                    "customToolCall": {
+                        "args": {
+                            "path": "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/file.txt",
+                        }
+                    }
+                },
+            }
+        )
+
+        command = state.build_snapshot().recent_commands[-1]
+        self.assertIn("custom path=[worktree]/file.txt", command)
+        self.assertNotIn("/.orc/worktrees/", command)
+
+    def test_recent_files_replaces_worktree_prefix(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_call": {
+                    "readToolCall": {
+                        "args": {
+                            "path": "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/src/module.py",
+                        }
+                    }
+                },
+            }
+        )
+
+        recent_file = state.build_snapshot().recent_files[-1]
+        self.assertEqual(recent_file, "[worktree]/src/module.py")
+
+    def test_recent_files_keeps_non_worktree_path_unchanged(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "tool_call": {
+                    "readToolCall": {
+                        "args": {
+                            "path": "/Users/vetinary/work/orc/README.md",
+                        }
+                    }
+                },
+            }
+        )
+
+        recent_file = state.build_snapshot().recent_files[-1]
+        self.assertEqual(recent_file, "/Users/vetinary/work/orc/README.md")
 
     def test_maybe_report_updates_state_and_requests_render(self) -> None:
         monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
