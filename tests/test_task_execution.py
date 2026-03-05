@@ -44,6 +44,14 @@ class _FakeMonitor:
     def get_summary_text(self) -> str:
         return "done"
 
+    def build_snapshot(self):
+        return SimpleNamespace(
+            progress_done=4,
+            progress_total=10,
+            progress_remaining=6,
+            eta_seconds=180.0,
+        )
+
 
 class _FakeWorker:
     def __init__(self) -> None:
@@ -53,7 +61,9 @@ class _FakeWorker:
     def launch(self, **kwargs):
         self.launch_calls += 1
         self.launch_kwargs.append(kwargs)
-        return _FakeMonitor()
+        monitor = _FakeMonitor()
+        monitor.workdir = str(kwargs.get("workdir") or "")
+        return monitor
 
 
 class _EmptySummaryMonitor(_FakeMonitor):
@@ -65,7 +75,9 @@ class _EmptySummaryWorker(_FakeWorker):
     def launch(self, **kwargs):
         self.launch_calls += 1
         self.launch_kwargs.append(kwargs)
-        return _EmptySummaryMonitor()
+        monitor = _EmptySummaryMonitor()
+        monitor.workdir = str(kwargs.get("workdir") or "")
+        return monitor
 
 
 class _FragmentedSummaryMonitor(_FakeMonitor):
@@ -104,7 +116,9 @@ class _FragmentedSummaryWorker(_FakeWorker):
     def launch(self, **kwargs):
         self.launch_calls += 1
         self.launch_kwargs.append(kwargs)
-        return _FragmentedSummaryMonitor()
+        monitor = _FragmentedSummaryMonitor()
+        monitor.workdir = str(kwargs.get("workdir") or "")
+        return monitor
 
 
 class _FailingWorker:
@@ -170,6 +184,12 @@ class TaskExecutionEngineTest(unittest.TestCase):
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            stats_path = Path(tmpdir) / ".orc" / "orc-stats.json"
+            stats_path.parent.mkdir(parents=True, exist_ok=True)
+            stats_path.write_text(
+                json.dumps({"recent_durations": [120, 120, 120]}, ensure_ascii=False),
+                encoding="utf-8",
+            )
             result = engine.execute(self._request(tmpdir))
 
         self.assertEqual(result.status, "completed")
@@ -180,6 +200,11 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertIn("Задача завершена", finish_message)
         self.assertIn("TASK-001", finish_message)
         self.assertIn("done", finish_message)
+        self.assertIn("📊 Срез:", finish_message)
+        self.assertIn("done 4/10", finish_message)
+        self.assertIn("left 6", finish_message)
+        self.assertIn("ETA 3m", finish_message)
+        self.assertIn("rate 30.00 tasks/h", finish_message)
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")

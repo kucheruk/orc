@@ -218,15 +218,92 @@ def _normalize_fragmented_summary_text(summary_text: str) -> str:
     return merged
 
 
-def _build_completion_message(*, task_id: str, workdir: str, summary_text: str, log_path: Path) -> str:
+def _format_eta_for_message(eta_seconds: Optional[float]) -> str:
+    if eta_seconds is None:
+        return "unknown"
+    total_seconds = max(int(eta_seconds), 0)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def _build_completion_stats_slice(*, monitor, fallback_done: int, fallback_total: int) -> str:
+    done = max(int(fallback_done), 0)
+    total = max(int(fallback_total), 1)
+    remaining = max(total - done, 0)
+    eta_seconds: Optional[float] = None
+
+    build_snapshot = getattr(monitor, "build_snapshot", None)
+    if callable(build_snapshot):
+        try:
+            snapshot = build_snapshot()
+            done = max(int(getattr(snapshot, "progress_done", done)), 0)
+            total = max(int(getattr(snapshot, "progress_total", total)), 1)
+            remaining = max(int(getattr(snapshot, "progress_remaining", total - done)), 0)
+            snapshot_eta = getattr(snapshot, "eta_seconds", None)
+            if isinstance(snapshot_eta, (int, float)):
+                eta_seconds = float(snapshot_eta)
+        except Exception:
+            pass
+
+    tokens_value = getattr(getattr(monitor, "metrics", None), "tokens_total", None)
+    commands_value = getattr(getattr(monitor, "metrics", None), "command_count", None)
+    files_edited_value = getattr(getattr(monitor, "metrics", None), "files_edited", None)
+    tokens_text = str(tokens_value) if isinstance(tokens_value, int) else "unknown"
+    commands_text = str(commands_value) if isinstance(commands_value, int) else "unknown"
+    files_edited_text = str(files_edited_value) if isinstance(files_edited_value, int) else "unknown"
+    tasks_per_hour = _read_tasks_per_hour_from_stats(getattr(monitor, "workdir", ""))
+    rate_text = f"{tasks_per_hour:.2f}" if tasks_per_hour is not None else "unknown"
+    return (
+        "📊 Срез: "
+        f"done {done}/{total} | "
+        f"left {remaining} | "
+        f"ETA {_format_eta_for_message(eta_seconds)} | "
+        f"rate {rate_text} tasks/h | "
+        f"tokens {tokens_text} | "
+        f"commands {commands_text} | "
+        f"files {files_edited_text}"
+    )
+
+
+def _read_tasks_per_hour_from_stats(workdir: str) -> Optional[float]:
+    root = str(workdir or "").strip()
+    if not root:
+        return None
+    stats_path = Path(root) / ".orc" / "orc-stats.json"
+    if not stats_path.exists():
+        return None
+    try:
+        payload = json.loads(stats_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    raw = payload.get("recent_durations") if isinstance(payload, dict) else None
+    if not isinstance(raw, list):
+        return None
+    durations = [int(value) for value in raw if isinstance(value, (int, float)) and value > 0]
+    if not durations:
+        return None
+    avg_seconds = sum(durations[-3:]) / max(len(durations[-3:]), 1)
+    if avg_seconds <= 0:
+        return None
+    return 3600.0 / avg_seconds
+
+
+def _build_completion_message(*, task_id: str, workdir: str, summary_text: str, log_path: Path, stats_slice: str) -> str:
     header = f"✅ Задача завершена: {task_id}"
     task_report = _read_task_report_text(workdir, task_id, log_path)
+    body = ""
     if task_report:
-        return f"{header}\n\n{task_report}"
-    normalized_summary = _normalize_fragmented_summary_text(summary_text)
-    if normalized_summary:
-        return f"{header}\n\n{normalized_summary}"
-    return f"{header}\n\n(Отчёт отсутствует: пустой tasks/{task_id}.md и пустой summary.)"
+        body = task_report
+    else:
+        normalized_summary = _normalize_fragmented_summary_text(summary_text)
+        if normalized_summary:
+            body = normalized_summary
+        else:
+            body = f"(Отчёт отсутствует: пустой tasks/{task_id}.md и пустой summary.)"
+    return "\n\n".join([header, body, stats_slice])
 
 
 def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
@@ -672,11 +749,17 @@ class TaskExecutionEngine:
                     "summary_lines": summary_text.count("\n") + 1 if summary_text else 0,
                 },
             )
+            stats_slice = _build_completion_stats_slice(
+                monitor=monitor,
+                fallback_done=request.progress_done,
+                fallback_total=request.progress_total,
+            )
             completion_message = _build_completion_message(
                 task_id=current_task_id,
                 workdir=request.workdir,
                 summary_text=summary_text,
                 log_path=self.log_path,
+                stats_slice=stats_slice,
             )
             send_telegram_message(completion_message, self.log_path)
             prompt_vars = SafeDict(
