@@ -34,12 +34,21 @@ class _FakeMonitor:
         self.workdir = workdir
         self.stderr_count = 0
         self.last_stderr_line = ""
+        self._watchdog_snapshot = {
+            "count": 0,
+            "oldest_age_seconds": 0.0,
+            "oldest_label": "",
+            "oldest_is_subagent": False,
+        }
 
     def maybe_report(self) -> None:
         return None
 
     def send_keys(self, *_args, **_kwargs) -> bool:
         return False
+
+    def active_tool_calls_watchdog_snapshot(self) -> dict:
+        return dict(self._watchdog_snapshot)
 
 
 class SupervisorLifecycleTest(unittest.TestCase):
@@ -71,22 +80,25 @@ class SupervisorLifecycleTest(unittest.TestCase):
 
             with patch(
                 "orc_core.supervisor_lifecycle.time.time",
-                side_effect=[
-                    1000.0,  # start_time
-                    1000.0,  # initial last_tokens_time
-                    1000.1,  # loop#1 now
-                    1000.2,  # maybe_report_started
-                    1000.3,  # maybe_report_duration end
-                    1000.4,  # last_tokens_time update on first token read
-                    1000.5,  # stall check
-                    1000.6,  # ttl check
-                    1901.0,  # loop#2 now (>= 15m since last token update)
-                    1901.1,  # maybe_report_started
-                    1901.2,  # maybe_report_duration end
-                    1901.3,  # since_tokens check
-                    1901.4,  # cooldown check
-                    1901.5,  # last_stuck_notice_time update
-                ],
+                side_effect=iter(
+                    [
+                        1000.0,  # start_time
+                        1000.0,  # initial last_tokens_time
+                        1000.1,  # loop#1 now
+                        1000.2,  # maybe_report_started
+                        1000.3,  # maybe_report_duration end
+                        1000.4,  # last_tokens_time update on first token read
+                        1000.5,  # stall check
+                        1000.6,  # ttl check
+                        1901.0,  # loop#2 now (>= 15m since last token update)
+                        1901.1,  # maybe_report_started
+                        1901.2,  # maybe_report_duration end
+                        1901.3,  # since_tokens check
+                        1901.4,  # cooldown check
+                        1901.5,  # last_stuck_notice_time update
+                    ]
+                    + [1901.6] * 20
+                ),
             ):
                 result = wait_for_completion(
                     task_path=task_path,
@@ -150,19 +162,20 @@ class SupervisorLifecycleTest(unittest.TestCase):
             monitor.proc = SimpleNamespace(pid=999999, returncode=None, poll=lambda: None)
             monitor.last_output_time = time.time()
 
-            result = wait_for_completion(
-                task_path=task_path,
-                monitor=monitor,
-                poll=0.01,
-                stall_timeout=30.0,
-                task_ttl=30.0,
-                log_path=Path(tmpdir) / "orc.log",
-                nudge_after=10,
-                nudge_cooldown=300.0,
-                nudge_text="continue",
-                task_id="REFACT-099",
-                task_text="repro",
-            )
+            with patch("orc_core.supervisor_lifecycle.PID_MISSING_GRACE_SECONDS", 0.0):
+                result = wait_for_completion(
+                    task_path=task_path,
+                    monitor=monitor,
+                    poll=0.01,
+                    stall_timeout=30.0,
+                    task_ttl=30.0,
+                    log_path=Path(tmpdir) / "orc.log",
+                    nudge_after=10,
+                    nudge_cooldown=300.0,
+                    nudge_text="continue",
+                    task_id="REFACT-099",
+                    task_text="repro",
+                )
 
         self.assertEqual(result, "completed")
 
@@ -179,21 +192,133 @@ class SupervisorLifecycleTest(unittest.TestCase):
             monitor.proc = SimpleNamespace(pid=999999, returncode=None, poll=lambda: None)
             monitor.last_output_time = time.time()
 
-            result = wait_for_completion(
-                task_path=task_path,
-                monitor=monitor,
-                poll=0.01,
-                stall_timeout=30.0,
-                task_ttl=30.0,
-                log_path=Path(tmpdir) / "orc.log",
-                nudge_after=10,
-                nudge_cooldown=300.0,
-                nudge_text="continue",
-                task_id="REFACT-100",
-                task_text="repro",
-            )
+            with patch("orc_core.supervisor_lifecycle.PID_MISSING_GRACE_SECONDS", 0.0):
+                result = wait_for_completion(
+                    task_path=task_path,
+                    monitor=monitor,
+                    poll=0.01,
+                    stall_timeout=30.0,
+                    task_ttl=30.0,
+                    log_path=Path(tmpdir) / "orc.log",
+                    nudge_after=10,
+                    nudge_cooldown=300.0,
+                    nudge_text="continue",
+                    task_id="REFACT-100",
+                    task_text="repro",
+                )
 
         self.assertEqual(result, "process_exited")
+
+    def test_wait_for_completion_does_not_force_close_tools_on_unconfirmed_pid_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [ ] REFACT-101 open\n", encoding="utf-8")
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text(
+                '{"task_id":"REFACT-101","backlog_path":"%s"}' % str(backlog_path),
+                encoding="utf-8",
+            )
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.proc = SimpleNamespace(pid=999999, returncode=None, poll=lambda: None)
+            monitor.last_output_time = time.time()
+            monitor.force_finalize_live_tool_calls = unittest.mock.MagicMock(
+                return_value={"cleared": 1, "reason": "pid_missing", "pending": []}
+            )
+
+            with patch("orc_core.supervisor_lifecycle.PID_MISSING_GRACE_SECONDS", 0.0):
+                result = wait_for_completion(
+                    task_path=task_path,
+                    monitor=monitor,
+                    poll=0.01,
+                    stall_timeout=30.0,
+                    task_ttl=30.0,
+                    log_path=Path(tmpdir) / "orc.log",
+                    nudge_after=10,
+                    nudge_cooldown=300.0,
+                    nudge_text="continue",
+                    task_id="REFACT-101",
+                    task_text="repro",
+                )
+
+        self.assertEqual(result, "process_exited")
+        monitor.force_finalize_live_tool_calls.assert_not_called()
+
+    def test_wait_for_completion_stalls_when_tool_digestion_exceeds_grace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text("{}", encoding="utf-8")
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.proc = SimpleNamespace(pid=32101, returncode=None, poll=lambda: None)
+            monitor.last_output_time = time.time() - 30.0
+            monitor._watchdog_snapshot = {
+                "count": 1,
+                "oldest_age_seconds": 25.0,
+                "oldest_label": "./scripts/ci/lint.sh && dotnet build",
+                "oldest_is_subagent": False,
+            }
+            monitor.force_finalize_live_tool_calls = unittest.mock.MagicMock(
+                return_value={"cleared": 1, "reason": "agent_digestion_timeout_5.0s", "pending": []}
+            )
+
+            with (
+                patch("orc_core.supervisor_lifecycle._get_active_children_count", return_value=0),
+                patch("orc_core.supervisor_lifecycle.TOOL_DIGESTION_GRACE_SECONDS", 5.0),
+                patch("orc_core.supervisor_lifecycle.is_pid_alive", return_value=True),
+            ):
+                result = wait_for_completion(
+                    task_path=task_path,
+                    monitor=monitor,
+                    poll=0.01,
+                    stall_timeout=600.0,
+                    task_ttl=30.0,
+                    log_path=Path(tmpdir) / "orc.log",
+                    nudge_after=10,
+                    nudge_cooldown=300.0,
+                    nudge_text="continue",
+                    task_id="REFACT-102",
+                    task_text="repro",
+                )
+
+        self.assertEqual(result, "stalled")
+        monitor.force_finalize_live_tool_calls.assert_called_once()
+
+    def test_wait_for_completion_ignores_stall_timeout_while_tool_child_running(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text("{}", encoding="utf-8")
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.proc = SimpleNamespace(pid=32102, returncode=None, poll=lambda: None)
+            monitor.last_output_time = time.time() - 30.0
+            monitor._watchdog_snapshot = {
+                "count": 1,
+                "oldest_age_seconds": 25.0,
+                "oldest_label": "./scripts/ci/lint.sh && dotnet build",
+                "oldest_is_subagent": False,
+            }
+            monitor.force_finalize_live_tool_calls = unittest.mock.MagicMock(
+                return_value={"cleared": 1, "reason": "tool_call_dispatch_stuck", "pending": []}
+            )
+
+            with (
+                patch("orc_core.supervisor_lifecycle._get_active_children_count", return_value=1),
+                patch("orc_core.supervisor_lifecycle.is_pid_alive", return_value=True),
+            ):
+                result = wait_for_completion(
+                    task_path=task_path,
+                    monitor=monitor,
+                    poll=0.01,
+                    stall_timeout=0.01,
+                    task_ttl=0.1,
+                    log_path=Path(tmpdir) / "orc.log",
+                    nudge_after=10,
+                    nudge_cooldown=300.0,
+                    nudge_text="continue",
+                    task_id="REFACT-103",
+                    task_text="repro",
+                )
+
+        self.assertEqual(result, "ttl_exceeded")
+        monitor.force_finalize_live_tool_calls.assert_not_called()
 
     def test_wait_for_completion_does_not_finish_only_from_done_backlog_while_agent_running(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -298,6 +423,39 @@ class SupervisorLifecycleTest(unittest.TestCase):
             )
 
         self.assertEqual(result, "waiting_for_input")
+
+    @patch("orc_core.supervisor_lifecycle.timeline_instant")
+    def test_wait_for_completion_emits_timeline_exit_reason(self, timeline_mock) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text("{}", encoding="utf-8")
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.ui_followup_prompt = True
+            monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
+
+            result = wait_for_completion(
+                task_path=task_path,
+                monitor=monitor,
+                poll=0.01,
+                stall_timeout=30.0,
+                task_ttl=30.0,
+                log_path=Path(tmpdir) / "orc.log",
+                nudge_after=10,
+                nudge_cooldown=300.0,
+                nudge_text="continue",
+                task_id="REFACT-021",
+                task_text="repro",
+                timeline_id="tl-1",
+                attempt=2,
+            )
+
+        self.assertEqual(result, "waiting_for_input")
+        matching = [
+            kwargs
+            for _, kwargs in timeline_mock.call_args_list
+            if kwargs.get("step") == "wait_for_completion_exit" and kwargs.get("result") == "waiting_for_input"
+        ]
+        self.assertTrue(matching)
 
     def test_wait_for_completion_ttl_counts_elapsed_before_start(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
