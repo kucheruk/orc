@@ -9,7 +9,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Deque, Dict, Optional
 
-from .text_parse import clean_summary_lines, extract_tokens_from_text
+from .text_parse import clean_summary_lines
 
 
 @dataclass
@@ -43,6 +43,11 @@ class MonitorSnapshot:
     progress_remaining: int = 0
     progress_added_delta: int = 0
     eta_seconds: Optional[float] = None
+    live_phase: str = "starting"
+    live_status: str = "starting, no messages yet"
+    live_since: float = 0.0
+    active_tool_call_count: int = 0
+    is_subagent_activity: bool = False
 
 
 class StreamMonitorState:
@@ -90,6 +95,12 @@ class StreamMonitorState:
         self._last_event_at = started_at
         self._seen_token_usage_keys: set[str] = set()
         self._max_tokens_by_request: dict[str, int] = {}
+        self._active_tool_calls: dict[str, dict[str, object]] = {}
+        self._active_tool_order: Deque[str] = deque(maxlen=32)
+        self._live_phase = "starting"
+        self._live_status = "starting, no messages yet"
+        self._live_since = started_at
+        self._is_subagent_activity = False
 
     def set_progress(self, done: int, total: int) -> None:
         self._progress_done = max(0, int(done))
@@ -126,6 +137,11 @@ class StreamMonitorState:
             progress_remaining=remaining,
             progress_added_delta=self._progress_added_delta,
             eta_seconds=self._eta_seconds,
+            live_phase=self._live_phase,
+            live_status=self._live_status,
+            live_since=self._live_since,
+            active_tool_call_count=len(self._active_tool_calls),
+            is_subagent_activity=self._is_subagent_activity,
         )
 
     def summary_text(self) -> str:
@@ -453,6 +469,97 @@ class StreamMonitorState:
         normalized = re.sub(r"ToolCall$", "", payload_key.strip())
         return normalized.strip()
 
+    def _is_subagent_tool(self, tool_label: str) -> bool:
+        normalized = re.sub(r"[^a-z0-9]", "", str(tool_label or "").strip().lower())
+        return normalized in {"task", "subagent", "subagenttask", "subagentdrivendevelopment"}
+
+    def _set_live_status(self, phase: str, status: str, *, is_subagent: Optional[bool] = None) -> None:
+        normalized_phase = str(phase or "waiting").strip() or "waiting"
+        normalized_status = str(status or "").strip() or "waiting for output"
+        normalized_subagent = self._is_subagent_activity if is_subagent is None else bool(is_subagent)
+        if (
+            normalized_phase != self._live_phase
+            or normalized_status != self._live_status
+            or normalized_subagent != self._is_subagent_activity
+        ):
+            self._live_phase = normalized_phase
+            self._live_status = normalized_status
+            self._is_subagent_activity = normalized_subagent
+            self._live_since = time.time()
+
+    def _tool_call_label_from_event(self, event: Dict[str, object]) -> tuple[str, str]:
+        tool_call_payload = event.get("tool_call")
+        if isinstance(tool_call_payload, dict):
+            for payload_key, payload_value in tool_call_payload.items():
+                if not isinstance(payload_key, str) or not payload_key.strip():
+                    continue
+                tool_name = self._tool_call_name(payload_key)
+                formatted = self._format_tool_call_with_args(payload_key, payload_value)
+                if formatted:
+                    return tool_name, formatted
+                if tool_name:
+                    return tool_name, tool_name.lower()
+        for key in ("tool_name", "tool", "name", "function"):
+            value = event.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip(), value.strip().lower()
+        return "tool", "tool"
+
+    def _active_tool_status(self) -> tuple[str, bool]:
+        while self._active_tool_order and self._active_tool_order[0] not in self._active_tool_calls:
+            self._active_tool_order.popleft()
+        if self._active_tool_order:
+            entry = self._active_tool_calls.get(self._active_tool_order[0], {})
+            label = str(entry.get("label") or "tool").strip() or "tool"
+            is_subagent = bool(entry.get("is_subagent") is True)
+            return label, is_subagent
+        if not self._active_tool_calls:
+            return "tool", False
+        first_entry = next(iter(self._active_tool_calls.values()))
+        label = str(first_entry.get("label") or "tool").strip() or "tool"
+        is_subagent = bool(first_entry.get("is_subagent") is True)
+        return label, is_subagent
+
+    def _remember_tool_activity(self, event: Dict[str, object], event_type: str, subtype: str) -> None:
+        if event_type != "tool_call":
+            return
+        subtype_lower = str(subtype or "").strip().lower()
+        call_id_raw = event.get("call_id")
+        call_id = str(call_id_raw).strip() if isinstance(call_id_raw, str) else ""
+        if subtype_lower == "started":
+            tool_name, label = self._tool_call_label_from_event(event)
+            entry = {
+                "tool_name": tool_name,
+                "label": label,
+                "started_at": time.time(),
+                "is_subagent": self._is_subagent_tool(tool_name),
+            }
+            if not call_id:
+                call_id = f"anon-{int(time.time() * 1000)}-{len(self._active_tool_calls)}"
+            self._active_tool_calls[call_id] = entry
+            self._active_tool_order.appendleft(call_id)
+            self._set_live_status(
+                "subagent" if bool(entry["is_subagent"]) else "tool_call",
+                f"running {label}",
+                is_subagent=bool(entry["is_subagent"]),
+            )
+            return
+        if subtype_lower == "completed":
+            if call_id and call_id in self._active_tool_calls:
+                self._active_tool_calls.pop(call_id, None)
+            elif self._active_tool_order:
+                fallback_id = self._active_tool_order.popleft()
+                self._active_tool_calls.pop(fallback_id, None)
+            if self._active_tool_calls:
+                label, is_subagent = self._active_tool_status()
+                self._set_live_status(
+                    "subagent" if is_subagent else "tool_call",
+                    f"running {label}",
+                    is_subagent=is_subagent,
+                )
+            else:
+                self._set_live_status("waiting", "waiting for next event", is_subagent=False)
+
     def _format_tool_call_with_args(self, payload_key: str, payload: object) -> str:
         if not isinstance(payload, dict):
             return ""
@@ -618,6 +725,7 @@ class StreamMonitorState:
         event_type = str(event.get("type") or "")
         subtype = str(event.get("subtype") or "")
         stream_kind = self._reasoning_stream_kind_for_event(event_type, subtype)
+        self._remember_tool_activity(event, event_type, subtype)
         self._last_event_type = event_type or "event"
         self._last_event_note = subtype or "update"
         if event_type == "tool_call" and subtype == "started":
@@ -647,10 +755,6 @@ class StreamMonitorState:
                 self.metrics.tokens_status = "known"
                 self.metrics.tokens_source = "structured"
                 structured_applied = True
-        if text:
-            text_tokens = extract_tokens_from_text(text)
-            if text_tokens is not None and (tokens is None or text_tokens > tokens):
-                tokens = text_tokens
         raw_tokens = self._extract_tokens_from_raw(raw)
         if raw_tokens is not None and (tokens is None or raw_tokens > tokens):
             tokens = raw_tokens
@@ -668,6 +772,27 @@ class StreamMonitorState:
             if preview:
                 self._last_event_note = preview[:80]
         self._remember_reasoning_from_stream(event, event_type, subtype, text)
+        if event_type in {"thinking", "analysis"}:
+            fragment = self._extract_reasoning_fragment(event, text)
+            preview = self._trim_fragment(" ".join(fragment.split()).strip()) if fragment else ""
+            status = f"thinking {preview}" if preview else "thinking"
+            self._set_live_status("thinking", status, is_subagent=False)
+        elif event_type == "assistant":
+            preview = self._trim_fragment(" ".join(text.split()).strip()) if text else ""
+            status = f"responding {preview}" if preview else "responding"
+            self._set_live_status("assistant", status, is_subagent=False)
+        elif event_type == "result":
+            status = str(event.get("status") or subtype or "result").strip().lower() or "result"
+            self._set_live_status("waiting", f"result {status}", is_subagent=False)
+        elif event_type != "tool_call" and self._active_tool_calls:
+            label, is_subagent = self._active_tool_status()
+            self._set_live_status(
+                "subagent" if is_subagent else "tool_call",
+                f"running {label}",
+                is_subagent=is_subagent,
+            )
+        elif event_type not in {"tool_call", "thinking", "analysis", "assistant", "result"}:
+            self._set_live_status("waiting", "waiting for output", is_subagent=False)
 
         self._remember_command(event)
         self._remember_paths(event)

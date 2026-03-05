@@ -291,7 +291,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_total, 15)
         self.assertEqual(state.metrics.tokens_source, "heuristic")
 
-    def test_text_fallback_can_apply_when_structured_entries_add_zero(self) -> None:
+    def test_text_fallback_is_ignored_when_structured_entries_add_zero(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
@@ -304,8 +304,22 @@ class StreamMonitorFormattingTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(state.metrics.tokens_total, 42)
+        self.assertEqual(state.metrics.tokens_total, 0)
         self.assertEqual(state.metrics.tokens_source, "heuristic")
+
+    def test_text_only_3k_tokens_does_not_set_tokens_total(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "Status: ~3k tokens so far"}]},
+            }
+        )
+
+        self.assertIsNone(state.metrics.tokens_total)
+        self.assertEqual(state.metrics.tokens_source, "none")
 
     def test_event_summary_contains_useful_context(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
@@ -605,11 +619,76 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         monitor._update_eta_forecast = lambda: None
         monitor._write_metrics_snapshot = lambda: None
         monitor._publish_snapshot = MagicMock()
+        monitor._last_live_status_marker = None
+        monitor._state.build_snapshot.return_value = SimpleNamespace(
+            live_phase="waiting",
+            live_status="waiting for output",
+            active_tool_call_count=0,
+            is_subagent_activity=False,
+        )
         monitor.task_id = "TASK-1"
 
         monitor.maybe_report()
         monitor._state.tick_spinner.assert_called_once()
         monitor._publish_snapshot.assert_called_once()
+
+    def test_live_status_switches_to_tool_call_when_tool_starts(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "call_id": "call-1",
+                "tool_call": {"readToolCall": {"args": {"path": "/tmp/demo.txt"}}},
+            }
+        )
+        snapshot = state.build_snapshot()
+        self.assertEqual(snapshot.live_phase, "tool_call")
+        self.assertIn("running read /tmp/demo.txt", snapshot.live_status.lower())
+        self.assertEqual(snapshot.active_tool_call_count, 1)
+        self.assertFalse(snapshot.is_subagent_activity)
+
+    def test_live_status_marks_subagent_phase_for_task_tool(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "call_id": "call-task",
+                "tool_call": {"taskToolCall": {"args": {"description": "run subagent"}}},
+            }
+        )
+        snapshot = state.build_snapshot()
+        self.assertEqual(snapshot.live_phase, "subagent")
+        self.assertTrue(snapshot.is_subagent_activity)
+        self.assertEqual(snapshot.active_tool_call_count, 1)
+
+    def test_live_status_returns_to_waiting_after_tool_completion(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "call_id": "call-2",
+                "tool_call": {"globToolCall": {"args": {"globPattern": "**/*.py"}}},
+            }
+        )
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "completed",
+                "call_id": "call-2",
+            }
+        )
+        snapshot = state.build_snapshot()
+        self.assertEqual(snapshot.live_phase, "waiting")
+        self.assertEqual(snapshot.active_tool_call_count, 0)
 
     def test_refresh_backlog_progress_reads_counts_from_backlog_file(self) -> None:
         monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)

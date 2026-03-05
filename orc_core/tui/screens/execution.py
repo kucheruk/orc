@@ -31,6 +31,11 @@ class ExecutionScreen(Screen[None]):
     eta_seconds = reactive(None)
     started_at = reactive(0.0)
     last_event_at = reactive(None)
+    live_phase = reactive("starting")
+    live_status = reactive("starting, no messages yet")
+    live_since = reactive(0.0)
+    active_tool_call_count = reactive(0)
+    is_subagent_activity = reactive(False)
 
     def __init__(self) -> None:
         super().__init__()
@@ -43,6 +48,7 @@ class ExecutionScreen(Screen[None]):
             yield Label("", id="mode_label")
             yield Label("", id="stats_label")
             yield ProgressBar(total=1, id="progress")
+            yield Label("", id="debug_log_label")
             yield Label("", id="activity_label")
             with Grid(id="recent_grid"):
                 yield Static("", id="recent_commands")
@@ -76,9 +82,6 @@ class ExecutionScreen(Screen[None]):
         self._refresh_task_label()
         self._refresh_stats_and_activity()
 
-    def watch_eta_seconds(self, _value: Optional[float]) -> None:
-        self._refresh_stats_and_activity()
-
     def watch_total_lines(self, _value: int) -> None:
         self._refresh_stats_and_activity()
 
@@ -86,19 +89,35 @@ class ExecutionScreen(Screen[None]):
         mins, secs = divmod(int(max(seconds, 0.0)), 60)
         return f"{mins:02d}:{secs:02d}"
 
-    def _activity_markup(self, idle_seconds: Optional[float]) -> str:
-        if idle_seconds is None:
-            return "[blue]Agent activity: starting, no messages yet[/blue]"
-        if idle_seconds < 15.0:
-            return "[green]Agent activity: active now[/green]"
-        if idle_seconds < 60.0:
-            return f"[yellow]Agent activity: waiting {self._format_duration(idle_seconds)}[/yellow]"
-        return f"[red]Agent activity: idle {self._format_duration(idle_seconds)}[/red]"
+    def _activity_markup(self) -> str:
+        phase = str(self.live_phase or "starting").strip().lower()
+        status = str(self.live_status or "").strip() or "waiting for output"
+        status = status[:96]
+        since = float(self.live_since or 0.0)
+        age_seconds = max(time.time() - since, 0.0) if since > 0 else 0.0
+        age_text = self._format_duration(age_seconds)
+        role = "SUBAGENT" if self.is_subagent_activity else "AGENT"
 
-    def _format_eta(self, eta_seconds: Optional[float]) -> str:
-        if eta_seconds is None:
-            return "unknown"
-        return self._format_duration(eta_seconds)
+        if phase == "starting":
+            return f"[blue]{role} BOOT {status}[/blue]"
+        if phase == "thinking":
+            return f"[blue]{role} THINK {status} [{age_text}][/blue]"
+        if phase in {"tool_call", "subagent"}:
+            count = max(int(self.active_tool_call_count or 0), 0)
+            tool_suffix = f" x{count}" if count > 1 else ""
+            color = "magenta" if (self.is_subagent_activity or phase == "subagent") else "cyan"
+            return f"[{color}]{role} EXEC {status}{tool_suffix} [{age_text}][/{color}]"
+        if phase == "assistant":
+            return f"[green]{role} OUTPUT {status} [{age_text}][/green]"
+        if age_seconds < 60.0:
+            return f"[yellow]{role} WAIT {status} [{age_text}][/yellow]"
+        return f"[red]{role} STALL? {status} [{age_text}][/red]"
+
+    def _format_debug_log_label(self) -> str:
+        debug_log_path = get_debug_log_path()
+        if debug_log_path is None:
+            return ""
+        return f"Debug log: {debug_log_path.name}"
 
     def _progress_delta_markup(self) -> str:
         if self.progress_added_delta <= 0:
@@ -119,20 +138,17 @@ class ExecutionScreen(Screen[None]):
     def _refresh_stats_and_activity(self) -> None:
         elapsed = int(max(time.time() - self.started_at, 0.0))
         self._refresh_mode_label()
-        debug_log_path = get_debug_log_path()
-        debug_part = f" | Debug log: {debug_log_path}" if debug_log_path is not None else ""
         git_part = f" | Git: [green]+{self.git_added}[/green] [red]-{self.git_deleted}[/red]"
         delta_part = f" [yellow](+{self.progress_added_delta})[/yellow]" if self.progress_added_delta > 0 else ""
-        eta_text = self._format_eta(self.eta_seconds)
         self.query_one("#stats_label", Label).update(
             f"Elapsed: {self._format_duration(elapsed)} | "
             f"Done: {self.progress_done} | Ahead: {self.progress_remaining} | "
-            f"Total: {self.progress_total}{delta_part} | ETA: {eta_text} | "
+            f"Total: {self.progress_total}{delta_part} | "
             f"Lines: {self.total_lines} | Commands: {self.commands_count} | "
-            f"Files: {self.files_edited}{git_part} | Tokens: {self.tokens_total}{debug_part}"
+            f"Files: {self.files_edited}{git_part} | Tokens: {self.tokens_total}"
         )
-        idle_seconds = None if self.last_event_at is None else max(time.time() - self.last_event_at, 0.0)
-        self.query_one("#activity_label", Label).update(self._activity_markup(idle_seconds))
+        self.query_one("#debug_log_label", Label).update(self._format_debug_log_label())
+        self.query_one("#activity_label", Label).update(self._activity_markup())
 
     def update_from_snapshot(self, snapshot: MonitorSnapshot) -> None:
         self.task_title = f"Task: {snapshot.task_id}"
@@ -154,6 +170,11 @@ class ExecutionScreen(Screen[None]):
         self.git_deleted = str(snapshot.metrics.git_deleted if snapshot.metrics.git_deleted is not None else "-")
         self.last_event = f"{snapshot.last_event_type}:{snapshot.last_event_note[:80]}"
         self.last_event_at = snapshot.last_event_at if snapshot.last_event_at > 0 else None
+        self.live_phase = snapshot.live_phase
+        self.live_status = snapshot.live_status
+        self.live_since = snapshot.live_since
+        self.active_tool_call_count = snapshot.active_tool_call_count
+        self.is_subagent_activity = snapshot.is_subagent_activity
         self._update_recent(snapshot)
         self._replace_log("reasoning_log", snapshot.reasoning_lines, empty="waiting for reasoning...")
         self._replace_log("events_log", snapshot.recent_events[-8:], empty="waiting for events...")
