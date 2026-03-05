@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import json
 import asyncio
+import json
 import re
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Protocol
 
 from .hooks import update_task_restart_count, write_task_file
-from .logging import debug_log, log_event
+from .logging import debug_log, log_event, timeline_instant, timeline_step_finished, timeline_step_started
 from .notify import send_telegram_message
 from .process import (
     ORPHAN_SWEEP_COMMAND_MARKERS,
@@ -22,7 +23,7 @@ from .process import (
     kill_process_tree,
 )
 from .process_groups import terminate_process_group
-from .quit_signal import is_stop_requested
+from .quit_signal import is_quit_after_task_requested, is_stop_requested
 from .runner import launch_agent_stream_json
 from .stream_monitor_state import MonitorSnapshot
 from .supervisor_lifecycle import wait_for_completion, wait_for_process_exit
@@ -105,6 +106,8 @@ class TaskWorker(Protocol):
         resume_id: Optional[str] = None,
         resume_latest: bool = False,
         resume_prompt: Optional[str] = None,
+        timeline_id: str = "",
+        attempt: int = 0,
     ):
         ...
 
@@ -128,6 +131,8 @@ class AgentTaskWorker:
         resume_id: Optional[str] = None,
         resume_latest: bool = False,
         resume_prompt: Optional[str] = None,
+        timeline_id: str = "",
+        attempt: int = 0,
     ):
         return launch_agent_stream_json(
             workdir,
@@ -145,6 +150,8 @@ class AgentTaskWorker:
             resume_id=resume_id,
             resume_latest=resume_latest,
             resume_prompt=resume_prompt,
+            timeline_id=timeline_id,
+            attempt=attempt,
         )
 
 
@@ -499,11 +506,31 @@ def _run_commit_phase(
     tag: str,
     log_path: Path,
     agent_output_log_path: Optional[str],
+    timeline_id: str,
+    attempt: int,
 ) -> bool:
+    commit_started_ms = timeline_step_started(
+        timeline_id=timeline_id,
+        task_id=task_id,
+        step="commit_phase",
+        location="orc_core/task_execution.py:_run_commit_phase",
+        attempt=attempt,
+        data={"model": request.commit_model},
+    )
     ok, porcelain = _git_status_porcelain(request.workdir, log_path)
     if ok and not porcelain.strip():
         log_event(log_path, "INFO", "commit phase skipped: clean tree", task_id=task_id)
         ui_info("[orc] commit phase: skip (clean tree)")
+        timeline_step_finished(
+            timeline_id=timeline_id,
+            task_id=task_id,
+            step="commit_phase",
+            location="orc_core/task_execution.py:_run_commit_phase",
+            attempt=attempt,
+            started_at_ms=commit_started_ms,
+            result="completed",
+            reason="clean_tree",
+        )
         return True
 
     prompt = request.commit_template.format_map(prompt_vars)
@@ -525,10 +552,23 @@ def _run_commit_phase(
             agent_output_log_path=agent_output_log_path,
             agent_env=request.agent_env,
             snapshot_publisher=request.snapshot_publisher,
+            timeline_id=timeline_id,
+            attempt=attempt,
         )
     except Exception as exc:
         log_event(log_path, "ERROR", "commit phase launch failed", task_id=task_id, error=str(exc))
         ui_error(f"[orc] commit phase: launch failed ({type(exc).__name__})")
+        timeline_step_finished(
+            timeline_id=timeline_id,
+            task_id=task_id,
+            step="commit_phase",
+            location="orc_core/task_execution.py:_run_commit_phase",
+            attempt=attempt,
+            started_at_ms=commit_started_ms,
+            result="failed",
+            reason="launch_failed",
+            data={"error": str(exc)},
+        )
         return False
     try:
         result = wait_for_process_exit(
@@ -539,6 +579,9 @@ def _run_commit_phase(
             log_path=log_path,
             label="commit_phase",
             stop_on_followup_prompt=True,
+            timeline_id=timeline_id,
+            task_id=task_id,
+            attempt=attempt,
             escape_requested=is_stop_requested,
         )
     finally:
@@ -548,6 +591,16 @@ def _run_commit_phase(
     if result != "completed":
         log_event(log_path, "ERROR", "commit phase failed", task_id=task_id, result=result)
         ui_error(f"[orc] commit phase: failed ({result})")
+        timeline_step_finished(
+            timeline_id=timeline_id,
+            task_id=task_id,
+            step="commit_phase",
+            location="orc_core/task_execution.py:_run_commit_phase",
+            attempt=attempt,
+            started_at_ms=commit_started_ms,
+            result="failed",
+            reason=result,
+        )
         return False
 
     ok2, porcelain2 = _git_status_porcelain(request.workdir, log_path)
@@ -577,6 +630,16 @@ def _run_commit_phase(
         )
         if not tracked and untracked:
             ui_warn("[orc] commit phase: warning (repo has untracked files)")
+            timeline_step_finished(
+                timeline_id=timeline_id,
+                task_id=task_id,
+                step="commit_phase",
+                location="orc_core/task_execution.py:_run_commit_phase",
+                attempt=attempt,
+                started_at_ms=commit_started_ms,
+                result="completed",
+                reason="untracked_leftovers",
+            )
             return True
 
         if tracked:
@@ -585,6 +648,16 @@ def _run_commit_phase(
                 ui_warn("[orc] commit phase: tracked changes remain; attempting fallback commit")
                 if not _attempt_autocommit_fallback(request.workdir, log_path, task_id=task_id, task_text=task_text):
                     ui_error("[orc] commit phase: fallback commit failed")
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="commit_phase",
+                        location="orc_core/task_execution.py:_run_commit_phase",
+                        attempt=attempt,
+                        started_at_ms=commit_started_ms,
+                        result="failed",
+                        reason="fallback_failed",
+                    )
                     return False
 
                 ok3, porcelain3 = _git_status_porcelain(request.workdir, log_path)
@@ -601,11 +674,41 @@ def _run_commit_phase(
                             porcelain=porcelain3[:500],
                         )
                         ui_error("[orc] commit phase: still dirty after fallback")
+                        timeline_step_finished(
+                            timeline_id=timeline_id,
+                            task_id=task_id,
+                            step="commit_phase",
+                            location="orc_core/task_execution.py:_run_commit_phase",
+                            attempt=attempt,
+                            started_at_ms=commit_started_ms,
+                            result="failed",
+                            reason="dirty_after_fallback",
+                        )
                         return False
                     ui_warn("[orc] commit phase: completed (untracked leftovers remain)")
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="commit_phase",
+                        location="orc_core/task_execution.py:_run_commit_phase",
+                        attempt=attempt,
+                        started_at_ms=commit_started_ms,
+                        result="completed",
+                        reason="untracked_leftovers_after_fallback",
+                    )
                     return True
                 log_event(log_path, "INFO", "commit phase completed after fallback", task_id=task_id)
                 ui_info("[orc] commit phase: completed")
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="commit_phase",
+                    location="orc_core/task_execution.py:_run_commit_phase",
+                    attempt=attempt,
+                    started_at_ms=commit_started_ms,
+                    result="completed",
+                    reason="fallback_commit",
+                )
                 return True
 
             log_event(
@@ -618,12 +721,41 @@ def _run_commit_phase(
                 porcelain=porcelain2[:500],
             )
             ui_error("[orc] commit phase: completed but tracked changes remain (fallback disabled)")
+            timeline_step_finished(
+                timeline_id=timeline_id,
+                task_id=task_id,
+                step="commit_phase",
+                location="orc_core/task_execution.py:_run_commit_phase",
+                attempt=attempt,
+                started_at_ms=commit_started_ms,
+                result="failed",
+                reason="tracked_leftovers_fallback_disabled",
+            )
             return False
         ui_warn("[orc] commit phase: completed (untracked leftovers remain)")
+        timeline_step_finished(
+            timeline_id=timeline_id,
+            task_id=task_id,
+            step="commit_phase",
+            location="orc_core/task_execution.py:_run_commit_phase",
+            attempt=attempt,
+            started_at_ms=commit_started_ms,
+            result="completed",
+            reason="untracked_leftovers",
+        )
         return True
 
     log_event(log_path, "INFO", "commit phase completed", task_id=task_id)
     ui_info("[orc] commit phase: completed")
+    timeline_step_finished(
+        timeline_id=timeline_id,
+        task_id=task_id,
+        step="commit_phase",
+        location="orc_core/task_execution.py:_run_commit_phase",
+        attempt=attempt,
+        started_at_ms=commit_started_ms,
+        result="completed",
+    )
     return True
 
 
@@ -635,7 +767,17 @@ def _run_merge_expert_phase(
     tag: str,
     log_path: Path,
     agent_output_log_path: Optional[str],
+    timeline_id: str,
+    attempt: int,
 ) -> bool:
+    merge_started_ms = timeline_step_started(
+        timeline_id=timeline_id,
+        task_id=task_id,
+        step="merge_expert_phase",
+        location="orc_core/task_execution.py:_run_merge_expert_phase",
+        attempt=attempt,
+        data={"model": request.merge_expert_model},
+    )
     prompt = request.merge_expert_template.format_map(prompt_vars)
     prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}__merge_expert")
     log_event(
@@ -662,10 +804,23 @@ def _run_merge_expert_phase(
             agent_output_log_path=agent_output_log_path,
             agent_env=request.agent_env,
             snapshot_publisher=request.snapshot_publisher,
+            timeline_id=timeline_id,
+            attempt=attempt,
         )
     except Exception as exc:
         log_event(log_path, "ERROR", "merge expert phase launch failed", task_id=task_id, error=str(exc))
         ui_error(f"[orc] merge expert phase: launch failed ({type(exc).__name__})")
+        timeline_step_finished(
+            timeline_id=timeline_id,
+            task_id=task_id,
+            step="merge_expert_phase",
+            location="orc_core/task_execution.py:_run_merge_expert_phase",
+            attempt=attempt,
+            started_at_ms=merge_started_ms,
+            result="failed",
+            reason="launch_failed",
+            data={"error": str(exc)},
+        )
         return False
 
     try:
@@ -677,6 +832,9 @@ def _run_merge_expert_phase(
             log_path=log_path,
             label="merge_expert_phase",
             stop_on_followup_prompt=True,
+            timeline_id=timeline_id,
+            task_id=task_id,
+            attempt=attempt,
             escape_requested=is_stop_requested,
         )
     finally:
@@ -686,9 +844,28 @@ def _run_merge_expert_phase(
     if result != "completed":
         log_event(log_path, "ERROR", "merge expert phase failed", task_id=task_id, result=result)
         ui_error(f"[orc] merge expert phase: failed ({result})")
+        timeline_step_finished(
+            timeline_id=timeline_id,
+            task_id=task_id,
+            step="merge_expert_phase",
+            location="orc_core/task_execution.py:_run_merge_expert_phase",
+            attempt=attempt,
+            started_at_ms=merge_started_ms,
+            result="failed",
+            reason=result,
+        )
         return False
     log_event(log_path, "INFO", "merge expert phase completed", task_id=task_id)
     ui_info("[orc] merge expert phase: completed")
+    timeline_step_finished(
+        timeline_id=timeline_id,
+        task_id=task_id,
+        step="merge_expert_phase",
+        location="orc_core/task_execution.py:_run_merge_expert_phase",
+        attempt=attempt,
+        started_at_ms=merge_started_ms,
+        result="completed",
+    )
     return True
 
 
@@ -699,6 +876,14 @@ class TaskExecutionEngine:
 
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResult:
         task_id = request.task.task_id
+        timeline_id = f"{task_id}-{uuid.uuid4().hex[:8]}"
+        execute_started_ms = timeline_step_started(
+            timeline_id=timeline_id,
+            task_id=task_id,
+            step="task_execute",
+            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+            data={"workdir": request.workdir},
+        )
         task_text = request.task.text
         base_backlog_path = request.backlog_path
         runtime_backlog_path = _resolve_runtime_backlog_path(request)
@@ -768,7 +953,17 @@ class TaskExecutionEngine:
                 backlog=request.backlog_arg,
                 workspace=request.workdir,
             )
-            if request.commit_phase and not _run_commit_phase(
+            force_commit_for_quit_after_task = bool((not request.commit_phase) and is_quit_after_task_requested())
+            should_run_commit_phase = bool(request.commit_phase or force_commit_for_quit_after_task)
+            if force_commit_for_quit_after_task:
+                log_event(
+                    self.log_path,
+                    "INFO",
+                    "commit phase forced by quit-after-task request",
+                    task_id=current_task_id,
+                )
+                ui_info("[orc] commit phase: forced by QUIT AFTER TASK")
+            if should_run_commit_phase and not _run_commit_phase(
                 self.worker,
                 request,
                 prompt_vars,
@@ -776,13 +971,32 @@ class TaskExecutionEngine:
                 current_tag,
                 self.log_path,
                 effective_agent_output_log_path,
+                timeline_id,
+                restart_count,
             ):
                 ui_error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=current_task_id,
+                    step="task_execute",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    started_at_ms=execute_started_ms,
+                    result="failed",
+                    reason="commit_phase_failed",
+                )
                 return TaskExecutionResult(status="failed", reason="commit_phase_failed")
-            if request.commit_phase:
+            if should_run_commit_phase:
                 commit_completed = True
 
             if request.integrate_to_main:
+                integration_started_ms = timeline_step_started(
+                    timeline_id=timeline_id,
+                    task_id=current_task_id,
+                    step="main_integration",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    attempt=restart_count + 1,
+                    data={"branch": request.main_branch},
+                )
                 if not _has_commits_ahead_of_branch(request.workdir, request.main_branch, self.log_path):
                     log_event(
                         self.log_path,
@@ -790,6 +1004,24 @@ class TaskExecutionEngine:
                         "main integration skipped: no task commit ahead of main",
                         task_id=current_task_id,
                         branch=request.main_branch,
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="main_integration",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        attempt=restart_count + 1,
+                        started_at_ms=integration_started_ms,
+                        result="skipped",
+                        reason="no_commits_ahead",
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="completed",
                     )
                     return TaskExecutionResult(status="completed", committed=commit_completed)
                 try:
@@ -803,6 +1035,25 @@ class TaskExecutionEngine:
                         error=str(exc),
                     )
                     ui_error("❌ Не удалось определить commit задачи для переноса в main.")
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="main_integration",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        attempt=restart_count + 1,
+                        started_at_ms=integration_started_ms,
+                        result="failed",
+                        reason="integration_commit_sha_failed",
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="failed",
+                        reason="integration_commit_sha_failed",
+                    )
                     return TaskExecutionResult(status="failed", reason="integration_commit_sha_failed")
 
                 integration = integrate_commit_into_main(
@@ -827,7 +1078,28 @@ class TaskExecutionEngine:
                         current_tag,
                         self.log_path,
                         effective_agent_output_log_path,
+                        timeline_id,
+                        restart_count,
                     ):
+                        timeline_step_finished(
+                            timeline_id=timeline_id,
+                            task_id=current_task_id,
+                            step="main_integration",
+                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                            attempt=restart_count + 1,
+                            started_at_ms=integration_started_ms,
+                            result="failed",
+                            reason="merge_expert_phase_failed",
+                        )
+                        timeline_step_finished(
+                            timeline_id=timeline_id,
+                            task_id=current_task_id,
+                            step="task_execute",
+                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                            started_at_ms=execute_started_ms,
+                            result="failed",
+                            reason="merge_expert_phase_failed",
+                        )
                         return TaskExecutionResult(status="failed", reason="merge_expert_phase_failed")
                     integration = integrate_commit_into_main(
                         base_workdir=request.base_workdir,
@@ -846,7 +1118,35 @@ class TaskExecutionEngine:
                         error=integration.error[:500],
                     )
                     ui_error(f"❌ Не удалось перенести commit в {request.main_branch}: {integration.error}")
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="main_integration",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        attempt=restart_count + 1,
+                        started_at_ms=integration_started_ms,
+                        result="failed",
+                        reason="main_integration_failed",
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="failed",
+                        reason="main_integration_failed",
+                    )
                     return TaskExecutionResult(status="failed", reason="main_integration_failed")
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=current_task_id,
+                    step="main_integration",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    attempt=restart_count + 1,
+                    started_at_ms=integration_started_ms,
+                    result="completed",
+                )
             try:
                 from .task_source import MarkdownTaskSource
 
@@ -867,6 +1167,15 @@ class TaskExecutionEngine:
                         "❌ После завершения задачи backlog в base не синхронизирован с worktree. "
                         "Инвариант worktree -> base нарушен."
                     )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="failed",
+                        reason="worktree_not_integrated_to_base",
+                    )
                     return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
             except Exception as exc:
                 log_event(
@@ -878,6 +1187,14 @@ class TaskExecutionEngine:
                     base_backlog_path=str(base_backlog_path),
                     runtime_backlog_path=str(runtime_backlog_path),
                 )
+            timeline_step_finished(
+                timeline_id=timeline_id,
+                task_id=current_task_id,
+                step="task_execute",
+                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                started_at_ms=execute_started_ms,
+                result="completed",
+            )
             return TaskExecutionResult(status="completed", committed=commit_completed)
 
         debug_log(
@@ -908,6 +1225,15 @@ class TaskExecutionEngine:
                 ui_warn(
                     f"⚠️ Не удалось прочитать {request.task_path}. "
                     "Исправь/удали файл состояния или запусти с --drop для чистого старта."
+                )
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="task_execute",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    started_at_ms=execute_started_ms,
+                    result="continue",
+                    reason="task_file_read_failed",
                 )
                 return TaskExecutionResult(status="continue", reason="task_file_read_failed", delay_seconds=max(request.poll, 0.2))
 
@@ -942,6 +1268,15 @@ class TaskExecutionEngine:
                         delete_runtime_state_file(request.task_path, self.log_path, reason="stale_done_task_file")
                     except Exception as exc:
                         log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=active_task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="continue",
+                        reason="stale_done_task_file",
+                    )
                     return TaskExecutionResult(status="continue", reason="stale_done_task_file")
 
             if resume_existing:
@@ -963,6 +1298,15 @@ class TaskExecutionEngine:
                     ui_error(
                         "❌ Resume state поврежден: отсутствует conversation_id в task file. "
                         "Запусти с --drop для намеренного перезапуска без resume."
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="failed",
+                        reason="missing_conversation_id",
                     )
                     return TaskExecutionResult(status="failed", reason="missing_conversation_id")
                 log_event(
@@ -990,6 +1334,15 @@ class TaskExecutionEngine:
 
         restart_count = persisted_restart_count if resume_existing else 0
         while True:
+            attempt_number = restart_count + 1
+            attempt_started_ms = timeline_step_started(
+                timeline_id=timeline_id,
+                task_id=task_id,
+                step="agent_attempt",
+                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                attempt=attempt_number,
+                data={"restart_count": restart_count},
+            )
             update_task_restart_count(request.task_path, self.log_path, restart_count)
             log_event(self.log_path, "INFO", "launching agent", task_id=task_id, restart_count=restart_count)
             try:
@@ -1009,30 +1362,72 @@ class TaskExecutionEngine:
                     resume_id=resume_id if resume_existing else None,
                     resume_latest=False,
                     resume_prompt=resume_prompt_text if resume_existing else None,
+                    timeline_id=timeline_id,
+                    attempt=attempt_number,
                 )
             except FileNotFoundError:
                 ui_error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="task_execute",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    started_at_ms=execute_started_ms,
+                    result="failed",
+                    reason="agent_not_found",
+                )
                 return TaskExecutionResult(status="failed", reason="agent_not_found")
 
             try:
-                result = wait_for_completion(
-                    task_path=request.task_path,
-                    monitor=active_monitor,
-                    poll=request.poll,
-                    stall_timeout=request.stall_timeout,
-                    task_ttl=request.task_ttl,
-                    elapsed_before_start=elapsed_before_start,
-                    log_path=self.log_path,
-                    nudge_after=request.nudge_after,
-                    nudge_cooldown=request.nudge_cooldown,
-                    nudge_text=request.nudge_text,
+                wait_started_ms = timeline_step_started(
+                    timeline_id=timeline_id,
                     task_id=task_id,
-                    task_text=task_text,
-                    escape_requested=is_stop_requested,
+                    step="wait_for_completion",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    attempt=attempt_number,
                 )
+                try:
+                    result = wait_for_completion(
+                        task_path=request.task_path,
+                        monitor=active_monitor,
+                        poll=request.poll,
+                        stall_timeout=request.stall_timeout,
+                        task_ttl=request.task_ttl,
+                        elapsed_before_start=elapsed_before_start,
+                        log_path=self.log_path,
+                        nudge_after=request.nudge_after,
+                        nudge_cooldown=request.nudge_cooldown,
+                        nudge_text=request.nudge_text,
+                        task_id=task_id,
+                        task_text=task_text,
+                        timeline_id=timeline_id,
+                        attempt=attempt_number,
+                        escape_requested=is_stop_requested,
+                    )
+                except Exception:
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="wait_for_completion",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        attempt=attempt_number,
+                        started_at_ms=wait_started_ms,
+                        result="failed",
+                        reason="exception",
+                    )
+                    raise
             finally:
                 active_monitor.stop()
                 _cleanup_monitor_processes(active_monitor, self.log_path, label="agent")
+            timeline_step_finished(
+                timeline_id=timeline_id,
+                task_id=task_id,
+                step="wait_for_completion",
+                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                attempt=attempt_number,
+                started_at_ms=wait_started_ms,
+                result=result,
+            )
 
             debug_log(
                 "H8",
@@ -1048,8 +1443,26 @@ class TaskExecutionEngine:
             )
 
             if result == "completed":
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="agent_attempt",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    attempt=attempt_number,
+                    started_at_ms=attempt_started_ms,
+                    result="completed",
+                )
                 return _finalize_completed(task_id, task_text, tag, active_monitor)
             if result == "waiting_for_input":
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="agent_attempt",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    attempt=attempt_number,
+                    started_at_ms=attempt_started_ms,
+                    result="waiting_for_input",
+                )
                 restart_count += 1
                 update_task_restart_count(request.task_path, self.log_path, restart_count)
                 log_event(
@@ -1070,11 +1483,39 @@ class TaskExecutionEngine:
                         max_restarts=request.max_restarts,
                     )
                     ui_error("❌ Агент зациклился на запросе follow-up ввода. Лимит перезапусков исчерпан.")
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="failed",
+                        reason="max_restarts_exceeded",
+                    )
                     return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")
                 delay = max(request.nudge_cooldown, request.poll, 1.0)
+                timeline_instant(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="restart_backoff_sleep",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    attempt=attempt_number,
+                    result="continue",
+                    reason="waiting_for_input",
+                    data={"delay_seconds": delay},
+                )
                 ui_warn(
                     f"[orc] агент запросил follow-up ввод; продолжу цикл через {delay:.1f}s "
                     "(resume сохранен, задача не потеряна)"
+                )
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="task_execute",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    started_at_ms=execute_started_ms,
+                    result="continue",
+                    reason="waiting_for_input",
                 )
                 return TaskExecutionResult(status="continue", reason="waiting_for_input", delay_seconds=delay)
             try:
@@ -1127,6 +1568,16 @@ class TaskExecutionEngine:
                 )
 
             restart_count += 1
+            timeline_step_finished(
+                timeline_id=timeline_id,
+                task_id=task_id,
+                step="agent_attempt",
+                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                attempt=attempt_number,
+                started_at_ms=attempt_started_ms,
+                result="restart",
+                reason=result,
+            )
             if restart_count > request.max_restarts:
                 log_event(self.log_path, "ERROR", "max restarts exceeded", task_id=task_id)
                 debug_log(
@@ -1136,6 +1587,15 @@ class TaskExecutionEngine:
                     {"task_id": task_id, "restart_count": restart_count, "max_restarts": request.max_restarts},
                 )
                 ui_error("❌ Агент не завершил задачу. Проверь логи.")
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="task_execute",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    started_at_ms=execute_started_ms,
+                    result="failed",
+                    reason="max_restarts_exceeded",
+                )
                 return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")
             log_event(self.log_path, "WARN", "restarting task", task_id=task_id, restart_count=restart_count, reason=result)
             reason_text = RESTART_REASON_TEXT.get(result, result)
@@ -1153,7 +1613,24 @@ class TaskExecutionEngine:
             resume_prompt_text = prompt
             delay = _restart_backoff_seconds(restart_count)
             log_event(self.log_path, "INFO", "restart backoff", task_id=task_id, restart_count=restart_count, delay_seconds=delay)
+            backoff_started_ms = timeline_step_started(
+                timeline_id=timeline_id,
+                task_id=task_id,
+                step="restart_backoff_sleep",
+                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                attempt=attempt_number,
+                data={"delay_seconds": delay},
+            )
             time.sleep(delay)
+            timeline_step_finished(
+                timeline_id=timeline_id,
+                task_id=task_id,
+                step="restart_backoff_sleep",
+                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                attempt=attempt_number,
+                started_at_ms=backoff_started_ms,
+                result="completed",
+            )
 
     async def execute_async(self, request: TaskExecutionRequest) -> TaskExecutionResult:
         return await asyncio.to_thread(self.execute, request)

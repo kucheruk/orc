@@ -304,6 +304,38 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 2)
         self.assertIn("Ты перестал выдавать результат", retry_prompt)
 
+    @patch("orc_core.task_execution.timeline_step_finished")
+    @patch("orc_core.task_execution.timeline_step_started")
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    def test_execute_emits_timeline_start_finish_pairs(
+        self,
+        _wait_for_completion,
+        _write_task_file,
+        _update_task_restart_count,
+        _kill_process_tree,
+        timeline_started_mock,
+        timeline_finished_mock,
+    ) -> None:
+        timeline_started_mock.return_value = 1000
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = engine.execute(self._request(tmpdir))
+
+        self.assertEqual(result.status, "completed")
+        started_steps = [kwargs.get("step") for _, kwargs in timeline_started_mock.call_args_list]
+        finished_steps = [kwargs.get("step") for _, kwargs in timeline_finished_mock.call_args_list]
+        self.assertIn("task_execute", started_steps)
+        self.assertIn("agent_attempt", started_steps)
+        self.assertIn("wait_for_completion", started_steps)
+        self.assertIn("task_execute", finished_steps)
+        self.assertIn("agent_attempt", finished_steps)
+        self.assertIn("wait_for_completion", finished_steps)
+
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
@@ -394,6 +426,50 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = engine.execute(self._request(tmpdir, commit_phase=True))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "commit_phase_failed")
+
+    @patch("orc_core.task_execution.is_quit_after_task_requested", return_value=True)
+    @patch("orc_core.task_execution._run_commit_phase", return_value=True)
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    def test_quit_after_task_forces_commit_phase_when_disabled(
+        self,
+        _wait_for_completion,
+        _write_task_file,
+        _update_task_restart_count,
+        _kill_process_tree,
+        run_commit_phase,
+        _is_quit_after_task_requested,
+    ) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = engine.execute(self._request(tmpdir, commit_phase=False))
+
+        self.assertEqual(result.status, "completed")
+        self.assertTrue(result.committed)
+        run_commit_phase.assert_called_once()
+
+    @patch("orc_core.task_execution.is_quit_after_task_requested", return_value=True)
+    @patch("orc_core.task_execution._run_commit_phase", return_value=False)
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    def test_quit_after_task_forced_commit_failure_returns_failed_status(
+        self,
+        *_mocks,
+    ) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = engine.execute(self._request(tmpdir, commit_phase=False))
 
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.reason, "commit_phase_failed")
@@ -603,6 +679,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
                 agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
+                timeline_id="tl-1",
+                attempt=1,
             )
 
         self.assertFalse(ok)
@@ -634,6 +712,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
                 agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
+                timeline_id="tl-1",
+                attempt=1,
             )
 
         self.assertTrue(ok)
@@ -665,6 +745,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
                 agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
+                timeline_id="tl-1",
+                attempt=1,
             )
 
         self.assertFalse(ok)
@@ -688,6 +770,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
                 agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
+                timeline_id="tl-1",
+                attempt=1,
             )
 
         self.assertTrue(ok)
@@ -715,6 +799,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
                 agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
+                timeline_id="tl-1",
+                attempt=1,
             )
 
         self.assertTrue(ok)
@@ -733,6 +819,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
                 agent_output_log_path=str(Path(tmpdir) / ".orc" / "raw-stream.log"),
+                timeline_id="tl-1",
+                attempt=1,
             )
 
         self.assertFalse(ok)

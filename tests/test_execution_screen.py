@@ -184,6 +184,7 @@ class ExecutionScreenRenderTest(unittest.TestCase):
                 screen.set_quit_after_task_requested(True)
                 mode = screen.query_one("#mode_label")
                 self.assertIn("QUIT AFTER TASK", str(mode.render()))
+                self.assertIn("commit phase will run", str(mode.render()))
                 screen.set_quit_after_task_requested(False)
                 self.assertIn("Mode: normal", str(mode.render()))
 

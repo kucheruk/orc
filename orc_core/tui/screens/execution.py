@@ -131,7 +131,9 @@ class ExecutionScreen(Screen[None]):
 
     def _refresh_mode_label(self) -> None:
         if self._quit_after_task_requested:
-            self.query_one("#mode_label", Label).update("[bold red]QUIT AFTER TASK: ACTIVE[/bold red]")
+            self.query_one("#mode_label", Label).update(
+                "[bold red]QUIT AFTER TASK: ACTIVE (commit phase will run)[/bold red]"
+            )
             return
         self.query_one("#mode_label", Label).update("[green]Mode: normal[/green]")
 
