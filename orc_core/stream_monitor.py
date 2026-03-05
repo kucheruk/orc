@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, Mapping, Optional, TextIO
 
 from .atomic_io import write_json_atomic
-from .logging import log_event
+from .logging import log_event, now_ms, timeline_instant
 from .process import kill_process_tree
 from .process_groups import resolve_process_group_id, subprocess_group_spawn_kwargs, terminate_process_group
 from .stream_monitor_state import MonitorSnapshot, StreamMonitorState
@@ -44,6 +44,8 @@ class StreamJsonMonitor:
         agent_output_log_path: Optional[str] = None,
         child_env_overrides: Optional[Mapping[str, str]] = None,
         snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
+        timeline_id: str = "",
+        attempt: int = 0,
     ) -> None:
         self._agent_cmd = list(agent_cmd)
         self.proc = _ProcessProxy()
@@ -55,6 +57,8 @@ class StreamJsonMonitor:
         self.init_pid: Optional[int] = None
         self.process_group_id: Optional[int] = None
         self.run_token = uuid.uuid4().hex
+        self.timeline_id = str(timeline_id or "")
+        self.attempt = max(int(attempt), 0)
         self.stderr_count = 0
         self.last_stderr_line = ""
         self.last_nudge_time = 0.0
@@ -92,6 +96,8 @@ class StreamJsonMonitor:
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._spawned = threading.Event()
         self._spawn_error: Optional[BaseException] = None
+        self._first_output_recorded = False
+        self._last_live_status_marker: tuple[str, str, int, bool] | None = None
         self._runner_thread = threading.Thread(target=self._run_event_loop, daemon=True)
         self._runner_thread.start()
         if not self._spawned.wait(timeout=20.0):
@@ -118,6 +124,17 @@ class StreamJsonMonitor:
 
     def _record_event(self, event: Dict[str, object]) -> None:
         self.last_output_time = time.time()
+        if not self._first_output_recorded:
+            self._first_output_recorded = True
+            timeline_instant(
+                timeline_id=str(getattr(self, "timeline_id", "") or ""),
+                task_id=self.task_id,
+                step="first_meaningful_output",
+                location="orc_core/stream_monitor.py:StreamJsonMonitor._record_event",
+                attempt=max(int(getattr(self, "attempt", 0) or 0), 0),
+                result="received",
+                data={"latency_ms": max(now_ms() - int(self.started_at * 1000), 0)},
+            )
         event_type, subtype, raw = self._state.record_event(event)
         if event_type == "result":
             status = subtype or str(event.get("status") or "")
@@ -181,6 +198,9 @@ class StreamJsonMonitor:
         stderr_task = asyncio.create_task(self._read_stderr(self._proc.stderr))
         await self._proc.wait()
         self.proc.returncode = self._proc.returncode
+        self._finalize_orphaned_tool_calls_on_process_exit(
+            reason=f"process_exit_rc_{int(self.proc.returncode or 0)}"
+        )
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
     def _append_agent_output(self, stream_name: str, payload: str) -> None:
@@ -229,6 +249,8 @@ class StreamJsonMonitor:
             log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)
 
     def _update_git_stats(self) -> None:
+        started_ms = now_ms()
+
         def read_numstat(args: list[str]) -> Optional[str]:
             try:
                 result = subprocess.run(
@@ -251,6 +273,16 @@ class StreamJsonMonitor:
         unstaged = read_numstat(["git", "diff", "--numstat"])
         staged = read_numstat(["git", "diff", "--numstat", "--cached"])
         if unstaged is None and staged is None:
+            timeline_instant(
+                timeline_id=str(getattr(self, "timeline_id", "") or ""),
+                task_id=self.task_id,
+                step="git_stats_update",
+                location="orc_core/stream_monitor.py:StreamJsonMonitor._update_git_stats",
+                attempt=max(int(getattr(self, "attempt", 0) or 0), 0),
+                result="skipped",
+                reason="git_stats_unavailable",
+                data={"duration_ms": max(now_ms() - started_ms, 0)},
+            )
             return
 
         added = 0
@@ -277,6 +309,15 @@ class StreamJsonMonitor:
         files_changed = len(files)
         if files_changed:
             self.metrics.files_edited = files_changed
+        timeline_instant(
+            timeline_id=str(getattr(self, "timeline_id", "") or ""),
+            task_id=self.task_id,
+            step="git_stats_update",
+            location="orc_core/stream_monitor.py:StreamJsonMonitor._update_git_stats",
+            attempt=max(int(getattr(self, "attempt", 0) or 0), 0),
+            result="updated",
+            data={"duration_ms": max(now_ms() - started_ms, 0), "files_changed": files_changed},
+        )
 
     def _write_metrics_snapshot(self) -> None:
         try:
@@ -339,6 +380,7 @@ class StreamJsonMonitor:
         self._state.set_eta_seconds(avg_seconds * remaining if remaining > 0 else 0.0)
 
     def _update_task_runtime_state(self) -> None:
+        started_ms = now_ms()
         now = time.time()
         runtime_path = self._task_runtime_state_path
         payload = load_runtime_payload(runtime_path)
@@ -360,8 +402,18 @@ class StreamJsonMonitor:
             write_json_atomic(runtime_path, payload, ensure_ascii=False, indent=2)
         except Exception as exc:
             log_event(self.log_path, "WARN", "task runtime heartbeat write failed", error=str(exc))
+        timeline_instant(
+            timeline_id=str(getattr(self, "timeline_id", "") or ""),
+            task_id=self.task_id,
+            step="runtime_state_update",
+            location="orc_core/stream_monitor.py:StreamJsonMonitor._update_task_runtime_state",
+            attempt=max(int(getattr(self, "attempt", 0) or 0), 0),
+            result="ok",
+            data={"duration_ms": max(now_ms() - started_ms, 0)},
+        )
 
     def maybe_report(self) -> None:
+        started_ms = now_ms()
         now = time.time()
         if now - self._last_report_time < self._report_interval:
             return
@@ -375,6 +427,28 @@ class StreamJsonMonitor:
         self._write_metrics_snapshot()
         self._state.tick_spinner()
         self._publish_snapshot()
+        live_snapshot = self._state.build_snapshot()
+        live_marker = (
+            str(getattr(live_snapshot, "live_phase", "")),
+            str(getattr(live_snapshot, "live_status", "")),
+            int(getattr(live_snapshot, "active_tool_call_count", 0)),
+            bool(getattr(live_snapshot, "is_subagent_activity", False)),
+        )
+        if live_marker != self._last_live_status_marker:
+            self._last_live_status_marker = live_marker
+            timeline_instant(
+                timeline_id=str(getattr(self, "timeline_id", "") or ""),
+                task_id=self.task_id,
+                step="live_status_update",
+                location="orc_core/stream_monitor.py:StreamJsonMonitor.maybe_report",
+                attempt=max(int(getattr(self, "attempt", 0) or 0), 0),
+                result=live_marker[0],
+                data={
+                    "status": live_marker[1],
+                    "active_tool_calls": live_marker[2],
+                    "is_subagent_activity": live_marker[3],
+                },
+            )
         log_event(
             self.log_path,
             "INFO",
@@ -384,6 +458,15 @@ class StreamJsonMonitor:
             commands=self.metrics.command_count,
             files_edited=self.metrics.files_edited if self.metrics.files_edited is not None else "-",
         )
+        timeline_instant(
+            timeline_id=str(getattr(self, "timeline_id", "") or ""),
+            task_id=self.task_id,
+            step="monitor_maybe_report",
+            location="orc_core/stream_monitor.py:StreamJsonMonitor.maybe_report",
+            attempt=max(int(getattr(self, "attempt", 0) or 0), 0),
+            result="reported",
+            data={"duration_ms": max(now_ms() - started_ms, 0)},
+        )
 
     def get_summary_text(self) -> str:
         return self._state.summary_text()
@@ -391,6 +474,53 @@ class StreamJsonMonitor:
     def send_keys(self, keys: Iterable[str], label: str = "") -> bool:
         log_event(self.log_path, "INFO", "send_keys_ignored", keys=list(keys), label=label)
         return False
+
+    def refresh_process_status(self) -> Optional[int]:
+        proc = self._proc
+        if proc is None:
+            return self.proc.returncode
+        returncode = proc.returncode
+        if returncode is not None:
+            self.proc.returncode = returncode
+        return self.proc.returncode
+
+    def _finalize_orphaned_tool_calls_on_process_exit(self, reason: str) -> None:
+        try:
+            result = self._state.force_finalize_live_tool_calls(reason)
+        except Exception as exc:
+            log_event(self.log_path, "WARN", "forced_tool_close_failed", reason=reason, error=str(exc))
+            return
+        cleared = int(result.get("cleared") or 0)
+        if cleared <= 0:
+            return
+        pending = result.get("pending")
+        log_event(
+            self.log_path,
+            "WARN",
+            "forced_tool_close",
+            reason=str(result.get("reason") or reason),
+            cleared=cleared,
+            pending_preview=pending if isinstance(pending, list) else [],
+        )
+        timeline_instant(
+            timeline_id=str(getattr(self, "timeline_id", "") or ""),
+            task_id=self.task_id,
+            step="forced_tool_close",
+            location="orc_core/stream_monitor.py:StreamJsonMonitor._finalize_orphaned_tool_calls_on_process_exit",
+            attempt=max(int(getattr(self, "attempt", 0) or 0), 0),
+            result="cleared",
+            reason=str(result.get("reason") or reason),
+            data={"cleared": cleared},
+        )
+        self._publish_snapshot()
+
+    def force_finalize_live_tool_calls(self, reason: str) -> dict[str, object]:
+        result = self._state.force_finalize_live_tool_calls(reason)
+        self._publish_snapshot()
+        return result
+
+    def active_tool_calls_watchdog_snapshot(self) -> dict[str, object]:
+        return self._state.active_tool_calls_watchdog_snapshot()
 
     def stop(self) -> None:
         self._stop.set()

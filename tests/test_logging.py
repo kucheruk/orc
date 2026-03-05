@@ -13,10 +13,14 @@ import orc_core.logging as logging_module
 from orc_core.logging import (
     build_crash_stdout_payload,
     emit_crash_stdout_payload,
+    init_debug_logging,
     install_crash_handlers,
     log_event,
     report_fatal_exception,
     set_log_context,
+    timeline_instant,
+    timeline_step_finished,
+    timeline_step_started,
 )
 
 
@@ -183,6 +187,68 @@ class CrashHandlersTest(unittest.TestCase):
                 self.assertTrue(report_mock.called)
             logging_module.sys.excepthook = old_sys_hook
             logging_module.threading.excepthook = old_thread_hook
+
+
+class TimelineDebugLogTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._orig_debug_enabled = logging_module._DEBUG_ENABLED
+        self._orig_debug_log_path = logging_module._DEBUG_LOG_PATH
+
+    def tearDown(self) -> None:
+        logging_module._DEBUG_ENABLED = self._orig_debug_enabled
+        logging_module._DEBUG_LOG_PATH = self._orig_debug_log_path
+
+    def test_timeline_event_schema_is_stable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "debug.jsonl"
+            logging_module._DEBUG_ENABLED = False
+            logging_module._DEBUG_LOG_PATH = log_path
+            init_debug_logging(enabled=True, workdir=tmpdir)
+            started_at_ms = timeline_step_started(
+                timeline_id="tl-1",
+                task_id="TASK-1",
+                step="agent_attempt",
+                location="tests/test_logging.py:test_timeline_event_schema_is_stable",
+                attempt=1,
+                data={"k": "v"},
+            )
+            timeline_instant(
+                timeline_id="tl-1",
+                task_id="TASK-1",
+                step="wait_for_completion_exit",
+                location="tests/test_logging.py:test_timeline_event_schema_is_stable",
+                attempt=1,
+                result="stalled",
+                reason="timeout",
+            )
+            timeline_step_finished(
+                timeline_id="tl-1",
+                task_id="TASK-1",
+                step="agent_attempt",
+                location="tests/test_logging.py:test_timeline_event_schema_is_stable",
+                attempt=1,
+                started_at_ms=started_at_ms,
+                result="restart",
+                reason="stalled",
+            )
+            rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            timeline_rows = [row for row in rows if row.get("type") == "debug_timeline"]
+
+        self.assertEqual(len(timeline_rows), 3)
+        start_row = timeline_rows[0]
+        self.assertEqual(start_row.get("event"), "start")
+        self.assertEqual(start_row.get("timeline_id"), "tl-1")
+        self.assertEqual(start_row.get("task_id"), "TASK-1")
+        self.assertEqual(start_row.get("step"), "agent_attempt")
+        self.assertEqual(start_row.get("attempt"), 1)
+        self.assertIsInstance(start_row.get("timestamp_ms"), int)
+
+        finish_row = timeline_rows[-1]
+        self.assertEqual(finish_row.get("event"), "finish")
+        self.assertIsInstance(finish_row.get("duration_ms"), int)
+        self.assertGreaterEqual(int(finish_row.get("duration_ms", -1)), 0)
+        self.assertEqual(finish_row.get("result"), "restart")
+        self.assertEqual(finish_row.get("reason"), "stalled")
 
 
 if __name__ == "__main__":

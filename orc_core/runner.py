@@ -6,7 +6,7 @@ import shlex
 from pathlib import Path
 from typing import Callable, Mapping, Optional
 
-from .logging import debug_log, log_event
+from .logging import debug_log, log_event, now_ms, timeline_instant
 from .process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
 from .process_groups import terminate_process_group
 from .stream_monitor import StreamJsonMonitor
@@ -29,6 +29,8 @@ def launch_agent_stream_json(
     resume_id: Optional[str] = None,
     resume_latest: bool = False,
     resume_prompt: Optional[str] = None,
+    timeline_id: str = "",
+    attempt: int = 0,
 ) -> StreamJsonMonitor:
     return asyncio.run(
         launch_agent_stream_json_async(
@@ -47,6 +49,8 @@ def launch_agent_stream_json(
             resume_id=resume_id,
             resume_latest=resume_latest,
             resume_prompt=resume_prompt,
+            timeline_id=timeline_id,
+            attempt=attempt,
         )
     )
 
@@ -68,6 +72,8 @@ async def launch_agent_stream_json_async(
     resume_id: Optional[str] = None,
     resume_latest: bool = False,
     resume_prompt: Optional[str] = None,
+    timeline_id: str = "",
+    attempt: int = 0,
 ) -> StreamJsonMonitor:
     #region agent log
     debug_log(
@@ -86,6 +92,8 @@ async def launch_agent_stream_json_async(
             "resume_id": resume_id,
             "resume_latest": resume_latest,
             "resume_prompt": resume_prompt,
+            "timeline_id": timeline_id,
+            "attempt": attempt,
         },
     )
     #endregion
@@ -122,6 +130,7 @@ async def launch_agent_stream_json_async(
     )
     #endregion
     log_event(log_path, "INFO", "launch agent stream-json", command=" ".join(shlex.quote(part) for part in agent_cmd))
+    spawn_started_ms = now_ms()
     monitor = StreamJsonMonitor(
         agent_cmd=agent_cmd,
         log_path=log_path,
@@ -132,6 +141,8 @@ async def launch_agent_stream_json_async(
         agent_output_log_path=agent_output_log_path,
         child_env_overrides=dict(agent_env or {}),
         snapshot_publisher=snapshot_publisher,
+        timeline_id=timeline_id,
+        attempt=attempt,
     )
     try:
         monitor.set_progress(progress_done, progress_total)
@@ -153,5 +164,14 @@ async def launch_agent_stream_json_async(
         "orc_core/runner.py:launch_agent_stream_json:spawned",
         "agent spawned",
         {"pid": monitor.proc.pid},
+    )
+    timeline_instant(
+        timeline_id=timeline_id,
+        task_id=task_id,
+        step="agent_spawn",
+        location="orc_core/runner.py:launch_agent_stream_json_async",
+        attempt=attempt,
+        result="spawned",
+        data={"duration_ms": max(now_ms() - spawn_started_ms, 0), "pid": monitor.proc.pid},
     )
     return monitor

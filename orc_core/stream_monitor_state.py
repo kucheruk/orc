@@ -9,6 +9,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Deque, Dict, Optional
 
+from .logging import debug_mode_log
 from .text_parse import clean_summary_lines
 
 
@@ -526,6 +527,20 @@ class StreamMonitorState:
         subtype_lower = str(subtype or "").strip().lower()
         call_id_raw = event.get("call_id")
         call_id = str(call_id_raw).strip() if isinstance(call_id_raw, str) else ""
+        # #region agent log
+        debug_mode_log(
+            "run1",
+            "H1",
+            "orc_core/stream_monitor_state.py:_remember_tool_activity:entry",
+            "tool_call event received",
+            {
+                "subtype": subtype_lower,
+                "call_id": call_id,
+                "has_tool_call_payload": isinstance(event.get("tool_call"), dict),
+                "active_before": len(self._active_tool_calls),
+            },
+        )
+        # #endregion
         if subtype_lower == "started":
             tool_name, label = self._tool_call_label_from_event(event)
             entry = {
@@ -538,6 +553,21 @@ class StreamMonitorState:
                 call_id = f"anon-{int(time.time() * 1000)}-{len(self._active_tool_calls)}"
             self._active_tool_calls[call_id] = entry
             self._active_tool_order.appendleft(call_id)
+            # #region agent log
+            debug_mode_log(
+                "run1",
+                "H2",
+                "orc_core/stream_monitor_state.py:_remember_tool_activity:started",
+                "tool_call marked active",
+                {
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "label": label,
+                    "is_subagent": bool(entry["is_subagent"]),
+                    "active_after": len(self._active_tool_calls),
+                },
+            )
+            # #endregion
             self._set_live_status(
                 "subagent" if bool(entry["is_subagent"]) else "tool_call",
                 f"running {label}",
@@ -545,11 +575,27 @@ class StreamMonitorState:
             )
             return
         if subtype_lower == "completed":
+            removed_by = "none"
             if call_id and call_id in self._active_tool_calls:
                 self._active_tool_calls.pop(call_id, None)
+                removed_by = "exact_call_id"
             elif self._active_tool_order:
                 fallback_id = self._active_tool_order.popleft()
                 self._active_tool_calls.pop(fallback_id, None)
+                removed_by = "fallback_order"
+            # #region agent log
+            debug_mode_log(
+                "run1",
+                "H2",
+                "orc_core/stream_monitor_state.py:_remember_tool_activity:completed",
+                "tool_call completion processed",
+                {
+                    "call_id": call_id,
+                    "removed_by": removed_by,
+                    "active_after": len(self._active_tool_calls),
+                },
+            )
+            # #endregion
             if self._active_tool_calls:
                 label, is_subagent = self._active_tool_status()
                 self._set_live_status(
@@ -559,6 +605,82 @@ class StreamMonitorState:
                 )
             else:
                 self._set_live_status("waiting", "waiting for next event", is_subagent=False)
+            return
+        # #region agent log
+        debug_mode_log(
+            "run1",
+            "H1",
+            "orc_core/stream_monitor_state.py:_remember_tool_activity:unhandled",
+            "tool_call subtype not handled as lifecycle transition",
+            {
+                "subtype": subtype_lower,
+                "call_id": call_id,
+                "active_after": len(self._active_tool_calls),
+            },
+        )
+        # #endregion
+
+    def force_finalize_live_tool_calls(self, reason: str) -> dict[str, object]:
+        if not self._active_tool_calls:
+            return {"cleared": 0, "reason": str(reason or "").strip() or "unknown"}
+        now = time.time()
+        pending: list[dict[str, object]] = []
+        while self._active_tool_order and self._active_tool_order[0] not in self._active_tool_calls:
+            self._active_tool_order.popleft()
+        ordered_ids = list(self._active_tool_order) or list(self._active_tool_calls.keys())
+        for call_id in ordered_ids:
+            entry = self._active_tool_calls.get(call_id)
+            if not isinstance(entry, dict):
+                continue
+            started_at = float(entry.get("started_at") or now)
+            pending.append(
+                {
+                    "call_id": str(call_id),
+                    "label": str(entry.get("label") or "tool"),
+                    "age_seconds": round(max(now - started_at, 0.0), 3),
+                    "is_subagent": bool(entry.get("is_subagent") is True),
+                }
+            )
+        self._active_tool_calls.clear()
+        self._active_tool_order.clear()
+        normalized_reason = str(reason or "").strip() or "unknown"
+        self._set_live_status("waiting", f"waiting after forced tool close: {normalized_reason}", is_subagent=False)
+        self._recent_events.append(
+            f"[{time.strftime('%H:%M:%S', time.localtime(now))}] tool_call:forced_close {normalized_reason}"
+        )
+        return {"cleared": len(pending), "reason": normalized_reason, "pending": pending[:5]}
+
+    def active_tool_calls_watchdog_snapshot(self) -> dict[str, object]:
+        now = time.time()
+        while self._active_tool_order and self._active_tool_order[0] not in self._active_tool_calls:
+            self._active_tool_order.popleft()
+        if not self._active_tool_calls:
+            return {
+                "count": 0,
+                "oldest_age_seconds": 0.0,
+                "oldest_label": "",
+                "oldest_is_subagent": False,
+            }
+        ordered_ids = list(self._active_tool_order) or list(self._active_tool_calls.keys())
+        oldest_age = 0.0
+        oldest_label = ""
+        oldest_is_subagent = False
+        for call_id in ordered_ids:
+            entry = self._active_tool_calls.get(call_id)
+            if not isinstance(entry, dict):
+                continue
+            started_at = float(entry.get("started_at") or now)
+            age_seconds = max(now - started_at, 0.0)
+            if age_seconds >= oldest_age:
+                oldest_age = age_seconds
+                oldest_label = str(entry.get("label") or "tool")
+                oldest_is_subagent = bool(entry.get("is_subagent") is True)
+        return {
+            "count": len(self._active_tool_calls),
+            "oldest_age_seconds": round(oldest_age, 3),
+            "oldest_label": oldest_label,
+            "oldest_is_subagent": oldest_is_subagent,
+        }
 
     def _format_tool_call_with_args(self, payload_key: str, payload: object) -> str:
         if not isinstance(payload, dict):

@@ -56,6 +56,57 @@ rg "task_execution.py|supervisor_lifecycle.py|runner.py" "$DEBUG_DIR"/orc-debug-
 jq -c '. | {timestamp, location, message, hypothesisId}' "$DEBUG_DIR"/orc-debug-<...>.jsonl
 ```
 
+## Live-статус в стандартном UI
+
+В экране выполнения ORC строка `Agent/Subagent activity` теперь показывает текущую фазу работы:
+- `thinking` — агент формирует следующий шаг;
+- `tool_call` — выполняется инструмент (read/glob/shell и т.д.);
+- `subagent` — выполняется вызов субагента;
+- `assistant` — агент активно пишет ответ;
+- `waiting` — новых событий нет, агент ждёт следующий вывод.
+
+Цвета в TUI:
+- синий: `thinking`;
+- cyan/magenta: `tool_call`/`subagent`;
+- зелёный: `assistant`;
+- жёлтый/красный: затянувшееся `waiting`.
+
+Если в UI есть `running ...` и растёт время фазы, это не обязательно stall: чаще всего агент/субагент занят инструментом.
+Проверяйте stall по сочетанию признаков:
+- долго нет новых `stream_json_event` в `.orc/orc.log`;
+- не меняется `last_heartbeat_at` в `.cursor/orc-task-runtime.json`;
+- нет прогресса в raw-stream/debug timeline.
+
+## Timeline-диагностика latency (debug-only)
+
+Новый тип событий в debug JSONL:
+- `type="debug_timeline"`
+- `event`: `start | finish | instant`
+- единые поля: `timeline_id`, `task_id`, `attempt`, `step`, `timestamp_ms`
+- для `finish`: `duration_ms`, `result`, `reason` (если есть)
+
+Быстрый фильтр:
+```bash
+jq -c 'select(.type=="debug_timeline") | {timestamp_ms, timeline_id, task_id, attempt, step, event, duration_ms, result, reason}' \
+  "$DEBUG_DIR"/orc-debug-<...>.jsonl
+```
+
+Сводка по latency через утилиту:
+```bash
+uv run python -m orc_core.timeline_report --log "$DEBUG_DIR"/orc-debug-<...>.jsonl --format text
+```
+
+JSON-вывод для машинного анализа:
+```bash
+uv run python -m orc_core.timeline_report --log "$DEBUG_DIR"/orc-debug-<...>.jsonl --format json
+```
+
+Как интерпретировать:
+- `agent_attempt` — полный цикл одной попытки; большие значения обычно означают долгий `wait_for_completion`.
+- `wait_for_completion` + `wait_for_completion_exit:*` — видно, ушло ли время в `stall_timeout`, `ttl` или `waiting_for_input`.
+- `commit_phase` / `merge_expert_phase` / `main_integration` — отдельные пост-фазы после completion.
+- `agent_spawn` и `first_meaningful_output` — задержка старта процесса и первого осмысленного вывода.
+
 ## Crash-диагностика в stdout (для coding agent)
 
 При необработанном падении в основном CLI-пути `orc` ORC печатает в `stdout` одну JSON-строку с `event="orc_crash_report"`.

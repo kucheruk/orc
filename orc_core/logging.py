@@ -34,6 +34,8 @@ ORC_LOG_NAME = "orc.log"
 ORC_DATA_DIR = ".orc"
 LOG_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
 DEFAULT_LOG_LEVEL = "WARN"
+DEBUG_MODE_LOG_PATH = Path("/Users/vetinary/work/orc/.cursor/debug-809204.log")
+DEBUG_MODE_SESSION_ID = "809204"
 
 
 def _min_log_level() -> int:
@@ -43,6 +45,10 @@ def _min_log_level() -> int:
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def now_ms() -> int:
+    return int(time.time() * 1000)
 
 
 def _env_debug_enabled() -> bool:
@@ -283,3 +289,158 @@ def debug_log(hypothesis_id: str, location: str, message: str, data: Dict[str, o
         "pid": os.getpid(),
     }
     _write_debug_payload(payload)
+
+
+def debug_mode_log(run_id: str, hypothesis_id: str, location: str, message: str, data: Dict[str, object]) -> None:
+    payload = {
+        "sessionId": DEBUG_MODE_SESSION_ID,
+        "runId": str(run_id or "run1"),
+        "hypothesisId": str(hypothesis_id or ""),
+        "location": str(location or ""),
+        "message": str(message or ""),
+        "data": data if isinstance(data, dict) else {},
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        DEBUG_MODE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with DEBUG_MODE_LOG_PATH.open("a", encoding="utf-8", errors="replace") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+
+def _timeline_enabled() -> bool:
+    if not _DEBUG_ENABLED:
+        init_debug_logging(enabled=False)
+    return _DEBUG_ENABLED
+
+
+def _timeline_base_payload(
+    *,
+    timeline_id: str,
+    task_id: str,
+    step: str,
+    attempt: int,
+    location: str,
+    hypothesis_id: str,
+    timestamp_ms: int,
+) -> Dict[str, object]:
+    return {
+        "type": "debug_timeline",
+        "sessionId": _DEBUG_SESSION_ID,
+        "runId": "run1",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "timeline_id": str(timeline_id or ""),
+        "task_id": str(task_id or ""),
+        "step": str(step or ""),
+        "attempt": max(int(attempt), 0),
+        "timestamp_ms": int(timestamp_ms),
+        "workdir": _DEBUG_WORKDIR,
+        "pid": os.getpid(),
+    }
+
+
+def timeline_step_started(
+    *,
+    timeline_id: str,
+    task_id: str,
+    step: str,
+    location: str,
+    attempt: int = 0,
+    hypothesis_id: str = "TL",
+    data: Optional[Dict[str, object]] = None,
+    timestamp_ms: Optional[int] = None,
+) -> int:
+    ts_ms = int(timestamp_ms if isinstance(timestamp_ms, int) else now_ms())
+    if not _timeline_enabled():
+        return ts_ms
+    payload = _timeline_base_payload(
+        timeline_id=timeline_id,
+        task_id=task_id,
+        step=step,
+        attempt=attempt,
+        location=location,
+        hypothesis_id=hypothesis_id,
+        timestamp_ms=ts_ms,
+    )
+    payload["event"] = "start"
+    if isinstance(data, dict) and data:
+        payload["data"] = data
+    _write_debug_payload(payload)
+    return ts_ms
+
+
+def timeline_step_finished(
+    *,
+    timeline_id: str,
+    task_id: str,
+    step: str,
+    location: str,
+    started_at_ms: int,
+    result: str,
+    attempt: int = 0,
+    hypothesis_id: str = "TL",
+    reason: str = "",
+    data: Optional[Dict[str, object]] = None,
+    timestamp_ms: Optional[int] = None,
+) -> int:
+    ts_ms = int(timestamp_ms if isinstance(timestamp_ms, int) else now_ms())
+    if not _timeline_enabled():
+        return ts_ms
+    start_ms = int(started_at_ms if isinstance(started_at_ms, int) else ts_ms)
+    payload = _timeline_base_payload(
+        timeline_id=timeline_id,
+        task_id=task_id,
+        step=step,
+        attempt=attempt,
+        location=location,
+        hypothesis_id=hypothesis_id,
+        timestamp_ms=ts_ms,
+    )
+    payload["event"] = "finish"
+    payload["started_at_ms"] = start_ms
+    payload["duration_ms"] = max(ts_ms - start_ms, 0)
+    payload["result"] = str(result or "")
+    if reason:
+        payload["reason"] = str(reason)
+    if isinstance(data, dict) and data:
+        payload["data"] = data
+    _write_debug_payload(payload)
+    return ts_ms
+
+
+def timeline_instant(
+    *,
+    timeline_id: str,
+    task_id: str,
+    step: str,
+    location: str,
+    attempt: int = 0,
+    hypothesis_id: str = "TL",
+    result: str = "",
+    reason: str = "",
+    data: Optional[Dict[str, object]] = None,
+    timestamp_ms: Optional[int] = None,
+) -> int:
+    ts_ms = int(timestamp_ms if isinstance(timestamp_ms, int) else now_ms())
+    if not _timeline_enabled():
+        return ts_ms
+    payload = _timeline_base_payload(
+        timeline_id=timeline_id,
+        task_id=task_id,
+        step=step,
+        attempt=attempt,
+        location=location,
+        hypothesis_id=hypothesis_id,
+        timestamp_ms=ts_ms,
+    )
+    payload["event"] = "instant"
+    if result:
+        payload["result"] = str(result)
+    if reason:
+        payload["reason"] = str(reason)
+    if isinstance(data, dict) and data:
+        payload["data"] = data
+    _write_debug_payload(payload)
+    return ts_ms

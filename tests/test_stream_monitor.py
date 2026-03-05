@@ -690,6 +690,90 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(snapshot.live_phase, "waiting")
         self.assertEqual(snapshot.active_tool_call_count, 0)
 
+    def test_force_finalize_live_tool_calls_clears_stuck_tool_phase(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "call_id": "call-stuck",
+                "tool_call": {
+                    "shellToolCall": {"args": {"command": "./scripts/ci/lint.sh && dotnet build -c Release Bobot.sln"}}
+                },
+            }
+        )
+        result = state.force_finalize_live_tool_calls("process_exited")
+        snapshot = state.build_snapshot()
+
+        self.assertEqual(result.get("cleared"), 1)
+        self.assertEqual(snapshot.live_phase, "waiting")
+        self.assertEqual(snapshot.active_tool_call_count, 0)
+        self.assertIn("forced tool close", snapshot.live_status)
+
+    def test_active_tool_calls_watchdog_snapshot_reports_oldest_active_call(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "call_id": "call-one",
+                "tool_call": {"readToolCall": {"args": {"path": "/tmp/a.txt"}}},
+            }
+        )
+        time.sleep(0.01)
+        state.record_event(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "call_id": "call-two",
+                "tool_call": {"shellToolCall": {"args": {"command": "echo hi"}}},
+            }
+        )
+
+        snapshot = state.active_tool_calls_watchdog_snapshot()
+        self.assertEqual(snapshot.get("count"), 2)
+        self.assertGreater(float(snapshot.get("oldest_age_seconds") or 0.0), 0.0)
+        self.assertIn(str(snapshot.get("oldest_label") or ""), {"read /tmp/a.txt", "echo hi"})
+
+    def test_monitor_exposes_active_tool_calls_watchdog_snapshot(self) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        monitor._state = MagicMock()
+        monitor._state.active_tool_calls_watchdog_snapshot.return_value = {"count": 1}
+
+        snapshot = monitor.active_tool_calls_watchdog_snapshot()
+
+        self.assertEqual(snapshot, {"count": 1})
+        monitor._state.active_tool_calls_watchdog_snapshot.assert_called_once()
+
+    def test_monitor_finalize_orphaned_tool_calls_publishes_snapshot(self) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        monitor.log_path = Path("/tmp/orc.log")
+        monitor.task_id = "TASK-1"
+        monitor.timeline_id = "tl-1"
+        monitor.attempt = 1
+        monitor._publish_snapshot = MagicMock()
+        monitor._state = MagicMock()
+        monitor._state.force_finalize_live_tool_calls.return_value = {"cleared": 1, "reason": "process_exit", "pending": []}
+
+        monitor._finalize_orphaned_tool_calls_on_process_exit("process_exit")
+
+        monitor._state.force_finalize_live_tool_calls.assert_called_once_with("process_exit")
+        monitor._publish_snapshot.assert_called_once()
+
+    def test_refresh_process_status_syncs_proxy_returncode(self) -> None:
+        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        monitor._proc = SimpleNamespace(returncode=7)
+        monitor.proc = SimpleNamespace(returncode=None)
+
+        value = monitor.refresh_process_status()
+
+        self.assertEqual(value, 7)
+        self.assertEqual(monitor.proc.returncode, 7)
+
     def test_refresh_backlog_progress_reads_counts_from_backlog_file(self) -> None:
         monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
         with tempfile.TemporaryDirectory() as tmpdir:
