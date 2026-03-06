@@ -400,6 +400,30 @@ class SupervisorLifecycleTest(unittest.TestCase):
 
         self.assertEqual(result, "process_exited")
 
+    def test_wait_for_completion_detects_model_unavailable_as_non_restartable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text("{}", encoding="utf-8")
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=1)
+            monitor.stderr_count = 1
+            monitor.last_stderr_line = "Cannot use this model: gpt-5.3-codex. Available models:"
+
+            result = wait_for_completion(
+                task_path=task_path,
+                monitor=monitor,
+                poll=0.01,
+                stall_timeout=30.0,
+                task_ttl=30.0,
+                log_path=Path(tmpdir) / "orc.log",
+                nudge_after=10,
+                nudge_cooldown=300.0,
+                nudge_text="continue",
+                task_id="REFACT-104",
+                task_text="repro",
+            )
+
+        self.assertEqual(result, "model_unavailable")
+
     def test_wait_for_completion_waiting_for_input_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             task_path = Path(tmpdir) / "orc-task.json"

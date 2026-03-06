@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -187,6 +189,57 @@ class ExecutionScreenRenderTest(unittest.TestCase):
                 self.assertIn("commit phase will run", str(mode.render()))
                 screen.set_quit_after_task_requested(False)
                 self.assertIn("Mode: normal", str(mode.render()))
+
+        import asyncio
+
+        asyncio.run(_run())
+
+    def test_task_label_includes_markdown_heading_after_progress(self) -> None:
+        metrics = MetricsStore(tokens_total=1, files_edited=1, command_count=1, total_lines=1, total_output_chars=1)
+        snapshot = MonitorSnapshot(
+            task_id="WEB-020",
+            started_at=time.time() - 5,
+            progress_done=164,
+            progress_total=184,
+            metrics=metrics,
+            last_event_type="assistant",
+            last_event_note="ok",
+            recent_commands=[],
+            recent_files=[],
+            recent_events=[],
+            reasoning_lines=[],
+            spinner_idx=0,
+            last_event_at=time.time() - 1,
+            progress_remaining=20,
+            progress_added_delta=0,
+            eta_seconds=None,
+        )
+        screen = ExecutionScreen()
+
+        class _TestApp(App[None]):
+            def compose(self):
+                yield screen
+
+        async def _run() -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tasks_dir = Path(tmp_dir) / "tasks"
+                tasks_dir.mkdir(parents=True, exist_ok=True)
+                (tasks_dir / "WEB-020.md").write_text(
+                    "# WEB-020\n\nСделать вывод title в статусной строке\n",
+                    encoding="utf-8",
+                )
+                prev_cwd = os.getcwd()
+                try:
+                    os.chdir(tmp_dir)
+                    async with _TestApp().run_test() as pilot:
+                        _ = pilot
+                        screen.update_from_snapshot(snapshot)
+                        task_label = screen.query_one("#task_label")
+                        rendered = str(task_label.render())
+                        self.assertIn("Progress: 164/184", rendered)
+                        self.assertIn("Сделать вывод title в статусной строке", rendered)
+                finally:
+                    os.chdir(prev_cwd)
 
         import asyncio
 

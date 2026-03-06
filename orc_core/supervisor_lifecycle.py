@@ -56,6 +56,19 @@ def _monitor_pid_missing(monitor) -> bool:
     return not is_pid_alive(pid)
 
 
+def _is_model_unavailable_stderr(last_stderr_line: str) -> bool:
+    normalized = str(last_stderr_line or "").strip().lower()
+    if not normalized:
+        return False
+    markers = (
+        "cannot use this model",
+        "unknown model",
+        "model not found",
+        "invalid model",
+    )
+    return any(marker in normalized for marker in markers)
+
+
 def _session_debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     payload = {
         "sessionId": DEBUG_SESSION_ID,
@@ -358,6 +371,25 @@ def wait_for_completion(
                         )
                         return "completed"
                     time.sleep(max(min(poll, 0.2), 0.05))
+            if _is_model_unavailable_stderr(getattr(monitor, "last_stderr_line", "")):
+                log_event(
+                    log_path,
+                    "ERROR",
+                    "agent model unavailable",
+                    returncode=monitor.proc.returncode,
+                    stderr_line=getattr(monitor, "last_stderr_line", ""),
+                )
+                timeline_instant(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="wait_for_completion_exit",
+                    location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                    attempt=attempt,
+                    result="model_unavailable",
+                    reason="agent_model_unavailable",
+                    data={"returncode": returncode},
+                )
+                return "model_unavailable"
             log_event(log_path, "ERROR", "agent process exited while task still active", returncode=monitor.proc.returncode)
             _force_close_active_tools_if_needed(
                 monitor,

@@ -1453,6 +1453,38 @@ class TaskExecutionEngine:
                     result="completed",
                 )
                 return _finalize_completed(task_id, task_text, tag, active_monitor)
+            if result == "model_unavailable":
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "agent model unavailable; stopping without restart",
+                    task_id=task_id,
+                    model=request.model,
+                )
+                ui_error(
+                    "❌ Выбранная модель недоступна для `agent`. "
+                    "Проверьте `agent --list-models` и укажите доступную модель через `--model`."
+                )
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="agent_attempt",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    attempt=attempt_number,
+                    started_at_ms=attempt_started_ms,
+                    result="failed",
+                    reason="model_unavailable",
+                )
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="task_execute",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    started_at_ms=execute_started_ms,
+                    result="failed",
+                    reason="model_unavailable",
+                )
+                return TaskExecutionResult(status="failed", reason="model_unavailable")
             if result == "waiting_for_input":
                 timeline_step_finished(
                     timeline_id=timeline_id,

@@ -216,6 +216,11 @@ def _failure_message(reason: str) -> str:
             "Resume state повреждён: в `.cursor/orc-task.json` отсутствует `conversation_id`."
             " Запустите с `--drop` для чистого старта или удалите файл состояния вручную."
         )
+    if normalized == "model_unavailable":
+        return (
+            "Выбранная модель недоступна для локального `agent`."
+            " Проверьте `agent --list-models` и запустите с доступной моделью через `--model`."
+        )
     if normalized:
         return f"ORC завершился с ошибкой: {normalized}"
     return "ORC завершился с ошибкой без детали причины. Проверьте `.orc/orc.log`."

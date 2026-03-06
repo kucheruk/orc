@@ -177,6 +177,22 @@ class TaskExecutionEngineTest(unittest.TestCase):
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
+    def test_model_unavailable_fails_without_restart(self, wait_for_completion, *_mocks) -> None:
+        wait_for_completion.return_value = "model_unavailable"
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = engine.execute(self._request(tmpdir, max_restarts=2))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "model_unavailable")
+        self.assertEqual(worker.launch_calls, 1)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
     @patch("orc_core.task_execution.send_telegram_message")
     def test_completed_sends_telegram_summary_when_present(self, send_telegram_message_mock, wait_for_completion, *_mocks) -> None:
         wait_for_completion.return_value = "completed"

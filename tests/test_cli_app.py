@@ -179,6 +179,11 @@ class CliAppFailureMessageTest(unittest.TestCase):
         self.assertIn("--drop", message)
         self.assertIn("conversation_id", message)
 
+    def test_model_unavailable_suggests_listing_models(self) -> None:
+        message = _failure_message("model_unavailable")
+        self.assertIn("agent --list-models", message)
+        self.assertIn("--model", message)
+
     def test_unknown_failure_reason_is_included(self) -> None:
         message = _failure_message("custom_reason")
         self.assertIn("custom_reason", message)

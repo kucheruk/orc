@@ -25,12 +25,18 @@
 
 3) Если есть изменения:
    - Стадируй всё: `git add -A`
-   - Сформируй commit message в формате Conventional commits, который ОБЯЗАТЕЛЬНО включает `{task_id}` и краткое описание сути.
+   - Сформируй commit message в строгом формате Conventional Commits.
+   - Формат: `<type>[optional scope]: <description>`
+   - Допустимые типы (type): feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.
+   - ОБЯЗАТЕЛЬНО укажи `{task_id}`. Его можно добавить в scope (например, `feat({task_id}): ...`) или в footer (например, `Refs: {task_id}`).
 
 4) Сделай commit (сообщение через heredoc, чтобы не сломать кавычки), например:
    git commit -m "$(cat <<'EOF'
-   {task_id}: <краткое описание>
+   feat: <краткое описание в повелительном наклонении>
 
+   <Опциональное более подробное описание того, что было сделано и почему>
+
+   Refs: {task_id}
    EOF
    )"
 

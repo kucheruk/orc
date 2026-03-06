@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import re
 import time
+from pathlib import Path
 from typing import Optional
 
 from rich.table import Table
@@ -40,6 +42,7 @@ class ExecutionScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self._quit_after_task_requested = False
+        self._task_heading_cache: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -127,7 +130,58 @@ class ExecutionScreen(Screen[None]):
     def _refresh_task_label(self) -> None:
         delta = self._progress_delta_markup()
         progress_part = f" | Progress: {self.progress_done}/{self.progress_total}{delta}"
-        self.query_one("#task_label", Label).update(f"{self.task_title}{progress_part}")
+        heading_part = ""
+        task_id = self._extract_task_id_from_label(self.task_title)
+        if task_id:
+            heading = self._task_heading_for_id(task_id)
+            if heading:
+                heading_part = f" | {heading}"
+        self.query_one("#task_label", Label).update(f"{self.task_title}{progress_part}{heading_part}")
+
+    def _extract_task_id_from_label(self, value: str) -> str:
+        prefix = "Task:"
+        if not value.startswith(prefix):
+            return ""
+        return value[len(prefix) :].strip()
+
+    def _task_heading_for_id(self, task_id: str) -> str:
+        if not task_id:
+            return ""
+        if task_id in self._task_heading_cache:
+            return self._task_heading_cache[task_id]
+        heading = self._read_markdown_heading_after_task_id(task_id)
+        self._task_heading_cache[task_id] = heading
+        return heading
+
+    def _read_markdown_heading_after_task_id(self, task_id: str) -> str:
+        task_file = Path("tasks") / f"{task_id}.md"
+        if not task_file.exists():
+            return ""
+        try:
+            lines = task_file.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return ""
+        seen_task_id = False
+        wanted = task_id.casefold()
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+            if not seen_task_id and wanted in line.casefold():
+                seen_task_id = True
+                continue
+            if seen_task_id:
+                return self._strip_markdown_prefix(line)[:120]
+        return ""
+
+    def _strip_markdown_prefix(self, line: str) -> str:
+        compact = line.strip()
+        compact = re.sub(r"^\s{0,3}#{1,6}\s*", "", compact)
+        compact = re.sub(r"^\s*>\s*", "", compact)
+        compact = re.sub(r"^\s*[-*+]\s+", "", compact)
+        compact = re.sub(r"^\s*\d+[.)]\s+", "", compact)
+        compact = re.sub(r"^\s*\[[ xX]\]\s*", "", compact)
+        return compact.strip()
 
     def _refresh_mode_label(self) -> None:
         if self._quit_after_task_requested:

@@ -21,6 +21,7 @@ from .task_state import init_runtime_payload, load_runtime_payload, runtime_stat
 from .task_source import MarkdownTaskSource
 
 GIT_STATS_TIMEOUT_SECONDS = 10.0
+STREAM_READER_LIMIT_BYTES = 32 * 1024 * 1024
 
 
 class _ProcessProxy:
@@ -179,6 +180,7 @@ class StreamJsonMonitor:
                 cwd=self.workdir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                limit=STREAM_READER_LIMIT_BYTES,
                 env=child_env,
                 **subprocess_group_spawn_kwargs(),
             )
@@ -201,7 +203,17 @@ class StreamJsonMonitor:
         self._finalize_orphaned_tool_calls_on_process_exit(
             reason=f"process_exit_rc_{int(self.proc.returncode or 0)}"
         )
-        await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+        reader_results = await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+        for stream_name, result in zip(("stdout", "stderr"), reader_results):
+            if isinstance(result, Exception):
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "stream reader task failed",
+                    stream=stream_name,
+                    error=str(result),
+                    exception_type=type(result).__name__,
+                )
 
     def _append_agent_output(self, stream_name: str, payload: str) -> None:
         if self._agent_output_file is None:
@@ -215,23 +227,33 @@ class StreamJsonMonitor:
         await asyncio.to_thread(self._append_agent_output, stream_name, payload)
 
     async def _read_stdout(self, stream: asyncio.StreamReader) -> None:
-        while not self._stop.is_set():
-            line = await stream.readline()
-            if not line:
-                return
-            decoded = line.decode("utf-8", errors="replace")
-            await self._append_agent_output_async("stdout", decoded)
-            raw = decoded.strip()
-            if not raw:
-                continue
-            self.last_output_time = time.time()
-            try:
-                event = json.loads(raw)
-            except Exception as exc:
-                log_event(self.log_path, "WARN", "stream_json_bad_line", error=str(exc), raw=raw[:500])
-                continue
-            if isinstance(event, dict):
-                self._record_event(event)
+        try:
+            while not self._stop.is_set():
+                line = await stream.readline()
+                if not line:
+                    return
+                decoded = line.decode("utf-8", errors="replace")
+                await self._append_agent_output_async("stdout", decoded)
+                raw = decoded.strip()
+                if not raw:
+                    continue
+                self.last_output_time = time.time()
+                try:
+                    event = json.loads(raw)
+                except Exception as exc:
+                    log_event(self.log_path, "WARN", "stream_json_bad_line", error=str(exc), raw=raw[:500])
+                    continue
+                if isinstance(event, dict):
+                    self._record_event(event)
+        except Exception as exc:
+            log_event(
+                self.log_path,
+                "ERROR",
+                "fatal error reading stdout stream",
+                error=str(exc),
+                exception_type=type(exc).__name__,
+            )
+            raise
 
     async def _read_stderr(self, stream: asyncio.StreamReader) -> None:
         while not self._stop.is_set():
