@@ -50,7 +50,7 @@ def _args(backlog: str) -> Namespace:
 class BacklogOrchestratorReportLinkTest(unittest.TestCase):
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
     @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
-    def test_orchestrator_skips_report_linked_task_as_done(self, hooks_config, hooks) -> None:
+    def test_orchestrator_does_not_skip_open_task_with_report_link(self, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -79,7 +79,7 @@ class BacklogOrchestratorReportLinkTest(unittest.TestCase):
             rc = orchestrator.run()
 
         self.assertEqual(rc, 0)
-        self.assertEqual([call.task.task_id for call in engine.calls], ["INFRA-002"])
+        self.assertEqual([call.task.task_id for call in engine.calls], ["INFRA-001", "INFRA-002"])
 
 
 if __name__ == "__main__":

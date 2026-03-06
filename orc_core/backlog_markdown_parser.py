@@ -13,7 +13,6 @@ from .task_contract import extract_task_id
 CHECKBOX_TEXT_RE = re.compile(r"^\[(?P<mark>[ xX])\]\s*(?P<text>.*)$", re.UNICODE)
 LIST_ITEM_CHECKBOX_RE = re.compile(r"^\s*[-+*]\s*\[[ xX]\]")
 CHECKBOX_MARK_RE = re.compile(r"^(?P<prefix>\s*[-+*]\s*\[)(?P<mark>[ xX])(?P<suffix>\])")
-TASK_REPORT_MARKER_RE = re.compile(r"(?:→|->)\s*tasks/(?P<task_id>[A-Za-z0-9_-]+)\.md\b", re.UNICODE)
 
 
 @dataclass(frozen=True)
@@ -52,7 +51,7 @@ def parse_backlog_markdown(markdown_text: str) -> list[ParsedBacklogTask]:
             ParsedBacklogTask(
                 task_id=task_id,
                 text=task_text,
-                done=(mark.lower() == "x") or _has_task_report_marker(task_text, task_id),
+                done=(mark.lower() == "x"),
                 line_index=line_index,
             )
         )
@@ -129,8 +128,3 @@ def _find_checkbox_line(lines: Sequence[str], start: int, end: int) -> int | Non
     return None
 
 
-def _has_task_report_marker(task_text: str, task_id: str) -> bool:
-    for match in TASK_REPORT_MARKER_RE.finditer(task_text):
-        if match.group("task_id") == task_id:
-            return True
-    return False
