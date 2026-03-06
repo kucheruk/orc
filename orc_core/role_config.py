@@ -15,9 +15,14 @@ DEFAULT_PROMPT_PATH = PROMPTS_DIR / "default.txt"
 CONTINUE_PROMPT_PATH = PROMPTS_DIR / "continue.txt"
 COMMIT_PROMPT_PATH = PROMPTS_DIR / "commit.txt"
 MERGE_EXPERT_PROMPT_PATH = PROMPTS_DIR / "merge_expert.txt"
+PLANNING_PROMPT_PATH = PROMPTS_DIR / "planning.txt"
+DESIGN_PROMPT_PATH = PROMPTS_DIR / "design.txt"
+REVIEW_PROMPT_PATH = PROMPTS_DIR / "review.txt"
+TESTING_PROMPT_PATH = PROMPTS_DIR / "testing.txt"
 ROLE_SETTINGS_PATH = Path(".orc") / "role-settings.json"
 
 ROLE_ANALYSIS_PLANNING = "analysis_planning"
+ROLE_DESIGN = "design"
 ROLE_SUPERVISOR = "supervisor"
 ROLE_CODER = "coder"
 ROLE_CODE_REVIEW = "code_review"
@@ -27,6 +32,7 @@ ROLE_MERGE_EXPERT = "merge_expert"
 
 ALL_ROLE_IDS = (
     ROLE_ANALYSIS_PLANNING,
+    ROLE_DESIGN,
     ROLE_SUPERVISOR,
     ROLE_CODER,
     ROLE_CODE_REVIEW,
@@ -64,10 +70,7 @@ class RoleProfileRegistry:
                 title="Исследование и планирование",
                 default_enabled=False,
                 can_toggle_enabled=False,
-                default_prompt_text=(
-                    "Роль: аналитик и планировщик.\n"
-                    "Собери контекст задачи, предложи план реализации, оцени риски и зависимости."
-                ),
+                default_prompt_path=PLANNING_PROMPT_PATH,
             ),
             ROLE_SUPERVISOR: RoleDefinition(
                 role_id=ROLE_SUPERVISOR,
@@ -78,6 +81,13 @@ class RoleProfileRegistry:
                     "Роль: супервизор.\n"
                     "Разбери backlog, предложи порядок выполнения и параллелизацию без конфликтов."
                 ),
+            ),
+            ROLE_DESIGN: RoleDefinition(
+                role_id=ROLE_DESIGN,
+                title="Дизайн решения",
+                default_enabled=False,
+                can_toggle_enabled=False,
+                default_prompt_path=DESIGN_PROMPT_PATH,
             ),
             ROLE_CODER: RoleDefinition(
                 role_id=ROLE_CODER,
@@ -91,20 +101,14 @@ class RoleProfileRegistry:
                 title="Код-ревью",
                 default_enabled=False,
                 can_toggle_enabled=False,
-                default_prompt_text=(
-                    "Роль: reviewer.\n"
-                    "Проверь код на дедупликацию, code smells, DRY/KISS/clean code и риски регрессий."
-                ),
+                default_prompt_path=REVIEW_PROMPT_PATH,
             ),
             ROLE_TESTER: RoleDefinition(
                 role_id=ROLE_TESTER,
                 title="Тестировщик",
                 default_enabled=False,
                 can_toggle_enabled=False,
-                default_prompt_text=(
-                    "Роль: тестировщик.\n"
-                    "Выполни приемку по требованиям, добавь недостающие тесты и зафиксируй результаты."
-                ),
+                default_prompt_path=TESTING_PROMPT_PATH,
             ),
             ROLE_HANDOFF: RoleDefinition(
                 role_id=ROLE_HANDOFF,

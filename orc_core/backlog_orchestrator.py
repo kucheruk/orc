@@ -13,7 +13,7 @@ from .logging import log_event
 from .quit_signal import is_quit_after_task_requested
 from .stream_monitor_state import MonitorSnapshot
 from .task_state import delete_runtime_state_file, runtime_state_path
-from .task_execution import TaskExecutionEngine, TaskExecutionRequest
+from .task_execution import TaskExecutionEngine, TaskExecutionRequest, TaskStageSpec
 from .task_source import MarkdownTaskSource, Task
 from .ui import ui_error, ui_info
 from .worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
@@ -38,6 +38,7 @@ class BacklogOrchestrator:
         merge_expert_template: str = "",
         engine: TaskExecutionEngine,
         merge_expert_model: str = "",
+        stage_specs: Optional[list[TaskStageSpec]] = None,
         integrate_to_main: bool = True,
         main_branch: str = "main",
         use_task_worktrees: bool = True,
@@ -57,6 +58,7 @@ class BacklogOrchestrator:
         self.merge_expert_template = merge_expert_template
         self.engine = engine
         self.merge_expert_model = (merge_expert_model or "").strip()
+        self.stage_specs = tuple(stage_specs or ())
         self.integrate_to_main = bool(integrate_to_main)
         self.main_branch = (main_branch or "main").strip() or "main"
         self.use_task_worktrees = bool(use_task_worktrees)
@@ -160,6 +162,7 @@ class BacklogOrchestrator:
             execution_workdir = active_worktree.worktree_path if active_worktree is not None else self.workdir
             self._ensure_hooks_for_workspace(execution_workdir)
             try:
+                use_sdlc_pipeline = bool(self.stage_specs)
                 result = self.engine.execute(
                     TaskExecutionRequest(
                         task=open_task,
@@ -176,7 +179,7 @@ class BacklogOrchestrator:
                         continue_template=self.continue_template,
                         commit_template=self.commit_template,
                         merge_expert_template=self.merge_expert_template,
-                        commit_phase=bool(self.args.commit_phase),
+                        commit_phase=bool(self.args.commit_phase) and not use_sdlc_pipeline,
                         integrate_to_main=self.integrate_to_main,
                         main_branch=self.main_branch,
                         allow_fallback_commits=bool(getattr(self.args, "allow_fallback_commits", False)),
@@ -193,6 +196,7 @@ class BacklogOrchestrator:
                         commit_ttl=self.args.commit_ttl,
                         progress_done=done,
                         progress_total=total,
+                        stage_specs=self.stage_specs,
                         agent_output_log_path=str(getattr(self.args, "agent_output_log_path", "") or "").strip() or None,
                         agent_env={
                             "ORC_TASK_FILE": str(self.task_path),

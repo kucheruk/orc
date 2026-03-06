@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Protocol
 
-from .hooks import update_task_restart_count, write_task_file
+from .hooks import update_task_restart_count, update_task_stage_metadata, write_task_file
 from .logging import debug_log, log_event, timeline_instant, timeline_step_finished, timeline_step_started
 from .notify import send_telegram_message
 from .process import (
@@ -39,6 +39,13 @@ GIT_COMMAND_TIMEOUT_SECONDS = 20.0
 class SafeDict(dict):
     def __missing__(self, key: str) -> str:
         return "{" + key + "}"
+
+
+@dataclass(frozen=True)
+class TaskStageSpec:
+    stage_id: str
+    model: str
+    prompt_template: str
 
 
 @dataclass(frozen=True)
@@ -74,6 +81,7 @@ class TaskExecutionRequest:
     commit_ttl: float
     progress_done: int
     progress_total: int
+    stage_specs: tuple[TaskStageSpec, ...] = ()
     agent_output_log_path: Optional[str] = None
     agent_env: Optional[Mapping[str, str]] = None
     snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None
@@ -1324,197 +1332,352 @@ class TaskExecutionEngine:
             start_header = f"{task_id} — {task_text}" if task_text else task_id
             send_telegram_message(f"Старт задачи\n{start_header}", self.log_path)
 
-        prompt_vars = SafeDict(task_text=task_text, task_id=task_id, backlog=request.backlog_arg, workspace=request.workdir)
-        prompt = request.prompt_template.format_map(prompt_vars)
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", task_text)[:60]
-        tag = f"{ts}__{safe_name}"
-        prompt_path = _write_prompt_file(request.run_root, prompt, tag)
-        resume_prompt_text = request.nudge_text if resume_existing else None
+        stage_specs = list(request.stage_specs)
+        if not stage_specs:
+            stage_specs = [TaskStageSpec(stage_id="implementation", model=request.model, prompt_template=request.prompt_template)]
 
-        restart_count = persisted_restart_count if resume_existing else 0
-        while True:
-            attempt_number = restart_count + 1
-            attempt_started_ms = timeline_step_started(
-                timeline_id=timeline_id,
+        for stage_index, stage_spec in enumerate(stage_specs):
+            stage_id = (stage_spec.stage_id or f"stage_{stage_index + 1}").strip()
+            stage_model = (stage_spec.model or request.model).strip() or request.model
+            stage_is_final = stage_index == (len(stage_specs) - 1)
+            if request.task_path.exists():
+                update_task_stage_metadata(
+                    request.task_path,
+                    self.log_path,
+                    stage_id=stage_id,
+                    stage_index=stage_index,
+                    stage_total=len(stage_specs),
+                    is_final=stage_is_final,
+                )
+            prompt_vars = SafeDict(
+                task_text=task_text,
                 task_id=task_id,
-                step="agent_attempt",
-                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                attempt=attempt_number,
-                data={"restart_count": restart_count},
+                backlog=request.backlog_arg,
+                workspace=request.workdir,
+                stage_id=stage_id,
+                stage_index=stage_index + 1,
+                stage_total=len(stage_specs),
+                stage_is_final=stage_is_final,
             )
-            update_task_restart_count(request.task_path, self.log_path, restart_count)
-            log_event(self.log_path, "INFO", "launching agent", task_id=task_id, restart_count=restart_count)
-            try:
-                active_monitor = self.worker.launch(
-                    workdir=request.workdir,
-                    prompt_path=prompt_path,
-                    model=request.model,
-                    log_path=self.log_path,
-                    report_interval=request.report_interval,
-                    summary_lines=request.summary_lines,
-                    task_id=task_id,
-                    progress_done=request.progress_done,
-                    progress_total=request.progress_total,
-                    agent_output_log_path=effective_agent_output_log_path,
-                    agent_env=effective_agent_env,
-                    snapshot_publisher=request.snapshot_publisher,
-                    resume_id=resume_id if resume_existing else None,
-                    resume_latest=False,
-                    resume_prompt=resume_prompt_text if resume_existing else None,
-                    timeline_id=timeline_id,
-                    attempt=attempt_number,
-                )
-            except FileNotFoundError:
-                ui_error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
-                timeline_step_finished(
-                    timeline_id=timeline_id,
-                    task_id=task_id,
-                    step="task_execute",
-                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                    started_at_ms=execute_started_ms,
-                    result="failed",
-                    reason="agent_not_found",
-                )
-                return TaskExecutionResult(status="failed", reason="agent_not_found")
+            prompt = stage_spec.prompt_template.format_map(prompt_vars)
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", task_text)[:60]
+            tag = f"{ts}__{safe_name}__{stage_id}"
+            prompt_path = _write_prompt_file(request.run_root, prompt, tag)
 
-            try:
-                wait_started_ms = timeline_step_started(
+            stage_resume_existing = resume_existing and stage_index == 0
+            stage_resume_id = resume_id if stage_resume_existing else None
+            resume_prompt_text = request.nudge_text if stage_resume_existing else None
+            restart_count = persisted_restart_count if stage_resume_existing else 0
+            elapsed_before_start_stage = elapsed_before_start if stage_resume_existing else 0.0
+
+            while True:
+                attempt_number = restart_count + 1
+                attempt_started_ms = timeline_step_started(
                     timeline_id=timeline_id,
                     task_id=task_id,
-                    step="wait_for_completion",
+                    step="agent_attempt",
                     location="orc_core/task_execution.py:TaskExecutionEngine.execute",
                     attempt=attempt_number,
+                    data={"restart_count": restart_count, "stage_id": stage_id, "stage_index": stage_index + 1},
+                )
+                update_task_restart_count(request.task_path, self.log_path, restart_count)
+                log_event(
+                    self.log_path,
+                    "INFO",
+                    "launching agent",
+                    task_id=task_id,
+                    restart_count=restart_count,
+                    stage_id=stage_id,
+                    stage_index=stage_index + 1,
+                    stage_total=len(stage_specs),
                 )
                 try:
-                    result = wait_for_completion(
-                        task_path=request.task_path,
-                        monitor=active_monitor,
-                        poll=request.poll,
-                        stall_timeout=request.stall_timeout,
-                        task_ttl=request.task_ttl,
-                        elapsed_before_start=elapsed_before_start,
+                    active_monitor = self.worker.launch(
+                        workdir=request.workdir,
+                        prompt_path=prompt_path,
+                        model=stage_model,
                         log_path=self.log_path,
-                        nudge_after=request.nudge_after,
-                        nudge_cooldown=request.nudge_cooldown,
-                        nudge_text=request.nudge_text,
+                        report_interval=request.report_interval,
+                        summary_lines=request.summary_lines,
                         task_id=task_id,
-                        task_text=task_text,
+                        progress_done=request.progress_done,
+                        progress_total=request.progress_total,
+                        agent_output_log_path=effective_agent_output_log_path,
+                        agent_env=effective_agent_env,
+                        snapshot_publisher=request.snapshot_publisher,
+                        resume_id=stage_resume_id,
+                        resume_latest=False,
+                        resume_prompt=resume_prompt_text if stage_resume_existing else None,
                         timeline_id=timeline_id,
                         attempt=attempt_number,
-                        escape_requested=is_stop_requested,
                     )
-                except Exception:
+                except FileNotFoundError:
+                    ui_error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
                     timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="failed",
+                        reason="agent_not_found",
+                    )
+                    return TaskExecutionResult(status="failed", reason="agent_not_found")
+
+                try:
+                    wait_started_ms = timeline_step_started(
                         timeline_id=timeline_id,
                         task_id=task_id,
                         step="wait_for_completion",
                         location="orc_core/task_execution.py:TaskExecutionEngine.execute",
                         attempt=attempt_number,
-                        started_at_ms=wait_started_ms,
-                        result="failed",
-                        reason="exception",
                     )
-                    raise
-            finally:
-                active_monitor.stop()
-                _cleanup_monitor_processes(active_monitor, self.log_path, label="agent")
-            timeline_step_finished(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="wait_for_completion",
-                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                attempt=attempt_number,
-                started_at_ms=wait_started_ms,
-                result=result,
-            )
+                    try:
+                        result = wait_for_completion(
+                            task_path=request.task_path,
+                            monitor=active_monitor,
+                            poll=request.poll,
+                            stall_timeout=request.stall_timeout,
+                            task_ttl=request.task_ttl,
+                            elapsed_before_start=elapsed_before_start_stage,
+                            log_path=self.log_path,
+                            nudge_after=request.nudge_after,
+                            nudge_cooldown=request.nudge_cooldown,
+                            nudge_text=request.nudge_text,
+                            task_id=task_id,
+                            task_text=task_text,
+                            timeline_id=timeline_id,
+                            attempt=attempt_number,
+                            escape_requested=is_stop_requested,
+                        )
+                    except Exception:
+                        timeline_step_finished(
+                            timeline_id=timeline_id,
+                            task_id=task_id,
+                            step="wait_for_completion",
+                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                            attempt=attempt_number,
+                            started_at_ms=wait_started_ms,
+                            result="failed",
+                            reason="exception",
+                        )
+                        raise
+                finally:
+                    active_monitor.stop()
+                    _cleanup_monitor_processes(active_monitor, self.log_path, label="agent")
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="wait_for_completion",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    attempt=attempt_number,
+                    started_at_ms=wait_started_ms,
+                    result=result,
+                )
 
-            debug_log(
-                "H8",
-                "orc_core/task_execution.py:execute:completion_state",
-                "completion state",
-                {
-                    "result": result,
-                    "monitor_is_none": active_monitor is None,
-                    "lines": active_monitor.metrics.total_lines,
-                    "commands": active_monitor.metrics.command_count,
-                    "tokens_total": active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-",
-                },
-            )
+                debug_log(
+                    "H8",
+                    "orc_core/task_execution.py:execute:completion_state",
+                    "completion state",
+                    {
+                        "result": result,
+                        "monitor_is_none": active_monitor is None,
+                        "lines": active_monitor.metrics.total_lines,
+                        "commands": active_monitor.metrics.command_count,
+                        "tokens_total": active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-",
+                        "stage_id": stage_id,
+                    },
+                )
 
-            if result == "completed":
-                timeline_step_finished(
-                    timeline_id=timeline_id,
-                    task_id=task_id,
-                    step="agent_attempt",
-                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                    attempt=attempt_number,
-                    started_at_ms=attempt_started_ms,
-                    result="completed",
-                )
-                return _finalize_completed(task_id, task_text, tag, active_monitor)
-            if result == "model_unavailable":
-                log_event(
-                    self.log_path,
-                    "ERROR",
-                    "agent model unavailable; stopping without restart",
-                    task_id=task_id,
-                    model=request.model,
-                )
-                ui_error(
-                    "❌ Выбранная модель недоступна для `agent`. "
-                    "Проверьте `agent --list-models` и укажите доступную модель через `--model`."
-                )
-                timeline_step_finished(
-                    timeline_id=timeline_id,
-                    task_id=task_id,
-                    step="agent_attempt",
-                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                    attempt=attempt_number,
-                    started_at_ms=attempt_started_ms,
-                    result="failed",
-                    reason="model_unavailable",
-                )
-                timeline_step_finished(
-                    timeline_id=timeline_id,
-                    task_id=task_id,
-                    step="task_execute",
-                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                    started_at_ms=execute_started_ms,
-                    result="failed",
-                    reason="model_unavailable",
-                )
-                return TaskExecutionResult(status="failed", reason="model_unavailable")
-            if result == "waiting_for_input":
-                timeline_step_finished(
-                    timeline_id=timeline_id,
-                    task_id=task_id,
-                    step="agent_attempt",
-                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                    attempt=attempt_number,
-                    started_at_ms=attempt_started_ms,
-                    result="waiting_for_input",
-                )
-                restart_count += 1
-                update_task_restart_count(request.task_path, self.log_path, restart_count)
-                log_event(
-                    self.log_path,
-                    "INFO",
-                    "waiting_for_input_budget_tick",
-                    task_id=task_id,
-                    restart_count=restart_count,
-                    max_restarts=request.max_restarts,
-                )
-                if restart_count > request.max_restarts:
+                if result == "completed":
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="agent_attempt",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        attempt=attempt_number,
+                        started_at_ms=attempt_started_ms,
+                        result="completed",
+                    )
+                    if stage_is_final:
+                        return _finalize_completed(task_id, task_text, tag, active_monitor)
+                    log_event(
+                        self.log_path,
+                        "INFO",
+                        "sdlc stage completed",
+                        task_id=task_id,
+                        stage_id=stage_id,
+                        stage_index=stage_index + 1,
+                        stage_total=len(stage_specs),
+                    )
+                    break
+                if result == "model_unavailable":
                     log_event(
                         self.log_path,
                         "ERROR",
-                        "max restarts exceeded while waiting for input",
+                        "agent model unavailable; stopping without restart",
+                        task_id=task_id,
+                        model=stage_model,
+                    )
+                    ui_error(
+                        "❌ Выбранная модель недоступна для `agent`. "
+                        "Проверьте `agent --list-models` и укажите доступную модель через `--model`."
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="agent_attempt",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        attempt=attempt_number,
+                        started_at_ms=attempt_started_ms,
+                        result="failed",
+                        reason="model_unavailable",
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="failed",
+                        reason="model_unavailable",
+                    )
+                    return TaskExecutionResult(status="failed", reason="model_unavailable")
+                if result == "waiting_for_input":
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="agent_attempt",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        attempt=attempt_number,
+                        started_at_ms=attempt_started_ms,
+                        result="waiting_for_input",
+                    )
+                    restart_count += 1
+                    update_task_restart_count(request.task_path, self.log_path, restart_count)
+                    log_event(
+                        self.log_path,
+                        "INFO",
+                        "waiting_for_input_budget_tick",
                         task_id=task_id,
                         restart_count=restart_count,
                         max_restarts=request.max_restarts,
                     )
-                    ui_error("❌ Агент зациклился на запросе follow-up ввода. Лимит перезапусков исчерпан.")
+                    if restart_count > request.max_restarts:
+                        log_event(
+                            self.log_path,
+                            "ERROR",
+                            "max restarts exceeded while waiting for input",
+                            task_id=task_id,
+                            restart_count=restart_count,
+                            max_restarts=request.max_restarts,
+                        )
+                        ui_error("❌ Агент зациклился на запросе follow-up ввода. Лимит перезапусков исчерпан.")
+                        timeline_step_finished(
+                            timeline_id=timeline_id,
+                            task_id=task_id,
+                            step="task_execute",
+                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                            started_at_ms=execute_started_ms,
+                            result="failed",
+                            reason="max_restarts_exceeded",
+                        )
+                        return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")
+                    delay = max(request.nudge_cooldown, request.poll, 1.0)
+                    timeline_instant(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="restart_backoff_sleep",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        attempt=attempt_number,
+                        result="continue",
+                        reason="waiting_for_input",
+                        data={"delay_seconds": delay},
+                    )
+                    ui_warn(
+                        f"[orc] агент запросил follow-up ввод; продолжу цикл через {delay:.1f}s "
+                        "(resume сохранен, задача не потеряна)"
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="continue",
+                        reason="waiting_for_input",
+                    )
+                    return TaskExecutionResult(status="continue", reason="waiting_for_input", delay_seconds=delay)
+                try:
+                    from .task_source import MarkdownTaskSource
+
+                    base_done = MarkdownTaskSource(base_backlog_path).is_task_done(task_id)
+                    runtime_done = False
+                    if runtime_backlog_path != base_backlog_path:
+                        runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(task_id)
+                    if base_done:
+                        log_event(
+                            self.log_path,
+                            "WARN",
+                            "task marked done after non-completed monitor result; treating as completed",
+                            task_id=task_id,
+                            monitor_result=result,
+                        )
+                        if request.task_path.exists():
+                            try:
+                                request.task_path.unlink()
+                                delete_runtime_state_file(request.task_path, self.log_path, reason="base_backlog_marked_done")
+                            except Exception as exc:
+                                log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
+                        return _finalize_completed(task_id, task_text, tag, active_monitor)
+                    if runtime_done:
+                        log_event(
+                            self.log_path,
+                            "WARN",
+                            "task marked done in runtime worktree backlog after non-completed monitor result; treating as completed",
+                            task_id=task_id,
+                            monitor_result=result,
+                            base_backlog_path=str(base_backlog_path),
+                            runtime_backlog_path=str(runtime_backlog_path),
+                        )
+                        if request.task_path.exists():
+                            try:
+                                request.task_path.unlink()
+                                delete_runtime_state_file(request.task_path, self.log_path, reason="runtime_backlog_marked_done")
+                            except Exception as exc:
+                                log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
+                        return _finalize_completed(task_id, task_text, tag, active_monitor)
+                except Exception as exc:
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "failed to inspect backlog completion after non-completed monitor result",
+                        task_id=task_id,
+                        monitor_result=result,
+                        error=str(exc),
+                    )
+
+                restart_count += 1
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="agent_attempt",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    attempt=attempt_number,
+                    started_at_ms=attempt_started_ms,
+                    result="restart",
+                    reason=result,
+                )
+                if restart_count > request.max_restarts:
+                    log_event(self.log_path, "ERROR", "max restarts exceeded", task_id=task_id)
+                    debug_log(
+                        "H6",
+                        "orc_core/task_execution.py:execute:max_restarts",
+                        "max restarts exceeded",
+                        {"task_id": task_id, "restart_count": restart_count, "max_restarts": request.max_restarts},
+                    )
+                    ui_error("❌ Агент не завершил задачу. Проверь логи.")
                     timeline_step_finished(
                         timeline_id=timeline_id,
                         task_id=task_id,
@@ -1525,144 +1688,55 @@ class TaskExecutionEngine:
                         reason="max_restarts_exceeded",
                     )
                     return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")
-                delay = max(request.nudge_cooldown, request.poll, 1.0)
-                timeline_instant(
+                log_event(self.log_path, "WARN", "restarting task", task_id=task_id, restart_count=restart_count, reason=result)
+                reason_text = RESTART_REASON_TEXT.get(result, result)
+                continue_vars = SafeDict(
+                    task_text=task_text,
+                    task_id=task_id,
+                    backlog=request.backlog_arg,
+                    workspace=request.workdir,
+                    stage_id=stage_id,
+                    stage_index=stage_index + 1,
+                    stage_total=len(stage_specs),
+                    stage_is_final=stage_is_final,
+                    reason=reason_text,
+                    restart_count=restart_count,
+                    max_restarts=request.max_restarts,
+                )
+                prompt = request.continue_template.format_map(continue_vars)
+                prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}__r{restart_count}")
+                resume_prompt_text = prompt
+                delay = _restart_backoff_seconds(restart_count)
+                log_event(self.log_path, "INFO", "restart backoff", task_id=task_id, restart_count=restart_count, delay_seconds=delay)
+                backoff_started_ms = timeline_step_started(
                     timeline_id=timeline_id,
                     task_id=task_id,
                     step="restart_backoff_sleep",
                     location="orc_core/task_execution.py:TaskExecutionEngine.execute",
                     attempt=attempt_number,
-                    result="continue",
-                    reason="waiting_for_input",
                     data={"delay_seconds": delay},
                 )
-                ui_warn(
-                    f"[orc] агент запросил follow-up ввод; продолжу цикл через {delay:.1f}s "
-                    "(resume сохранен, задача не потеряна)"
-                )
+                time.sleep(delay)
                 timeline_step_finished(
                     timeline_id=timeline_id,
                     task_id=task_id,
-                    step="task_execute",
+                    step="restart_backoff_sleep",
                     location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                    started_at_ms=execute_started_ms,
-                    result="continue",
-                    reason="waiting_for_input",
-                )
-                return TaskExecutionResult(status="continue", reason="waiting_for_input", delay_seconds=delay)
-            try:
-                from .task_source import MarkdownTaskSource
-
-                base_done = MarkdownTaskSource(base_backlog_path).is_task_done(task_id)
-                runtime_done = False
-                if runtime_backlog_path != base_backlog_path:
-                    runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(task_id)
-                if base_done:
-                    log_event(
-                        self.log_path,
-                        "WARN",
-                        "task marked done after non-completed monitor result; treating as completed",
-                        task_id=task_id,
-                        monitor_result=result,
-                    )
-                    if request.task_path.exists():
-                        try:
-                            request.task_path.unlink()
-                            delete_runtime_state_file(request.task_path, self.log_path, reason="base_backlog_marked_done")
-                        except Exception as exc:
-                            log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
-                    return _finalize_completed(task_id, task_text, tag, active_monitor)
-                if runtime_done:
-                    log_event(
-                        self.log_path,
-                        "WARN",
-                        "task marked done in runtime worktree backlog after non-completed monitor result; treating as completed",
-                        task_id=task_id,
-                        monitor_result=result,
-                        base_backlog_path=str(base_backlog_path),
-                        runtime_backlog_path=str(runtime_backlog_path),
-                    )
-                    if request.task_path.exists():
-                        try:
-                            request.task_path.unlink()
-                            delete_runtime_state_file(request.task_path, self.log_path, reason="runtime_backlog_marked_done")
-                        except Exception as exc:
-                            log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
-                    return _finalize_completed(task_id, task_text, tag, active_monitor)
-            except Exception as exc:
-                log_event(
-                    self.log_path,
-                    "ERROR",
-                    "failed to inspect backlog completion after non-completed monitor result",
-                    task_id=task_id,
-                    monitor_result=result,
-                    error=str(exc),
+                    attempt=attempt_number,
+                    started_at_ms=backoff_started_ms,
+                    result="completed",
                 )
 
-            restart_count += 1
-            timeline_step_finished(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="agent_attempt",
-                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                attempt=attempt_number,
-                started_at_ms=attempt_started_ms,
-                result="restart",
-                reason=result,
-            )
-            if restart_count > request.max_restarts:
-                log_event(self.log_path, "ERROR", "max restarts exceeded", task_id=task_id)
-                debug_log(
-                    "H6",
-                    "orc_core/task_execution.py:execute:max_restarts",
-                    "max restarts exceeded",
-                    {"task_id": task_id, "restart_count": restart_count, "max_restarts": request.max_restarts},
-                )
-                ui_error("❌ Агент не завершил задачу. Проверь логи.")
-                timeline_step_finished(
-                    timeline_id=timeline_id,
-                    task_id=task_id,
-                    step="task_execute",
-                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                    started_at_ms=execute_started_ms,
-                    result="failed",
-                    reason="max_restarts_exceeded",
-                )
-                return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")
-            log_event(self.log_path, "WARN", "restarting task", task_id=task_id, restart_count=restart_count, reason=result)
-            reason_text = RESTART_REASON_TEXT.get(result, result)
-            continue_vars = SafeDict(
-                task_text=task_text,
-                task_id=task_id,
-                backlog=request.backlog_arg,
-                workspace=request.workdir,
-                reason=reason_text,
-                restart_count=restart_count,
-                max_restarts=request.max_restarts,
-            )
-            prompt = request.continue_template.format_map(continue_vars)
-            prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}__r{restart_count}")
-            resume_prompt_text = prompt
-            delay = _restart_backoff_seconds(restart_count)
-            log_event(self.log_path, "INFO", "restart backoff", task_id=task_id, restart_count=restart_count, delay_seconds=delay)
-            backoff_started_ms = timeline_step_started(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="restart_backoff_sleep",
-                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                attempt=attempt_number,
-                data={"delay_seconds": delay},
-            )
-            time.sleep(delay)
-            timeline_step_finished(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="restart_backoff_sleep",
-                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                attempt=attempt_number,
-                started_at_ms=backoff_started_ms,
-                result="completed",
-            )
+        timeline_step_finished(
+            timeline_id=timeline_id,
+            task_id=task_id,
+            step="task_execute",
+            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+            started_at_ms=execute_started_ms,
+            result="failed",
+            reason="no_final_stage_completion",
+        )
+        return TaskExecutionResult(status="failed", reason="no_final_stage_completion")
 
     async def execute_async(self, request: TaskExecutionRequest) -> TaskExecutionResult:
         return await asyncio.to_thread(self.execute, request)

@@ -99,6 +99,10 @@ def write_task_file(workdir: str, task: Task, backlog_path: Path, log_path: Path
         "conversation_id": "",
         "created_at": now_iso(),
         "restart_count": restart_count,
+        "sdlc_stage_id": "",
+        "sdlc_stage_index": 0,
+        "sdlc_stage_total": 0,
+        "sdlc_stage_is_final": False,
     }
     write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
     write_task_runtime_state(task_path, task.task_id)
@@ -118,3 +122,27 @@ def update_task_restart_count(task_path: Path, log_path: Path, restart_count: in
     except Exception as exc:
         log_event(log_path, "ERROR", "failed to update task restart count", error=str(exc))
         return
+
+
+def update_task_stage_metadata(
+    task_path: Path,
+    log_path: Path,
+    *,
+    stage_id: str,
+    stage_index: int,
+    stage_total: int,
+    is_final: bool,
+) -> None:
+    try:
+        payload = json.loads(task_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        log_event(log_path, "ERROR", "failed to read task file for stage update", error=str(exc))
+        return
+    payload["sdlc_stage_id"] = str(stage_id or "").strip()
+    payload["sdlc_stage_index"] = max(int(stage_index), 0)
+    payload["sdlc_stage_total"] = max(int(stage_total), 0)
+    payload["sdlc_stage_is_final"] = bool(is_final)
+    try:
+        write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        log_event(log_path, "ERROR", "failed to update task stage metadata", error=str(exc))

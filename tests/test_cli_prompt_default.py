@@ -131,6 +131,8 @@ class CliPromptCoderOverrideTest(unittest.TestCase):
             self.assertNotEqual(kwargs["commit_template"], "UNIVERSAL PROMPT")
             self.assertNotEqual(kwargs["merge_expert_template"], "UNIVERSAL PROMPT")
             self.assertEqual(kwargs["main_branch"], "master")
+            stage_ids = [stage.stage_id for stage in kwargs["stage_specs"]]
+            self.assertEqual(stage_ids, ["planning", "design", "implementation", "review", "testing", "handoff"])
 
     @patch("orc_core.cli_app.release_lock")
     @patch("orc_core.cli_app.acquire_lock")

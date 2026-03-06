@@ -80,6 +80,17 @@ def main() -> int:
         lib.log_event(log_path, "ERROR", "stop: missing backlog_path/task_id")
         return 0
     status = data.get("status")
+    stage_is_final = bool(task.get("sdlc_stage_is_final"))
+    stage_id = str(task.get("sdlc_stage_id") or "").strip()
+    if status == "completed" and not stage_is_final:
+        lib.log_event(
+            log_path,
+            "INFO",
+            "stop: completed intermediate sdlc stage; skip backlog completion",
+            task_id=task_id,
+            stage_id=stage_id,
+        )
+        return 0
     already_done = False
     if status != "completed":
         try:

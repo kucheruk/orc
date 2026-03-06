@@ -34,16 +34,20 @@ from .model_selector import (
 from .notify import send_telegram_message
 from .process import acquire_lock, release_lock
 from .role_config import (
+    ROLE_ANALYSIS_PLANNING,
+    ROLE_CODE_REVIEW,
     ROLE_CODER,
     ROLE_HANDOFF,
     ROLE_MERGE_EXPERT,
+    ROLE_TESTER,
+    ROLE_DESIGN,
     RoleProfileRegistry,
 )
 from .resume_state import resumable_task_id
 from .start_menu import show_start_menu
 from .supervisor import _cleanup_stale_task_file, _create_temp_backlog, _delete_task_file, _load_task_payload
 from .stream_monitor_state import MonitorSnapshot
-from .task_execution import TaskExecutionEngine
+from .task_execution import TaskExecutionEngine, TaskStageSpec
 from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn
 from .worktree_flow import detect_base_branch
@@ -328,6 +332,26 @@ def main() -> int:
                     commit_template = ""
                     merge_expert_template = ""
                     merge_expert_model = ""
+                    planning_config = role_registry.resolve_role(
+                        workdir,
+                        ROLE_ANALYSIS_PLANNING,
+                        cli_model=str(args.model).strip(),
+                    )
+                    design_config = role_registry.resolve_role(
+                        workdir,
+                        ROLE_DESIGN,
+                        cli_model=str(args.model).strip(),
+                    )
+                    review_config = role_registry.resolve_role(
+                        workdir,
+                        ROLE_CODE_REVIEW,
+                        cli_model=str(args.model).strip(),
+                    )
+                    testing_config = role_registry.resolve_role(
+                        workdir,
+                        ROLE_TESTER,
+                        cli_model=str(args.model).strip(),
+                    )
                     if args.commit_phase:
                         handoff_config = role_registry.resolve_role(
                             workdir,
@@ -343,6 +367,17 @@ def main() -> int:
                     )
                     merge_expert_model = merge_expert_config.model
                     merge_expert_template = merge_expert_config.prompt
+                    stage_specs = [
+                        TaskStageSpec(stage_id="planning", model=planning_config.model, prompt_template=planning_config.prompt),
+                        TaskStageSpec(stage_id="design", model=design_config.model, prompt_template=design_config.prompt),
+                        TaskStageSpec(stage_id="implementation", model=coder_config.model, prompt_template=template),
+                        TaskStageSpec(stage_id="review", model=review_config.model, prompt_template=review_config.prompt),
+                        TaskStageSpec(stage_id="testing", model=testing_config.model, prompt_template=testing_config.prompt),
+                    ]
+                    if commit_template:
+                        stage_specs.append(
+                            TaskStageSpec(stage_id="handoff", model=args.commit_model or args.model, prompt_template=commit_template)
+                        )
                 except FileNotFoundError as exc:
                     log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
                     ui_error(str(exc))
@@ -365,6 +400,7 @@ def main() -> int:
                     merge_expert_model=merge_expert_model,
                     integrate_to_main=True,
                     main_branch=base_branch,
+                    stage_specs=stage_specs,
                 )
 
                 def _run_orchestrator(snapshot_publisher: Callable[[MonitorSnapshot], None]) -> int:

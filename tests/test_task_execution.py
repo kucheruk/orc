@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import orc_core.task_execution as task_execution
-from orc_core.task_execution import TaskExecutionEngine, TaskExecutionRequest
+from orc_core.task_execution import TaskExecutionEngine, TaskExecutionRequest, TaskStageSpec
 from orc_core.task_source import Task
 
 
@@ -134,6 +134,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         max_restarts: int = 2,
         commit_phase: bool = False,
         allow_fallback_commits: bool = False,
+        stage_specs: tuple[TaskStageSpec, ...] = (),
     ) -> TaskExecutionRequest:
         root = Path(tmpdir)
         backlog_path = root / "BACKLOG.md"
@@ -170,6 +171,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             commit_ttl=1.0,
             progress_done=0,
             progress_total=1,
+            stage_specs=stage_specs,
             agent_output_log_path=None,
         )
 
@@ -906,6 +908,68 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(task_execution.integrate_commit_into_main.call_count, 2)
         task_execution._run_merge_expert_phase.assert_called_once()
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_execute_runs_sdlc_stages_in_order_with_fresh_runs(self, wait_for_completion, *_mocks) -> None:
+        wait_for_completion.side_effect = ["completed"] * 6
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        stages = (
+            TaskStageSpec(stage_id="planning", model="model-a", prompt_template="planning {task_id}"),
+            TaskStageSpec(stage_id="design", model="model-b", prompt_template="design {task_id}"),
+            TaskStageSpec(stage_id="implementation", model="model-c", prompt_template="impl {task_id}"),
+            TaskStageSpec(stage_id="review", model="model-d", prompt_template="review {task_id}"),
+            TaskStageSpec(stage_id="testing", model="model-e", prompt_template="testing {task_id}"),
+            TaskStageSpec(stage_id="handoff", model="model-f", prompt_template="handoff {task_id}"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = engine.execute(self._request(tmpdir, stage_specs=stages))
+            prompt_payloads = [
+                Path(call["prompt_path"]).read_text(encoding="utf-8")
+                for call in worker.launch_kwargs
+            ]
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 6)
+        self.assertEqual([call["model"] for call in worker.launch_kwargs], [stage.model for stage in stages])
+        self.assertTrue(all(call["resume_id"] is None for call in worker.launch_kwargs))
+        self.assertTrue(all(call["resume_prompt"] is None for call in worker.launch_kwargs))
+        self.assertEqual(
+            prompt_payloads,
+            [
+                "planning TASK-001",
+                "design TASK-001",
+                "impl TASK-001",
+                "review TASK-001",
+                "testing TASK-001",
+                "handoff TASK-001",
+            ],
+        )
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_execute_stops_sdlc_pipeline_when_middle_stage_fails(self, wait_for_completion, *_mocks) -> None:
+        wait_for_completion.side_effect = ["completed", "model_unavailable"]
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        stages = (
+            TaskStageSpec(stage_id="planning", model="model-a", prompt_template="planning {task_id}"),
+            TaskStageSpec(stage_id="design", model="model-b", prompt_template="design {task_id}"),
+            TaskStageSpec(stage_id="implementation", model="model-c", prompt_template="impl {task_id}"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = engine.execute(self._request(tmpdir, stage_specs=stages))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "model_unavailable")
+        self.assertEqual(worker.launch_calls, 2)
 
 
 if __name__ == "__main__":
