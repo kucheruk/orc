@@ -41,6 +41,15 @@ ALL_ROLE_IDS = (
     ROLE_MERGE_EXPERT,
 )
 
+ROLE_SETTINGS_VISIBLE_IDS = (
+    ROLE_ANALYSIS_PLANNING,
+    ROLE_DESIGN,
+    ROLE_CODER,
+    ROLE_CODE_REVIEW,
+    ROLE_TESTER,
+    ROLE_HANDOFF,
+)
+
 
 @dataclass(frozen=True)
 class RoleDefinition:
@@ -68,8 +77,8 @@ class RoleProfileRegistry:
             ROLE_ANALYSIS_PLANNING: RoleDefinition(
                 role_id=ROLE_ANALYSIS_PLANNING,
                 title="Исследование и планирование",
-                default_enabled=False,
-                can_toggle_enabled=False,
+                default_enabled=True,
+                can_toggle_enabled=True,
                 default_prompt_path=PLANNING_PROMPT_PATH,
             ),
             ROLE_SUPERVISOR: RoleDefinition(
@@ -86,7 +95,7 @@ class RoleProfileRegistry:
                 role_id=ROLE_DESIGN,
                 title="Дизайн решения",
                 default_enabled=False,
-                can_toggle_enabled=False,
+                can_toggle_enabled=True,
                 default_prompt_path=DESIGN_PROMPT_PATH,
             ),
             ROLE_CODER: RoleDefinition(
@@ -99,22 +108,22 @@ class RoleProfileRegistry:
             ROLE_CODE_REVIEW: RoleDefinition(
                 role_id=ROLE_CODE_REVIEW,
                 title="Код-ревью",
-                default_enabled=False,
-                can_toggle_enabled=False,
+                default_enabled=True,
+                can_toggle_enabled=True,
                 default_prompt_path=REVIEW_PROMPT_PATH,
             ),
             ROLE_TESTER: RoleDefinition(
                 role_id=ROLE_TESTER,
                 title="Тестировщик",
                 default_enabled=False,
-                can_toggle_enabled=False,
+                can_toggle_enabled=True,
                 default_prompt_path=TESTING_PROMPT_PATH,
             ),
             ROLE_HANDOFF: RoleDefinition(
                 role_id=ROLE_HANDOFF,
                 title="Сдача кода",
                 default_enabled=True,
-                can_toggle_enabled=True,
+                can_toggle_enabled=False,
                 default_prompt_path=COMMIT_PROMPT_PATH,
             ),
             ROLE_MERGE_EXPERT: RoleDefinition(

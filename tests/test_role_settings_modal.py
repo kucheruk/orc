@@ -41,6 +41,25 @@ class RoleSettingsModalKeyboardNavigationTest(unittest.TestCase):
 
             asyncio.run(_run())
 
+    def test_modal_shows_only_sdlc_plus_coder_roles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            screen = RoleSettingsModal(workdir=tmpdir, models=["gpt-5.3-codex"])
+            app = _RoleSettingsTestApp(screen)
+
+            async def _run() -> None:
+                async with app.run_test() as pilot:
+                    await pilot.pause()
+                    self.assertIsNotNone(screen.query_one("#role_row_analysis_planning"))
+                    self.assertIsNotNone(screen.query_one("#role_row_design"))
+                    self.assertIsNotNone(screen.query_one("#role_row_coder"))
+                    self.assertIsNotNone(screen.query_one("#role_row_code_review"))
+                    self.assertIsNotNone(screen.query_one("#role_row_tester"))
+                    self.assertIsNotNone(screen.query_one("#role_row_handoff"))
+                    self.assertEqual(len(screen.query("#role_row_supervisor")), 0)
+                    self.assertEqual(len(screen.query("#role_row_merge_expert")), 0)
+
+            asyncio.run(_run())
+
 
 if __name__ == "__main__":
     unittest.main()

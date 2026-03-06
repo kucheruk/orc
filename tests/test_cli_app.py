@@ -144,6 +144,43 @@ class CliAppModeSelectionTest(unittest.TestCase):
         self.assertEqual(args.mode, "backlog")
 
 
+class CliAppStageSpecsBuilderTest(unittest.TestCase):
+    def _cfg(self, *, enabled: bool, model: str, prompt: str):
+        return SimpleNamespace(enabled=enabled, model=model, prompt=prompt)
+
+    def test_build_stage_specs_respects_enabled_flags_and_keeps_required_stages(self) -> None:
+        specs = cli_app._build_stage_specs(
+            planning_config=self._cfg(enabled=True, model="m-plan", prompt="p-plan"),
+            design_config=self._cfg(enabled=False, model="m-design", prompt="p-design"),
+            coder_model="m-code",
+            coder_prompt="p-code",
+            review_config=self._cfg(enabled=True, model="m-review", prompt="p-review"),
+            testing_config=self._cfg(enabled=False, model="m-test", prompt="p-test"),
+            handoff_config=self._cfg(enabled=True, model="m-handoff", prompt="p-handoff"),
+            commit_phase=True,
+            default_handoff_model="m-default-handoff",
+        )
+
+        self.assertEqual([spec.stage_id for spec in specs], ["planning", "implementation", "review", "handoff"])
+        self.assertEqual([spec.model for spec in specs], ["m-plan", "m-code", "m-review", "m-handoff"])
+
+    def test_build_stage_specs_includes_design_and_testing_when_enabled(self) -> None:
+        specs = cli_app._build_stage_specs(
+            planning_config=self._cfg(enabled=False, model="m-plan", prompt="p-plan"),
+            design_config=self._cfg(enabled=True, model="m-design", prompt="p-design"),
+            coder_model="m-code",
+            coder_prompt="p-code",
+            review_config=self._cfg(enabled=False, model="m-review", prompt="p-review"),
+            testing_config=self._cfg(enabled=True, model="m-test", prompt="p-test"),
+            handoff_config=self._cfg(enabled=True, model="", prompt="p-handoff"),
+            commit_phase=True,
+            default_handoff_model="m-default-handoff",
+        )
+
+        self.assertEqual([spec.stage_id for spec in specs], ["design", "implementation", "testing", "handoff"])
+        self.assertEqual(specs[-1].model, "m-default-handoff")
+
+
 class CliAppModelSelectionTest(unittest.TestCase):
     @patch("orc_core.cli_app.save_last_selected_model")
     def test_interactive_selection_persists_selected_model(self, save_last_selected_model) -> None:

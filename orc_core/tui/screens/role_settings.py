@@ -10,7 +10,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Label, Switch, TextArea
 
-from ...role_config import ALL_ROLE_IDS, RoleProfileRegistry
+from ...role_config import ROLE_SETTINGS_VISIBLE_IDS, RoleProfileRegistry
 from .model_picker import ModelPickerModal
 
 
@@ -59,12 +59,12 @@ class RoleSettingsModal(ModalScreen[bool]):
         self._registry = registry or RoleProfileRegistry()
         self._focus_before_model_picker_id = "close_roles"
         self._focus_before_prompt_editor_id = "close_roles"
-        self._resolved = {role_id: self._registry.resolve_role(workdir, role_id) for role_id in ALL_ROLE_IDS}
+        self._resolved = {role_id: self._registry.resolve_role(workdir, role_id) for role_id in ROLE_SETTINGS_VISIBLE_IDS}
 
     def compose(self) -> ComposeResult:
         with Vertical(id="role_settings_modal"):
             yield Label("Роли: сопоставление Role -> Model -> Prompt")
-            for role_id in ALL_ROLE_IDS:
+            for role_id in ROLE_SETTINGS_VISIBLE_IDS:
                 role = self._resolved[role_id]
                 with Horizontal(classes="role_row", id=f"role_row_{role_id}"):
                     yield Label(role.title, classes="role_title")

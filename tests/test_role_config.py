@@ -6,7 +6,17 @@ import unittest
 from pathlib import Path
 
 from orc_core.model_selector import DEFAULT_MODEL
-from orc_core.role_config import ROLE_CODER, ROLE_MERGE_EXPERT, ROLE_SUPERVISOR, RoleProfileRegistry
+from orc_core.role_config import (
+    ROLE_ANALYSIS_PLANNING,
+    ROLE_CODE_REVIEW,
+    ROLE_CODER,
+    ROLE_DESIGN,
+    ROLE_HANDOFF,
+    ROLE_MERGE_EXPERT,
+    ROLE_SUPERVISOR,
+    ROLE_TESTER,
+    RoleProfileRegistry,
+)
 
 
 class RoleProfileRegistryTest(unittest.TestCase):
@@ -33,6 +43,56 @@ class RoleProfileRegistryTest(unittest.TestCase):
 
         self.assertFalse(resolved.enabled)
         self.assertEqual(resolved.model, "gpt-5.3-codex")
+
+    def test_sdlc_defaults_match_expected_enabled_and_toggleability(self) -> None:
+        registry = RoleProfileRegistry()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            planning = registry.resolve_role(tmpdir, ROLE_ANALYSIS_PLANNING)
+            design = registry.resolve_role(tmpdir, ROLE_DESIGN)
+            review = registry.resolve_role(tmpdir, ROLE_CODE_REVIEW)
+            testing = registry.resolve_role(tmpdir, ROLE_TESTER)
+            handoff = registry.resolve_role(tmpdir, ROLE_HANDOFF)
+            coder = registry.resolve_role(tmpdir, ROLE_CODER)
+
+        self.assertTrue(planning.enabled)
+        self.assertTrue(planning.can_toggle_enabled)
+        self.assertFalse(design.enabled)
+        self.assertTrue(design.can_toggle_enabled)
+        self.assertTrue(review.enabled)
+        self.assertTrue(review.can_toggle_enabled)
+        self.assertFalse(testing.enabled)
+        self.assertTrue(testing.can_toggle_enabled)
+        self.assertTrue(coder.enabled)
+        self.assertTrue(coder.can_toggle_enabled)
+        self.assertTrue(handoff.enabled)
+        self.assertFalse(handoff.can_toggle_enabled)
+
+    def test_update_override_roundtrip_for_planning_and_review(self) -> None:
+        registry = RoleProfileRegistry()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            registry.update_override(
+                tmpdir,
+                ROLE_ANALYSIS_PLANNING,
+                enabled=False,
+                model="sonnet-4.5",
+                prompt="custom planning prompt",
+            )
+            registry.update_override(
+                tmpdir,
+                ROLE_CODE_REVIEW,
+                enabled=False,
+                model="o3",
+                prompt="custom review prompt",
+            )
+            planning = registry.resolve_role(tmpdir, ROLE_ANALYSIS_PLANNING)
+            review = registry.resolve_role(tmpdir, ROLE_CODE_REVIEW)
+
+        self.assertFalse(planning.enabled)
+        self.assertEqual(planning.model, "sonnet-4.5")
+        self.assertEqual(planning.prompt, "custom planning prompt")
+        self.assertFalse(review.enabled)
+        self.assertEqual(review.model, "o3")
+        self.assertEqual(review.prompt, "custom review prompt")
 
     def test_resolve_role_priority_cli_override_then_saved_then_default(self) -> None:
         registry = RoleProfileRegistry()
