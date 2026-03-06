@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import orc_core.task_execution as task_execution
 from orc_core.task_execution import TaskExecutionEngine, TaskExecutionRequest, TaskStageSpec
+from orc_core.stage_artifacts import build_stage_artifact_bundle
 from orc_core.task_source import Task
 
 
@@ -927,6 +928,13 @@ class TaskExecutionEngineTest(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
+            artifact_bundle.plan.write_text("plan", encoding="utf-8")
+            artifact_bundle.design.write_text("design", encoding="utf-8")
+            artifact_bundle.implementation.write_text("implementation", encoding="utf-8")
+            artifact_bundle.review.write_text("review", encoding="utf-8")
+            artifact_bundle.testing.write_text("testing", encoding="utf-8")
+            artifact_bundle.handoff.write_text("handoff", encoding="utf-8")
             result = engine.execute(self._request(tmpdir, stage_specs=stages))
             prompt_payloads = [
                 Path(call["prompt_path"]).read_text(encoding="utf-8")
@@ -965,11 +973,74 @@ class TaskExecutionEngineTest(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
+            artifact_bundle.plan.write_text("plan", encoding="utf-8")
             result = engine.execute(self._request(tmpdir, stage_specs=stages))
 
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.reason, "model_unavailable")
         self.assertEqual(worker.launch_calls, 2)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_execute_fails_when_sdlc_stage_artifact_missing(self, wait_for_completion, *_mocks) -> None:
+        wait_for_completion.side_effect = ["completed", "completed"]
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        stages = (
+            TaskStageSpec(stage_id="planning", model="model-a", prompt_template="planning {task_id}"),
+            TaskStageSpec(stage_id="design", model="model-b", prompt_template="design {task_id}"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
+            artifact_bundle.plan.write_text("plan", encoding="utf-8")
+            result = engine.execute(self._request(tmpdir, stage_specs=stages))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "stage_artifact_design_missing")
+        self.assertEqual(worker.launch_calls, 2)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_execute_injects_stage_artifact_prompt_variables(self, wait_for_completion, *_mocks) -> None:
+        wait_for_completion.return_value = "completed"
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        stages = (
+            TaskStageSpec(
+                stage_id="planning",
+                model="model-a",
+                prompt_template=(
+                    "artifacts={artifacts_dir}\n"
+                    "plan={artifact_plan}\n"
+                    "design={artifact_design}\n"
+                    "impl={artifact_implementation}\n"
+                    "review={artifact_review}\n"
+                    "testing={artifact_testing}\n"
+                    "handoff={artifact_handoff}"
+                ),
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
+            artifact_bundle.plan.write_text("plan", encoding="utf-8")
+            result = engine.execute(self._request(tmpdir, stage_specs=stages))
+            prompt_payload = Path(worker.launch_kwargs[0]["prompt_path"]).read_text(encoding="utf-8")
+
+        self.assertEqual(result.status, "completed")
+        self.assertIn(f"artifacts={artifact_bundle.artifacts_dir}", prompt_payload)
+        self.assertIn(f"plan={artifact_bundle.plan}", prompt_payload)
+        self.assertIn(f"design={artifact_bundle.design}", prompt_payload)
+        self.assertIn(f"impl={artifact_bundle.implementation}", prompt_payload)
+        self.assertIn(f"review={artifact_bundle.review}", prompt_payload)
+        self.assertIn(f"testing={artifact_bundle.testing}", prompt_payload)
+        self.assertIn(f"handoff={artifact_bundle.handoff}", prompt_payload)
 
 
 if __name__ == "__main__":

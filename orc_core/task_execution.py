@@ -27,6 +27,7 @@ from .quit_signal import is_quit_after_task_requested, is_stop_requested
 from .runner import launch_agent_stream_json
 from .stream_monitor_state import MonitorSnapshot
 from .supervisor_lifecycle import wait_for_completion, wait_for_process_exit
+from .stage_artifacts import build_stage_artifact_bundle, validate_stage_artifact_output
 from .task_state import delete_runtime_state_file, read_task_active_seconds, runtime_state_path
 from .task_source import Task
 from .text_parse import clean_summary_lines
@@ -1335,6 +1336,9 @@ class TaskExecutionEngine:
         stage_specs = list(request.stage_specs)
         if not stage_specs:
             stage_specs = [TaskStageSpec(stage_id="implementation", model=request.model, prompt_template=request.prompt_template)]
+        artifact_bundle = build_stage_artifact_bundle(workdir=request.workdir, task_id=task_id)
+        artifact_prompt_vars = dict(artifact_bundle.to_prompt_vars())
+        enforce_stage_artifacts = bool(request.stage_specs)
 
         for stage_index, stage_spec in enumerate(stage_specs):
             stage_id = (stage_spec.stage_id or f"stage_{stage_index + 1}").strip()
@@ -1358,6 +1362,7 @@ class TaskExecutionEngine:
                 stage_index=stage_index + 1,
                 stage_total=len(stage_specs),
                 stage_is_final=stage_is_final,
+                **artifact_prompt_vars,
             )
             prompt = stage_spec.prompt_template.format_map(prompt_vars)
             ts = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -1491,6 +1496,48 @@ class TaskExecutionEngine:
                 )
 
                 if result == "completed":
+                    if enforce_stage_artifacts:
+                        artifact_ok, artifact_reason, artifact_path = validate_stage_artifact_output(
+                            stage_id=stage_id,
+                            bundle=artifact_bundle,
+                        )
+                        if not artifact_ok:
+                            failure_reason = f"stage_artifact_{stage_id}_{artifact_reason}"
+                            log_event(
+                                self.log_path,
+                                "ERROR",
+                                "sdlc stage artifact validation failed",
+                                task_id=task_id,
+                                stage_id=stage_id,
+                                stage_index=stage_index + 1,
+                                stage_total=len(stage_specs),
+                                artifact_path=str(artifact_path),
+                                artifact_reason=artifact_reason,
+                            )
+                            ui_error(
+                                "❌ SDLC stage завершился без валидного артефакта: "
+                                f"{stage_id} -> {artifact_path}"
+                            )
+                            timeline_step_finished(
+                                timeline_id=timeline_id,
+                                task_id=task_id,
+                                step="agent_attempt",
+                                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                                attempt=attempt_number,
+                                started_at_ms=attempt_started_ms,
+                                result="failed",
+                                reason=failure_reason,
+                            )
+                            timeline_step_finished(
+                                timeline_id=timeline_id,
+                                task_id=task_id,
+                                step="task_execute",
+                                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                                started_at_ms=execute_started_ms,
+                                result="failed",
+                                reason=failure_reason,
+                            )
+                            return TaskExecutionResult(status="failed", reason=failure_reason)
                     timeline_step_finished(
                         timeline_id=timeline_id,
                         task_id=task_id,

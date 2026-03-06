@@ -7,6 +7,12 @@
 - Task ID: {task_id}
 - Task text: {task_text}
 - Workspace: {workspace}
+- SDLC артефакты:
+  - planning: `{artifact_plan}`
+  - design: `{artifact_design}`
+  - implementation: `{artifact_implementation}`
+  - review: `{artifact_review}`
+  - testing: `{artifact_testing}`
 
 Ограничения:
 - В этой фазе НЕ меняй код, тесты, backlog или документацию (кроме случаев, когда commit невозможно сделать без минимальной правки формата сообщения/метаданных).
@@ -46,3 +52,8 @@
 
 Вывод в конце:
 - 1-2 строки: что закоммитил (смысл) + hash коммита (краткий) или “skip commit”.
+
+## SDLC artifact output (обязательно)
+Перед завершением этой фазы:
+1) Запиши итог handoff в `{artifact_handoff}` (не пустой файл), опираясь на все входные артефакты.
+2) Обнови/создай `tasks/{task_id}.md` как человекочитаемый итог задачи.
