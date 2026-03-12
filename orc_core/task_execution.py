@@ -203,6 +203,59 @@ def _resolve_runtime_backlog_path(request: TaskExecutionRequest) -> Path:
     return Path(request.workdir) / candidate
 
 
+def _sync_done_task_from_runtime_to_base(
+    *,
+    task_id: str,
+    base_backlog_path: Path,
+    runtime_backlog_path: Path,
+    log_path: Path,
+) -> bool:
+    if runtime_backlog_path == base_backlog_path:
+        return True
+    from .task_source import MarkdownTaskSource
+
+    try:
+        base_source = MarkdownTaskSource(base_backlog_path)
+        if base_source.is_task_done(task_id):
+            return True
+        runtime_source = MarkdownTaskSource(runtime_backlog_path)
+        if not runtime_source.is_task_done(task_id):
+            return False
+        found = base_source.mark_task_done(task_id)
+        if not found:
+            log_event(
+                log_path,
+                "ERROR",
+                "failed to sync done task from runtime backlog: task not found in base backlog",
+                task_id=task_id,
+                base_backlog_path=str(base_backlog_path),
+                runtime_backlog_path=str(runtime_backlog_path),
+            )
+            return False
+        synced = base_source.is_task_done(task_id)
+        if synced:
+            log_event(
+                log_path,
+                "INFO",
+                "synced done task from runtime backlog into base backlog",
+                task_id=task_id,
+                base_backlog_path=str(base_backlog_path),
+                runtime_backlog_path=str(runtime_backlog_path),
+            )
+        return synced
+    except Exception as exc:
+        log_event(
+            log_path,
+            "ERROR",
+            "failed to sync done task from runtime backlog",
+            task_id=task_id,
+            base_backlog_path=str(base_backlog_path),
+            runtime_backlog_path=str(runtime_backlog_path),
+            error=str(exc),
+        )
+        return False
+
+
 def _find_first_stage_index(stage_specs: list[TaskStageSpec], target_stage_id: str) -> Optional[int]:
     normalized_target = str(target_stage_id or "").strip().lower()
     for idx, stage_spec in enumerate(stage_specs):
@@ -1224,28 +1277,35 @@ class TaskExecutionEngine:
                 if runtime_backlog_path != base_backlog_path:
                     runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(current_task_id)
                 if runtime_done and not base_done:
-                    log_event(
-                        self.log_path,
-                        "ERROR",
-                        "backlog invariant violated after completion: task marked done only in runtime worktree backlog",
+                    synced = _sync_done_task_from_runtime_to_base(
                         task_id=current_task_id,
-                        base_backlog_path=str(base_backlog_path),
-                        runtime_backlog_path=str(runtime_backlog_path),
+                        base_backlog_path=base_backlog_path,
+                        runtime_backlog_path=runtime_backlog_path,
+                        log_path=self.log_path,
                     )
-                    ui_error(
-                        "❌ После завершения задачи backlog в base не синхронизирован с worktree. "
-                        "Инвариант worktree -> base нарушен."
-                    )
-                    timeline_step_finished(
-                        timeline_id=timeline_id,
-                        task_id=current_task_id,
-                        step="task_execute",
-                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                        started_at_ms=execute_started_ms,
-                        result="failed",
-                        reason="worktree_not_integrated_to_base",
-                    )
-                    return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
+                    if not synced:
+                        log_event(
+                            self.log_path,
+                            "ERROR",
+                            "backlog invariant violated after completion: task marked done only in runtime worktree backlog",
+                            task_id=current_task_id,
+                            base_backlog_path=str(base_backlog_path),
+                            runtime_backlog_path=str(runtime_backlog_path),
+                        )
+                        ui_error(
+                            "❌ После завершения задачи backlog в base не синхронизирован с worktree. "
+                            "Инвариант worktree -> base нарушен."
+                        )
+                        timeline_step_finished(
+                            timeline_id=timeline_id,
+                            task_id=current_task_id,
+                            step="task_execute",
+                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                            started_at_ms=execute_started_ms,
+                            result="failed",
+                            reason="worktree_not_integrated_to_base",
+                        )
+                        return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
             except Exception as exc:
                 log_event(
                     self.log_path,
@@ -2007,6 +2067,31 @@ class TaskExecutionEngine:
                                 return _finalize_completed(task_id, task_text, tag, active_monitor)
                             break
                     if runtime_done:
+                        synced = _sync_done_task_from_runtime_to_base(
+                            task_id=task_id,
+                            base_backlog_path=base_backlog_path,
+                            runtime_backlog_path=runtime_backlog_path,
+                            log_path=self.log_path,
+                        )
+                        if not synced:
+                            log_event(
+                                self.log_path,
+                                "ERROR",
+                                "runtime backlog marked done but base backlog sync failed",
+                                task_id=task_id,
+                                base_backlog_path=str(base_backlog_path),
+                                runtime_backlog_path=str(runtime_backlog_path),
+                            )
+                            timeline_step_finished(
+                                timeline_id=timeline_id,
+                                task_id=task_id,
+                                step="task_execute",
+                                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                                started_at_ms=execute_started_ms,
+                                result="failed",
+                                reason="runtime_backlog_sync_failed",
+                            )
+                            return TaskExecutionResult(status="failed", reason="runtime_backlog_sync_failed")
                         log_event(
                             self.log_path,
                             "WARN",

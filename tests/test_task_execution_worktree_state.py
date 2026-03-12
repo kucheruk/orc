@@ -132,7 +132,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
     @patch("orc_core.task_execution._cleanup_monitor_processes")
     @patch("orc_core.task_execution.wait_for_completion", return_value="stalled")
     @patch("orc_core.task_execution.send_telegram_message")
-    def test_fails_fast_when_task_done_only_in_worktree_backlog(self, *_mocks) -> None:
+    def test_syncs_done_flag_from_worktree_backlog_into_base(self, *_mocks) -> None:
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
@@ -146,9 +146,47 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
             (worktree_dir / "BACKLOG.md").write_text("- [x] TASK-001 test task\n", encoding="utf-8")
 
             result = engine.execute(request)
+            base_backlog = (base_dir / "BACKLOG.md").read_text(encoding="utf-8")
+
+        self.assertEqual(result.status, "completed")
+        self.assertIn("[x] TASK-001", base_backlog)
+        self.assertEqual(worker.launch_calls, 1)
+
+    @patch("orc_core.task_execution.preflight_main_integration")
+    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
+    @patch("orc_core.task_execution.integrate_commit_into_main")
+    @patch("orc_core.task_execution._cleanup_monitor_processes")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="process_exited")
+    @patch("orc_core.task_execution.send_telegram_message")
+    def test_keeps_base_backlog_synced_when_runtime_done_and_integration_fails(self, *_mocks) -> None:
+        import orc_core.task_execution as task_execution
+
+        task_execution.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
+        task_execution.integrate_commit_into_main.return_value = type(
+            "Integration",
+            (),
+            {"ok": False, "conflict": False, "error": "checkout main failed: test"},
+        )()
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            base_dir = root / "base"
+            worktree_dir = root / "worktree"
+            base_dir.mkdir(parents=True, exist_ok=True)
+            worktree_dir.mkdir(parents=True, exist_ok=True)
+            request = _request(base_dir, worktree_dir)
+            request = TaskExecutionRequest(**{**request.__dict__, "integrate_to_main": True, "main_branch": "main"})
+            (worktree_dir / "BACKLOG.md").write_text("- [x] TASK-001 test task\n", encoding="utf-8")
+
+            result = engine.execute(request)
+            base_backlog = (base_dir / "BACKLOG.md").read_text(encoding="utf-8")
 
         self.assertEqual(result.status, "failed")
-        self.assertEqual(result.reason, "worktree_not_integrated_to_base")
+        self.assertEqual(result.reason, "main_integration_failed")
+        self.assertIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
 
