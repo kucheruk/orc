@@ -13,6 +13,7 @@ from typing import Callable, Optional
 from .agent_preflight import AgentNotInstalledError, ensure_agent_installed
 from .backlog_orchestrator import BacklogOrchestrator
 from .backlog_status import inspect_backlog
+from .failure_reasons import format_known_failure_message
 from .gitignore_guard import validate_workspace_gitignore
 from .logging import (
     ORC_LOG_NAME,
@@ -221,6 +222,9 @@ def _failure_message(reason: str) -> str:
             "Выбранная модель недоступна для локального `agent`."
             " Проверьте `agent --list-models` и запустите с доступной моделью через `--model`."
         )
+    known_message = format_known_failure_message(normalized)
+    if known_message:
+        return known_message
     if normalized:
         return f"ORC завершился с ошибкой: {normalized}"
     return "ORC завершился с ошибкой без детали причины. Проверьте лог ORC."

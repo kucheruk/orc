@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable, Mapping, Optional, Protocol
 
 from .atomic_io import write_json_atomic
+from .failure_reasons import build_main_integration_preflight_reason
 from .hooks import update_task_restart_count, update_task_stage_metadata, write_task_file
 from .logging import debug_log, log_event, timeline_instant, timeline_step_finished, timeline_step_started
 from .notify import send_telegram_message
@@ -254,6 +255,17 @@ def _sync_done_task_from_runtime_to_base(
             error=str(exc),
         )
         return False
+
+
+def _should_defer_base_backlog_sync_to_integration(
+    *,
+    integrate_to_main: bool,
+    base_backlog_path: Path,
+    runtime_backlog_path: Path,
+) -> bool:
+    if not integrate_to_main:
+        return False
+    return runtime_backlog_path != base_backlog_path
 
 
 def _find_first_stage_index(stage_specs: list[TaskStageSpec], target_stage_id: str) -> Optional[int]:
@@ -1001,16 +1013,42 @@ class TaskExecutionEngine:
         )
         if request.integrate_to_main:
             preflight = preflight_main_integration(base_workdir=request.base_workdir, main_branch=request.main_branch)
+            failure_kind = _classify_main_integration_error(preflight.error)
+            safe_tracked = tuple(getattr(preflight, "safe_tracked", ()) or ())
+            safe_untracked = tuple(getattr(preflight, "safe_untracked", ()) or ())
+            unsafe_tracked = tuple(getattr(preflight, "unsafe_tracked", ()) or ())
+            unsafe_untracked = tuple(getattr(preflight, "unsafe_untracked", ()) or ())
+            debug_log(
+                "MI1",
+                "orc_core/task_execution.py:TaskExecutionEngine.execute",
+                "main integration preflight evaluated",
+                {
+                    "task_id": task_id,
+                    "base_workdir": request.base_workdir,
+                    "main_branch": request.main_branch,
+                    "ok": preflight.ok,
+                    "failure_kind": failure_kind,
+                    "error": preflight.error,
+                    "safe_tracked": list(safe_tracked[:20]),
+                    "safe_untracked": list(safe_untracked[:20]),
+                    "unsafe_tracked": list(unsafe_tracked[:20]),
+                    "unsafe_untracked": list(unsafe_untracked[:20]),
+                },
+            )
             if not preflight.ok:
-                failure_kind = _classify_main_integration_error(preflight.error)
                 log_event(
                     self.log_path,
                     "ERROR",
                     "main integration preflight failed",
                     task_id=task_id,
                     branch=request.main_branch,
+                    base_workdir=request.base_workdir,
                     integration_failure_kind=failure_kind,
                     error=preflight.error[:500],
+                    safe_tracked=list(safe_tracked[:20]),
+                    safe_untracked=list(safe_untracked[:20]),
+                    unsafe_tracked=list(unsafe_tracked[:20]),
+                    unsafe_untracked=list(unsafe_untracked[:20]),
                 )
                 ui_error(
                     f"❌ Невозможно подготовить интеграцию в {request.main_branch}: {preflight.error}"
@@ -1024,7 +1062,10 @@ class TaskExecutionEngine:
                     result="failed",
                     reason=f"main_integration_preflight_failed:{failure_kind}",
                 )
-                return TaskExecutionResult(status="failed", reason="main_integration_preflight_failed")
+                return TaskExecutionResult(
+                    status="failed",
+                    reason=build_main_integration_preflight_reason(failure_kind, preflight.error),
+                )
         resume_existing = request.task_path.exists()
         resume_id: Optional[str] = None
         worktree_path_value = request.workdir if Path(request.workdir).resolve() != Path(request.base_workdir).resolve() else ""
@@ -1277,6 +1318,44 @@ class TaskExecutionEngine:
                 if runtime_backlog_path != base_backlog_path:
                     runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(current_task_id)
                 if runtime_done and not base_done:
+                    if _should_defer_base_backlog_sync_to_integration(
+                        integrate_to_main=request.integrate_to_main,
+                        base_backlog_path=base_backlog_path,
+                        runtime_backlog_path=runtime_backlog_path,
+                    ):
+                        log_event(
+                            self.log_path,
+                            "ERROR",
+                            "backlog invariant violated after main integration: task marked done only in runtime worktree backlog",
+                            task_id=current_task_id,
+                            base_backlog_path=str(base_backlog_path),
+                            runtime_backlog_path=str(runtime_backlog_path),
+                            integrate_to_main=request.integrate_to_main,
+                        )
+                        debug_log(
+                            "MI2",
+                            "orc_core/task_execution.py:TaskExecutionEngine.execute",
+                            "base backlog was not updated by integrated commit",
+                            {
+                                "task_id": current_task_id,
+                                "base_backlog_path": str(base_backlog_path),
+                                "runtime_backlog_path": str(runtime_backlog_path),
+                            },
+                        )
+                        ui_error(
+                            "❌ После успешной main integration backlog в base не отмечен как done. "
+                            "Значит, отметка попала не в task commit, а пыталась догнаться позже."
+                        )
+                        timeline_step_finished(
+                            timeline_id=timeline_id,
+                            task_id=current_task_id,
+                            step="task_execute",
+                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                            started_at_ms=execute_started_ms,
+                            result="failed",
+                            reason="worktree_not_integrated_to_base",
+                        )
+                        return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
                     synced = _sync_done_task_from_runtime_to_base(
                         task_id=current_task_id,
                         base_backlog_path=base_backlog_path,
@@ -2068,40 +2147,66 @@ class TaskExecutionEngine:
                                 return _finalize_completed(task_id, task_text, tag, active_monitor)
                             break
                     if runtime_done:
-                        synced = _sync_done_task_from_runtime_to_base(
-                            task_id=task_id,
+                        if _should_defer_base_backlog_sync_to_integration(
+                            integrate_to_main=request.integrate_to_main,
                             base_backlog_path=base_backlog_path,
                             runtime_backlog_path=runtime_backlog_path,
-                            log_path=self.log_path,
-                        )
-                        if not synced:
+                        ):
                             log_event(
                                 self.log_path,
-                                "ERROR",
-                                "runtime backlog marked done but base backlog sync failed",
+                                "INFO",
+                                "runtime backlog marked done; deferring base backlog sync until main integration",
                                 task_id=task_id,
+                                monitor_result=result,
                                 base_backlog_path=str(base_backlog_path),
                                 runtime_backlog_path=str(runtime_backlog_path),
                             )
-                            timeline_step_finished(
-                                timeline_id=timeline_id,
-                                task_id=task_id,
-                                step="task_execute",
-                                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                                started_at_ms=execute_started_ms,
-                                result="failed",
-                                reason="runtime_backlog_sync_failed",
+                            debug_log(
+                                "MI3",
+                                "orc_core/task_execution.py:TaskExecutionEngine.execute",
+                                "deferred base backlog sync because runtime backlog done will be carried by task commit",
+                                {
+                                    "task_id": task_id,
+                                    "monitor_result": result,
+                                    "base_backlog_path": str(base_backlog_path),
+                                    "runtime_backlog_path": str(runtime_backlog_path),
+                                },
                             )
-                            return TaskExecutionResult(status="failed", reason="runtime_backlog_sync_failed")
-                        log_event(
-                            self.log_path,
-                            "WARN",
-                            "task marked done in runtime worktree backlog after non-completed monitor result",
-                            task_id=task_id,
-                            monitor_result=result,
-                            base_backlog_path=str(base_backlog_path),
-                            runtime_backlog_path=str(runtime_backlog_path),
-                        )
+                        else:
+                            synced = _sync_done_task_from_runtime_to_base(
+                                task_id=task_id,
+                                base_backlog_path=base_backlog_path,
+                                runtime_backlog_path=runtime_backlog_path,
+                                log_path=self.log_path,
+                            )
+                            if not synced:
+                                log_event(
+                                    self.log_path,
+                                    "ERROR",
+                                    "runtime backlog marked done but base backlog sync failed",
+                                    task_id=task_id,
+                                    base_backlog_path=str(base_backlog_path),
+                                    runtime_backlog_path=str(runtime_backlog_path),
+                                )
+                                timeline_step_finished(
+                                    timeline_id=timeline_id,
+                                    task_id=task_id,
+                                    step="task_execute",
+                                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                                    started_at_ms=execute_started_ms,
+                                    result="failed",
+                                    reason="runtime_backlog_sync_failed",
+                                )
+                                return TaskExecutionResult(status="failed", reason="runtime_backlog_sync_failed")
+                            log_event(
+                                self.log_path,
+                                "WARN",
+                                "task marked done in runtime worktree backlog after non-completed monitor result",
+                                task_id=task_id,
+                                monitor_result=result,
+                                base_backlog_path=str(base_backlog_path),
+                                runtime_backlog_path=str(runtime_backlog_path),
+                            )
                         stage_failure, stage_next_index, stage_completed_final = _complete_stage(
                             current_task_id=task_id,
                             current_task_text=task_text,

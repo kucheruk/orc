@@ -221,6 +221,11 @@ class CliAppFailureMessageTest(unittest.TestCase):
         self.assertIn("agent --list-models", message)
         self.assertIn("--model", message)
 
+    def test_dirty_base_repo_failure_includes_paths_and_next_step(self) -> None:
+        message = _failure_message("main_integration_preflight_failed:dirty_base_repo:tracked:BACKLOG.md")
+        self.assertIn("BACKLOG.md", message)
+        self.assertIn("git status --porcelain", message)
+
     def test_unknown_failure_reason_is_included(self) -> None:
         message = _failure_message("custom_reason")
         self.assertIn("custom_reason", message)

@@ -932,7 +932,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
             result = engine.execute(request)
 
         self.assertEqual(result.status, "failed")
-        self.assertEqual(result.reason, "main_integration_preflight_failed")
+        self.assertEqual(
+            result.reason,
+            "main_integration_preflight_failed:dirty_base_repo:untracked:notes.txt",
+        )
         self.assertEqual(worker.launch_calls, 0)
 
     @patch("orc_core.task_execution.timeline_step_finished")
