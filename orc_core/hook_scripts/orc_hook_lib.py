@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -13,6 +14,9 @@ DEFAULT_LOG_LEVEL = "WARN"
 if str(ORC_ROOT) not in sys.path:
     sys.path.insert(0, str(ORC_ROOT))
 from orc_core.atomic_io import write_json_atomic
+from orc_core.state_paths import artifacts_dir as external_artifacts_dir
+from orc_core.state_paths import metrics_path as external_metrics_path
+from orc_core.state_paths import stats_path as external_stats_path
 from orc_core.task_source import MarkdownTaskSource
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
@@ -167,7 +171,8 @@ def parse_backlog_counts(path: Path) -> Tuple[int, int]:
 
 
 def load_stats(repo_root: Path) -> Dict[str, object]:
-    stats_path = repo_root / ".orc" / "orc-stats.json"
+    env_stats_path = str(os.environ.get("ORC_STATS_FILE") or "").strip()
+    stats_path = Path(env_stats_path) if env_stats_path else external_stats_path(str(repo_root))
     data = read_json(stats_path, {})
     data.setdefault("created_at", now_iso())
     data.setdefault("started_at", data.get("started_at") or "")
@@ -180,7 +185,8 @@ def load_stats(repo_root: Path) -> Dict[str, object]:
 
 
 def save_stats(repo_root: Path, stats: Dict[str, object]) -> None:
-    stats_path = repo_root / ".orc" / "orc-stats.json"
+    env_stats_path = str(os.environ.get("ORC_STATS_FILE") or "").strip()
+    stats_path = Path(env_stats_path) if env_stats_path else external_stats_path(str(repo_root))
     write_json(stats_path, stats)
 
 
@@ -196,7 +202,8 @@ def ensure_started(stats: Dict[str, object], done_tasks: int) -> Dict[str, objec
 
 
 def read_task_tokens(repo_root: Path) -> Optional[int]:
-    metrics_path = repo_root / ".orc" / "orc-metrics.json"
+    env_metrics_path = str(os.environ.get("ORC_METRICS_FILE") or "").strip()
+    metrics_path = Path(env_metrics_path) if env_metrics_path else external_metrics_path(str(repo_root))
     data = read_json(metrics_path, {})
     tokens = data.get("tokens_total")
     if isinstance(tokens, (int, float)):
@@ -280,3 +287,42 @@ def format_report(report: Dict[str, object]) -> str:
             f"tasks_remaining={report['tasks_remaining']}",
         ]
     )
+
+
+def normalize_path(raw: object, cwd: object = "") -> Path:
+    text = str(raw or "").strip()
+    base = Path(str(cwd or "").strip() or os.getcwd())
+    if not text:
+        return base.resolve()
+    candidate = Path(text)
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    try:
+        return candidate.resolve()
+    except Exception:
+        return candidate
+
+
+def is_path_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except Exception:
+        return False
+
+
+def artifacts_dir(base_workspace: object) -> Path:
+    return external_artifacts_dir(str(base_workspace or ""))
+
+
+def is_artifact_path(path: object, base_workspace: object, cwd: object = "") -> bool:
+    candidate = normalize_path(path, cwd)
+    return is_path_within(candidate, artifacts_dir(base_workspace))
+
+
+def extract_applypatch_paths(patch_text: object) -> list[str]:
+    text = str(patch_text or "")
+    if not text:
+        return []
+    pattern = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$", re.MULTILINE)
+    return [match.strip() for match in pattern.findall(text) if str(match).strip()]

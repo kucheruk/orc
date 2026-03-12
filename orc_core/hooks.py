@@ -2,12 +2,15 @@
 # -*- coding: utf-8 -*-
 
 import json
+import uuid
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 from .atomic_io import write_json_atomic, write_text_atomic
 from .backlog import Task
 from .logging import log_event, now_iso
+from .session_state import write_cursor_task_shim
+from .state_paths import active_task_path, cursor_task_shim_path
 from .task_state import write_task_runtime_state
 
 
@@ -32,6 +35,7 @@ def ensure_repo_hooks(workdir: str) -> Tuple[Path, Path]:
 
     before_path = cursor_hooks_dir / "orc_before_submit.py"
     stop_path = cursor_hooks_dir / "orc_stop.py"
+    pre_tool_use_path = cursor_hooks_dir / "orc_pre_tool_use.py"
     hook_lib_path = cursor_hooks_dir / "orc_hook_lib.py"
 
     orc_root = Path(__file__).resolve().parents[1]
@@ -39,19 +43,22 @@ def ensure_repo_hooks(workdir: str) -> Tuple[Path, Path]:
     replacements = {"__ORC_ROOT__": repr(str(orc_root))}
     before_script = _render_hook_script(hook_scripts_dir / "orc_before_submit.py", replacements)
     stop_script = _render_hook_script(hook_scripts_dir / "orc_stop.py", replacements)
+    pre_tool_use_script = _render_hook_script(hook_scripts_dir / "orc_pre_tool_use.py", replacements)
     hook_lib_script = _render_hook_script(hook_scripts_dir / "orc_hook_lib.py", replacements)
 
     _write_if_changed(before_path, before_script)
     _write_if_changed(stop_path, stop_script)
+    _write_if_changed(pre_tool_use_path, pre_tool_use_script)
     _write_if_changed(hook_lib_path, hook_lib_script)
     before_path.chmod(0o755)
     stop_path.chmod(0o755)
+    pre_tool_use_path.chmod(0o755)
     hook_lib_path.chmod(0o755)
     return before_path, stop_path
 
 
 def ensure_repo_hooks_config(workdir: str, before_path: Path, stop_path: Path, log_path: Path) -> Path:
-    def _ensure_hooks_file(hooks_path: Path, before_cmd: str, stop_cmd: str, label: str) -> None:
+    def _ensure_hooks_file(hooks_path: Path, before_cmd: str, stop_cmd: str, pre_tool_use_cmd: str, label: str) -> None:
         hooks_path.parent.mkdir(parents=True, exist_ok=True)
         if hooks_path.exists():
             try:
@@ -65,6 +72,7 @@ def ensure_repo_hooks_config(workdir: str, before_path: Path, stop_path: Path, l
         hooks = data.setdefault("hooks", {})
         before_list = hooks.setdefault("beforeSubmitPrompt", [])
         stop_list = hooks.setdefault("stop", [])
+        pre_tool_use_list = hooks.setdefault("preToolUse", [])
 
         if not any(item.get("command") == before_cmd for item in before_list if isinstance(item, dict)):
             before_list.append({"command": before_cmd})
@@ -72,6 +80,9 @@ def ensure_repo_hooks_config(workdir: str, before_path: Path, stop_path: Path, l
         if not any(item.get("command") == stop_cmd for item in stop_list if isinstance(item, dict)):
             stop_list.append({"command": stop_cmd})
             log_event(log_path, "INFO", f"{label}: added stop", command=stop_cmd)
+        if not any(item.get("command") == pre_tool_use_cmd for item in pre_tool_use_list if isinstance(item, dict)):
+            pre_tool_use_list.append({"command": pre_tool_use_cmd})
+            log_event(log_path, "INFO", f"{label}: added preToolUse", command=pre_tool_use_cmd)
 
         write_json_atomic(hooks_path, data, ensure_ascii=False, indent=2)
 
@@ -82,30 +93,46 @@ def ensure_repo_hooks_config(workdir: str, before_path: Path, stop_path: Path, l
         cursor_hooks_path,
         f"python3 {before_path}",
         f"python3 {stop_path}",
+        f"python3 {before_path.parent / 'orc_pre_tool_use.py'}",
         ".cursor/hooks.json",
     )
     return cursor_hooks_path
 
 
-def write_task_file(workdir: str, task: Task, backlog_path: Path, log_path: Path, restart_count: int = 0) -> Path:
-    task_path = Path(workdir) / ".cursor" / "orc-task.json"
+def write_task_file(
+    workdir: str,
+    task: Task,
+    backlog_path: Path,
+    log_path: Path,
+    restart_count: int = 0,
+    task_path_override: Optional[Path] = None,
+) -> Path:
+    task_path = task_path_override or active_task_path(workdir)
     task_path.parent.mkdir(parents=True, exist_ok=True)
+    created_at = now_iso()
     payload = {
         "version": 1,
+        "session_id": f"{task.task_id}-{uuid.uuid4().hex[:10]}",
         "task_id": task.task_id,
         "task_text": task.text,
         "backlog_path": str(backlog_path),
         "workspace_root": str(Path(workdir)),
+        "state_root": str(task_path.parent),
         "conversation_id": "",
-        "created_at": now_iso(),
+        "created_at": created_at,
         "restart_count": restart_count,
         "sdlc_stage_id": "",
         "sdlc_stage_index": 0,
         "sdlc_stage_total": 0,
         "sdlc_stage_is_final": False,
+        "worktree_path": "",
+        "branch_name": "",
+        "status": "active",
     }
     write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
     write_task_runtime_state(task_path, task.task_id)
+    if task_path != cursor_task_shim_path(workdir):
+        write_cursor_task_shim(workdir, task_path)
     log_event(log_path, "INFO", "task file written", path=str(task_path), task_id=task.task_id)
     return task_path
 

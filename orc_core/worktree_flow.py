@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .logging import log_event
+from .state_paths import worktrees_root
 
 GIT_TIMEOUT_SECONDS = 30.0
 INTEGRATION_SAFE_UNTRACKED_PREFIXES = (".orc/",)
@@ -80,13 +81,17 @@ def _parse_git_porcelain(porcelain: str) -> tuple[list[str], list[str]]:
     return tracked, untracked
 
 
-def _is_integration_safe_untracked(path: str) -> bool:
+def _is_runtime_artifact_path(path: str) -> bool:
     normalized = path.strip()
     if not normalized:
         return False
     if normalized in INTEGRATION_SAFE_UNTRACKED_EXACT:
         return True
     return normalized.startswith(INTEGRATION_SAFE_UNTRACKED_PREFIXES)
+
+
+def _is_integration_safe_untracked(path: str) -> bool:
+    return _is_runtime_artifact_path(path)
 
 
 def _is_empty_cherry_pick(stderr: str) -> bool:
@@ -124,7 +129,7 @@ def create_task_worktree(
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     safe_task = _safe_name(task_id)
     branch_name = f"orc/{safe_task}-{stamp}"
-    worktree_root = Path(base_workdir) / ".orc" / "worktrees"
+    worktree_root = worktrees_root(base_workdir)
     worktree_root.mkdir(parents=True, exist_ok=True)
     worktree_path = worktree_root / f"{safe_task}-{stamp}"
     ok, _, stderr, _ = _git(
@@ -163,7 +168,7 @@ def cleanup_task_worktree(session: WorktreeSession, log_path: Path) -> None:
             path = line[3:].strip()
             if path:
                 dirty_paths.append(path)
-        only_runtime_artifacts = bool(dirty_paths) and all(path.startswith(".orc/") for path in dirty_paths)
+        only_runtime_artifacts = bool(dirty_paths) and all(_is_runtime_artifact_path(path) for path in dirty_paths)
         if not only_runtime_artifacts:
             raise RuntimeError(f"failed to remove worktree: {stderr.strip()}")
         log_event(

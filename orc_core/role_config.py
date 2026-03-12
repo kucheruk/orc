@@ -8,6 +8,7 @@ from typing import Optional
 
 from .atomic_io import write_json_atomic
 from .model_selector import DEFAULT_MODEL
+from .state_paths import role_settings_path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = BASE_DIR / "prompts"
@@ -19,7 +20,6 @@ PLANNING_PROMPT_PATH = PROMPTS_DIR / "planning.txt"
 DESIGN_PROMPT_PATH = PROMPTS_DIR / "design.txt"
 REVIEW_PROMPT_PATH = PROMPTS_DIR / "review.txt"
 TESTING_PROMPT_PATH = PROMPTS_DIR / "testing.txt"
-ROLE_SETTINGS_PATH = Path(".orc") / "role-settings.json"
 
 ROLE_ANALYSIS_PLANNING = "analysis_planning"
 ROLE_DESIGN = "design"
@@ -150,7 +150,10 @@ class RoleProfileRegistry:
         return definition.default_prompt_text
 
     def load_overrides(self, workdir: str) -> dict[str, dict[str, object]]:
-        path = Path(workdir) / ROLE_SETTINGS_PATH
+        path = role_settings_path(workdir)
+        legacy_path = Path(workdir) / ".orc" / "role-settings.json"
+        if not path.exists() and legacy_path.exists():
+            path = legacy_path
         if not path.exists():
             return {}
         try:
@@ -168,9 +171,11 @@ class RoleProfileRegistry:
         return parsed
 
     def save_overrides(self, workdir: str, overrides: dict[str, dict[str, object]]) -> None:
-        path = Path(workdir) / ROLE_SETTINGS_PATH
+        path = role_settings_path(workdir)
         payload = {"version": 1, "roles": overrides}
         write_json_atomic(path, payload, ensure_ascii=False, indent=2)
+        legacy_path = Path(workdir) / ".orc" / "role-settings.json"
+        write_json_atomic(legacy_path, payload, ensure_ascii=False, indent=2)
 
     def update_override(
         self,

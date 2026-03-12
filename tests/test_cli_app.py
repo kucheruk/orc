@@ -228,7 +228,7 @@ class CliAppFailureMessageTest(unittest.TestCase):
 
 class CliAppInputValidationTest(unittest.TestCase):
     @patch("orc_core.cli_app.ui_error")
-    def test_validate_inputs_rejects_missing_orc_rule_in_gitignore(self, ui_error_mock) -> None:
+    def test_validate_inputs_accepts_gitignore_without_orc_rule(self, ui_error_mock) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / ".gitignore").write_text("bin/\nobj/\n", encoding="utf-8")
@@ -238,9 +238,8 @@ class CliAppInputValidationTest(unittest.TestCase):
 
             result = _validate_inputs(args, backlog, str(root), root / ".orc" / "orc.log")
 
-        self.assertFalse(result)
-        ui_error_mock.assert_called_once()
-        self.assertIn("copy-paste", ui_error_mock.call_args.args[0])
+        self.assertTrue(result)
+        ui_error_mock.assert_not_called()
 
     @patch("orc_core.cli_app.ui_error")
     def test_validate_inputs_accepts_gitignore_with_orc_rule(self, ui_error_mock) -> None:

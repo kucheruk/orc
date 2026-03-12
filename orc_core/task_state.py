@@ -9,13 +9,14 @@ from typing import Optional
 
 from .atomic_io import write_json_atomic
 from .logging import log_event
+from .state_paths import tmp_dir
 
 AGENT_LS_TIMEOUT_SECONDS = 15.0
 TASK_RUNTIME_FILE_NAME = "orc-task-runtime.json"
 
 
 def create_temp_backlog(workdir: str, task_text: str, log_path: Path) -> tuple[Path, str]:
-    run_dir = Path(workdir) / ".orc" / "tmp"
+    run_dir = tmp_dir(workdir)
     run_dir.mkdir(parents=True, exist_ok=True)
     task_id = "ORC-SMOKE-001"
     backlog_path = run_dir / f"BACKLOG.temp.{__import__('datetime').datetime.now().strftime('%Y%m%d-%H%M%S')}.md"

@@ -932,8 +932,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
             artifact_bundle.plan.write_text("plan", encoding="utf-8")
             artifact_bundle.design.write_text("design", encoding="utf-8")
             artifact_bundle.implementation.write_text("implementation", encoding="utf-8")
-            artifact_bundle.review.write_text("review", encoding="utf-8")
-            artifact_bundle.testing.write_text("testing", encoding="utf-8")
+            artifact_bundle.review.write_text("status: approved\nreview", encoding="utf-8")
+            artifact_bundle.testing.write_text("status: pass\ntesting", encoding="utf-8")
             artifact_bundle.handoff.write_text("handoff", encoding="utf-8")
             result = engine.execute(self._request(tmpdir, stage_specs=stages))
             prompt_payloads = [
@@ -1002,6 +1002,225 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.reason, "stage_artifact_design_missing")
         self.assertEqual(worker.launch_calls, 2)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_execute_feedback_loop_returns_to_implementation_before_testing(self, wait_for_completion, *_mocks) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        stages = (
+            TaskStageSpec(stage_id="implementation", model="model-c", prompt_template="impl {task_id}"),
+            TaskStageSpec(stage_id="review", model="model-d", prompt_template="review {task_id}"),
+            TaskStageSpec(stage_id="testing", model="model-e", prompt_template="testing {task_id}"),
+            TaskStageSpec(stage_id="handoff", model="model-f", prompt_template="handoff {task_id}"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
+            stage_counter = {"count": 0}
+
+            def _write_stage_artifacts(*_args, **_kwargs):
+                stage_counter["count"] += 1
+                index = stage_counter["count"]
+                if index in (1, 3):
+                    artifact_bundle.implementation.write_text(f"implementation-{index}", encoding="utf-8")
+                elif index == 2:
+                    artifact_bundle.review.write_text("status: needs_changes\nfix required", encoding="utf-8")
+                elif index == 4:
+                    artifact_bundle.review.write_text("status: approved\nready for testing", encoding="utf-8")
+                elif index == 5:
+                    artifact_bundle.testing.write_text("status: pass\nall checks green", encoding="utf-8")
+                elif index == 6:
+                    artifact_bundle.handoff.write_text("handoff", encoding="utf-8")
+                return "completed"
+
+            wait_for_completion.side_effect = _write_stage_artifacts
+            result = engine.execute(self._request(tmpdir, stage_specs=stages))
+            prompt_payloads = [Path(call["prompt_path"]).read_text(encoding="utf-8") for call in worker.launch_kwargs]
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 6)
+        self.assertEqual(
+            prompt_payloads,
+            [
+                "impl TASK-001",
+                "review TASK-001",
+                "impl TASK-001",
+                "review TASK-001",
+                "testing TASK-001",
+                "handoff TASK-001",
+            ],
+        )
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_execute_feedback_loop_fails_after_iteration_limit(self, wait_for_completion, *_mocks) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        stages = (
+            TaskStageSpec(stage_id="implementation", model="model-c", prompt_template="impl {task_id}"),
+            TaskStageSpec(stage_id="review", model="model-d", prompt_template="review {task_id}"),
+            TaskStageSpec(stage_id="testing", model="model-e", prompt_template="testing {task_id}"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
+            stage_counter = {"count": 0}
+
+            def _write_stage_artifacts(*_args, **_kwargs):
+                stage_counter["count"] += 1
+                index = stage_counter["count"]
+                if index % 2 == 1:
+                    artifact_bundle.implementation.write_text(f"implementation-{index}", encoding="utf-8")
+                else:
+                    artifact_bundle.review.write_text("status: needs_changes\nstill broken", encoding="utf-8")
+                return "completed"
+
+            wait_for_completion.side_effect = _write_stage_artifacts
+            result = engine.execute(self._request(tmpdir, stage_specs=stages))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "sdlc_feedback_limit_exceeded")
+        self.assertEqual(worker.launch_calls, 8)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_execute_retries_when_process_exits_after_backlog_done_without_artifact(
+        self,
+        wait_for_completion,
+        *_mocks,
+    ) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        stages = (
+            TaskStageSpec(stage_id="implementation", model="model-c", prompt_template="impl {task_id}"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
+
+            def _write_stage_artifacts(*_args, **_kwargs):
+                if len(worker.launch_kwargs) == 1:
+                    Path(tmpdir, "BACKLOG.md").write_text("- [x] TASK-001 test task\n", encoding="utf-8")
+                    return "process_exited"
+                artifact_bundle.implementation.write_text("implementation", encoding="utf-8")
+                return "completed"
+
+            wait_for_completion.side_effect = _write_stage_artifacts
+            result = engine.execute(self._request(tmpdir, stage_specs=stages))
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 2)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_execute_fails_with_missing_artifact_after_single_retry_budget(
+        self,
+        wait_for_completion,
+        *_mocks,
+    ) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        stages = (
+            TaskStageSpec(stage_id="implementation", model="model-c", prompt_template="impl {task_id}"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            def _always_exit_without_artifact(*_args, **_kwargs):
+                Path(tmpdir, "BACKLOG.md").write_text("- [x] TASK-001 test task\n", encoding="utf-8")
+                return "process_exited"
+
+            wait_for_completion.side_effect = _always_exit_without_artifact
+            result = engine.execute(self._request(tmpdir, stage_specs=stages, max_restarts=5))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "stage_artifact_implementation_missing")
+        self.assertEqual(worker.launch_calls, 2)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_execute_continues_to_handoff_when_implementation_marks_task_done_before_final_stage(
+        self,
+        wait_for_completion,
+        *_mocks,
+    ) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        stages = (
+            TaskStageSpec(stage_id="implementation", model="model-c", prompt_template="impl {task_id}"),
+            TaskStageSpec(stage_id="handoff", model="model-h", prompt_template="handoff {task_id}"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
+
+            def _write_stage_artifacts(*_args, **_kwargs):
+                if len(worker.launch_kwargs) == 1:
+                    artifact_bundle.implementation.write_text("implementation", encoding="utf-8")
+                    Path(tmpdir, "BACKLOG.md").write_text("- [x] TASK-001 test task\n", encoding="utf-8")
+                    return "process_exited"
+                artifact_bundle.handoff.write_text("handoff", encoding="utf-8")
+                return "completed"
+
+            wait_for_completion.side_effect = _write_stage_artifacts
+            result = engine.execute(self._request(tmpdir, stage_specs=stages))
+            prompt_payloads = [Path(call["prompt_path"]).read_text(encoding="utf-8") for call in worker.launch_kwargs]
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 2)
+        self.assertEqual(
+            prompt_payloads,
+            [
+                "impl TASK-001",
+                "handoff TASK-001",
+            ],
+        )
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion")
+    def test_execute_fails_when_testing_verdict_is_fail(self, wait_for_completion, *_mocks) -> None:
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+        stages = (
+            TaskStageSpec(stage_id="implementation", model="model-c", prompt_template="impl {task_id}"),
+            TaskStageSpec(stage_id="review", model="model-d", prompt_template="review {task_id}"),
+            TaskStageSpec(stage_id="testing", model="model-e", prompt_template="testing {task_id}"),
+            TaskStageSpec(stage_id="handoff", model="model-f", prompt_template="handoff {task_id}"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
+            stage_counter = {"count": 0}
+
+            def _write_stage_artifacts(*_args, **_kwargs):
+                stage_counter["count"] += 1
+                index = stage_counter["count"]
+                if index == 1:
+                    artifact_bundle.implementation.write_text("implementation", encoding="utf-8")
+                elif index == 2:
+                    artifact_bundle.review.write_text("status: approved\nok", encoding="utf-8")
+                elif index == 3:
+                    artifact_bundle.testing.write_text("status: fail\ntests are red", encoding="utf-8")
+                return "completed"
+
+            wait_for_completion.side_effect = _write_stage_artifacts
+            result = engine.execute(self._request(tmpdir, stage_specs=stages))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "testing_failed")
+        self.assertEqual(worker.launch_calls, 3)
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")

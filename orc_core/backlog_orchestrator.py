@@ -11,6 +11,8 @@ from typing import Callable, Optional, Tuple
 from .hooks import ensure_repo_hooks, ensure_repo_hooks_config
 from .logging import log_event
 from .quit_signal import is_quit_after_task_requested
+from .session_state import clear_active_session, save_active_session, save_worktree_record
+from .state_paths import metrics_path, run_root as state_run_root, stats_path
 from .stream_monitor_state import MonitorSnapshot
 from .task_state import delete_runtime_state_file, runtime_state_path
 from .task_execution import TaskExecutionEngine, TaskExecutionRequest, TaskStageSpec
@@ -66,6 +68,28 @@ class BacklogOrchestrator:
         self.task_source_factory = task_source_factory
         self.sleep_fn = sleep_fn
         self.last_failure_reason = ""
+
+    def _restore_worktree_from_state(self, open_task: Task) -> Optional[WorktreeSession]:
+        if not self.task_path.exists():
+            return None
+        try:
+            payload = json.loads(self.task_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if str(payload.get("task_id") or "").strip() != open_task.task_id:
+            return None
+        worktree_path = str(payload.get("worktree_path") or "").strip()
+        branch_name = str(payload.get("branch_name") or "").strip()
+        if not worktree_path:
+            return None
+        if not Path(worktree_path).exists():
+            return None
+        return WorktreeSession(
+            base_workdir=self.workdir,
+            worktree_path=worktree_path,
+            branch_name=branch_name,
+            task_id=open_task.task_id,
+        )
 
     def run(self) -> int:
         mode = str(getattr(self.args, "mode", "backlog") or "backlog").strip().lower()
@@ -137,6 +161,10 @@ class BacklogOrchestrator:
 
             short = (open_task.text[:120] + "…") if len(open_task.text) > 120 else open_task.text
             ui_info(f"▶️ Текущая задача: {open_task.task_id} — {short}")
+            if self.use_task_worktrees and active_worktree is None:
+                active_worktree = self._restore_worktree_from_state(open_task)
+                if active_worktree is not None:
+                    ui_info(f"[orc] worktree restored: {active_worktree.worktree_path}")
             if self.use_task_worktrees and (active_worktree is None or active_worktree.task_id != open_task.task_id):
                 try:
                     active_worktree = create_task_worktree(
@@ -144,6 +172,17 @@ class BacklogOrchestrator:
                         task_id=open_task.task_id,
                         log_path=self.log_path,
                         main_branch=self.main_branch,
+                    )
+                    save_worktree_record(
+                        self.workdir,
+                        open_task.task_id,
+                        {
+                            "version": 1,
+                            "task_id": open_task.task_id,
+                            "worktree_path": active_worktree.worktree_path,
+                            "branch_name": str(getattr(active_worktree, "branch_name", "") or ""),
+                            "base_workdir": self.workdir,
+                        },
                     )
                     ui_info(f"[orc] worktree: {active_worktree.worktree_path}")
                 except Exception as exc:
@@ -171,7 +210,7 @@ class BacklogOrchestrator:
                         task_path=self.task_path,
                         workdir=execution_workdir,
                         base_workdir=self.workdir,
-                        run_root=Path(execution_workdir) / ".orc" / "backlog-run",
+                        run_root=state_run_root(self.workdir, "backlog-run"),
                         model=self.args.model,
                         commit_model=(self.args.commit_model or "").strip() or self.args.model,
                         merge_expert_model=self.merge_expert_model or ((self.args.commit_model or "").strip() or self.args.model),
@@ -202,6 +241,8 @@ class BacklogOrchestrator:
                             "ORC_TASK_FILE": str(self.task_path),
                             "ORC_TASK_RUNTIME_FILE": str(runtime_state_path(self.task_path)),
                             "ORC_BASE_WORKSPACE": str(Path(self.workdir)),
+                            "ORC_STATS_FILE": str(stats_path(self.workdir)),
+                            "ORC_METRICS_FILE": str(metrics_path(self.workdir)),
                         },
                         snapshot_publisher=self.snapshot_publisher,
                     )
@@ -227,6 +268,17 @@ class BacklogOrchestrator:
                 ui_error(f"❌ Задача завершилась с ошибкой: {self.last_failure_reason}")
                 if self.use_task_worktrees and active_worktree is not None:
                     ui_info(f"[orc] worktree preserved for diagnostics: {active_worktree.worktree_path}")
+                save_active_session(
+                    self.workdir,
+                    {
+                        "version": 1,
+                        "task_id": open_task.task_id,
+                        "task_file": str(self.task_path),
+                        "worktree_path": active_worktree.worktree_path if active_worktree is not None else "",
+                        "status": "failed",
+                        "reason": self.last_failure_reason,
+                    },
+                )
                 return 1
             if result.delay_seconds > 0:
                 self.sleep_fn(result.delay_seconds)
@@ -251,6 +303,7 @@ class BacklogOrchestrator:
                         )
                         return 1
                     active_worktree = None
+                clear_active_session(self.workdir)
                 if is_quit_after_task_requested():
                     if result.committed:
                         ui_info("[orc] graceful quit requested: current task completed and committed. Exiting.")

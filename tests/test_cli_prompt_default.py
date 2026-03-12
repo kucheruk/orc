@@ -131,8 +131,12 @@ class CliPromptCoderOverrideTest(unittest.TestCase):
             self.assertNotEqual(kwargs["commit_template"], "UNIVERSAL PROMPT")
             self.assertNotEqual(kwargs["merge_expert_template"], "UNIVERSAL PROMPT")
             self.assertEqual(kwargs["main_branch"], "master")
-            stage_ids = [stage.stage_id for stage in kwargs["stage_specs"]]
-            self.assertEqual(stage_ids, ["planning", "design", "implementation", "review", "testing", "handoff"])
+            stage_specs = kwargs["stage_specs"]
+            stage_ids = [stage.stage_id for stage in stage_specs]
+            self.assertIn("implementation", stage_ids)
+            implementation_stage = next(stage for stage in stage_specs if stage.stage_id == "implementation")
+            self.assertIn("{artifact_implementation}", implementation_stage.prompt_template)
+            self.assertIn("SDLC Artifact Contract", implementation_stage.prompt_template)
 
     @patch("orc_core.cli_app.release_lock")
     @patch("orc_core.cli_app.acquire_lock")
@@ -187,6 +191,8 @@ class CliPromptCoderOverrideTest(unittest.TestCase):
             self.assertNotEqual(kwargs["continue_template"], "UNIVERSAL PROMPT")
             self.assertNotEqual(kwargs["commit_template"], "UNIVERSAL PROMPT")
             self.assertNotEqual(kwargs["merge_expert_template"], "UNIVERSAL PROMPT")
+            implementation_stage = next(stage for stage in kwargs["stage_specs"] if stage.stage_id == "implementation")
+            self.assertEqual(implementation_stage.prompt_template, "SPECIFIC CODER")
 
     @patch("orc_core.cli_app.ui_info")
     @patch("orc_core.cli_app.ensure_agent_installed")

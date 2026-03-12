@@ -66,6 +66,7 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             env["ORC_TASK_FILE"] = str(task_path)
             env["ORC_TASK_RUNTIME_FILE"] = str(runtime_task_path)
             env["ORC_BASE_WORKSPACE"] = str(base_dir)
+            env["ORC_STATS_FILE"] = str(base_dir / "state" / "stats.json")
 
             result = _run_hook(
                 script_path,
@@ -75,8 +76,7 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             stored = json.loads(task_path.read_text(encoding="utf-8"))
             self.assertEqual(stored.get("conversation_id"), "conv-123")
-            self.assertTrue((base_dir / ".orc" / "orc-stats.json").exists())
-            self.assertFalse((worktree_dir / ".orc" / "orc-stats.json").exists())
+            self.assertTrue((base_dir / "state" / "stats.json").exists())
 
     def test_stop_marks_base_backlog_done_via_orc_task_file_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -120,8 +120,9 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (worktree_dir / ".orc").mkdir(parents=True, exist_ok=True)
-            (worktree_dir / ".orc" / "orc-metrics.json").write_text(
+            metrics_path = base_dir / "state" / "metrics.json"
+            metrics_path.parent.mkdir(parents=True, exist_ok=True)
+            metrics_path.write_text(
                 json.dumps({"tokens_total": 123}, ensure_ascii=False),
                 encoding="utf-8",
             )
@@ -129,6 +130,8 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             env["ORC_TASK_FILE"] = str(task_path)
             env["ORC_TASK_RUNTIME_FILE"] = str(runtime_task_path)
             env["ORC_BASE_WORKSPACE"] = str(base_dir)
+            env["ORC_STATS_FILE"] = str(base_dir / "state" / "stats.json")
+            env["ORC_METRICS_FILE"] = str(metrics_path)
 
             result = _run_hook(
                 script_path,
@@ -139,10 +142,9 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             self.assertIn("- [x] TASK-001 demo", backlog_path.read_text(encoding="utf-8"))
             self.assertFalse(task_path.exists())
             self.assertFalse(runtime_task_path.exists())
-            stats_payload = json.loads((base_dir / ".orc" / "orc-stats.json").read_text(encoding="utf-8"))
+            stats_payload = json.loads((base_dir / "state" / "stats.json").read_text(encoding="utf-8"))
             self.assertEqual(stats_payload.get("tokens_total"), 123)
             self.assertEqual(stats_payload.get("tokens_by_task", {}).get("TASK-001"), 123)
-            self.assertFalse((worktree_dir / ".orc" / "orc-stats.json").exists())
 
 
 if __name__ == "__main__":

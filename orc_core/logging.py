@@ -14,8 +14,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
+from .state_paths import resolve_state_root
+
 ORC_ROOT = Path(__file__).resolve().parents[1]
-ORC_LOG_DIR = ORC_ROOT / ".orc"
+ORC_LOG_DIR = resolve_state_root() / "logs"
 ORC_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 DEBUG_LOG_DIR = Path(tempfile.gettempdir()) / "orc"
@@ -34,8 +36,8 @@ ORC_LOG_NAME = "orc.log"
 ORC_DATA_DIR = ".orc"
 LOG_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
 DEFAULT_LOG_LEVEL = "WARN"
-DEBUG_MODE_LOG_PATH = Path("/Users/vetinary/work/orc/.cursor/debug-809204.log")
-DEBUG_MODE_SESSION_ID = "809204"
+DEBUG_MODE_LOG_PATH = DEBUG_LOG_DIR / "debug-mode.log"
+DEBUG_MODE_SESSION_ID = "debug-mode"
 
 
 def _min_log_level() -> int:

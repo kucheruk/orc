@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Protocol
 
+from .atomic_io import write_json_atomic
 from .hooks import update_task_restart_count, update_task_stage_metadata, write_task_file
 from .logging import debug_log, log_event, timeline_instant, timeline_step_finished, timeline_step_started
 from .notify import send_telegram_message
@@ -25,9 +26,10 @@ from .process import (
 from .process_groups import terminate_process_group
 from .quit_signal import is_quit_after_task_requested, is_stop_requested
 from .runner import launch_agent_stream_json
+from .session_state import save_active_session, save_session_manifest
 from .stream_monitor_state import MonitorSnapshot
 from .supervisor_lifecycle import wait_for_completion, wait_for_process_exit
-from .stage_artifacts import build_stage_artifact_bundle, validate_stage_artifact_output
+from .stage_artifacts import build_stage_artifact_bundle, parse_stage_artifact_status, validate_stage_artifact_output
 from .task_state import delete_runtime_state_file, read_task_active_seconds, runtime_state_path
 from .task_source import Task
 from .text_parse import clean_summary_lines
@@ -35,6 +37,7 @@ from .ui import ui_error, ui_info, ui_warn
 from .worktree_flow import get_head_commit, integrate_commit_into_main
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
+SDLC_FEEDBACK_MAX_ITERATIONS = 3
 
 
 class SafeDict(dict):
@@ -198,6 +201,15 @@ def _resolve_runtime_backlog_path(request: TaskExecutionRequest) -> Path:
     if candidate.is_absolute():
         return candidate
     return Path(request.workdir) / candidate
+
+
+def _find_first_stage_index(stage_specs: list[TaskStageSpec], target_stage_id: str) -> Optional[int]:
+    normalized_target = str(target_stage_id or "").strip().lower()
+    for idx, stage_spec in enumerate(stage_specs):
+        current_id = str(stage_spec.stage_id or "").strip().lower()
+        if current_id == normalized_target:
+            return idx
+    return None
 
 
 def _read_task_report_text(workdir: str, task_id: str, log_path: Path) -> str:
@@ -917,6 +929,7 @@ class TaskExecutionEngine:
         )
         resume_existing = request.task_path.exists()
         resume_id: Optional[str] = None
+        worktree_path_value = request.workdir if Path(request.workdir).resolve() != Path(request.base_workdir).resolve() else ""
 
         def _finalize_completed(current_task_id: str, current_task_text: str, current_tag: str, monitor) -> TaskExecutionResult:
             commit_completed = False
@@ -1329,9 +1342,46 @@ class TaskExecutionEngine:
                 )
 
         if not resume_existing:
-            write_task_file(request.base_workdir, request.task, request.backlog_path, self.log_path, restart_count=0)
+            write_task_file(
+                request.base_workdir,
+                request.task,
+                request.backlog_path,
+                self.log_path,
+                restart_count=0,
+                task_path_override=request.task_path,
+            )
+            if request.task_path.exists():
+                try:
+                    payload = json.loads(request.task_path.read_text(encoding="utf-8"))
+                    if worktree_path_value:
+                        payload["worktree_path"] = worktree_path_value
+                    payload["branch_name"] = str(payload.get("branch_name") or "")
+                    payload["status"] = "active"
+                    write_json_atomic(request.task_path, payload, ensure_ascii=False, indent=2)
+                except Exception as exc:
+                    log_event(self.log_path, "WARN", "failed to enrich task state with worktree metadata", error=str(exc))
             start_header = f"{task_id} — {task_text}" if task_text else task_id
             send_telegram_message(f"Старт задачи\n{start_header}", self.log_path)
+        if request.task_path.exists():
+            try:
+                session_payload = json.loads(request.task_path.read_text(encoding="utf-8"))
+                save_active_session(
+                    request.base_workdir,
+                    {
+                        "version": 1,
+                        "task_id": str(session_payload.get("task_id") or task_id),
+                        "session_id": str(session_payload.get("session_id") or ""),
+                        "task_file": str(request.task_path),
+                        "worktree_path": str(session_payload.get("worktree_path") or worktree_path_value),
+                        "conversation_id": str(session_payload.get("conversation_id") or resume_id or ""),
+                        "status": "active",
+                    },
+                )
+                session_id = str(session_payload.get("session_id") or "").strip()
+                if session_id:
+                    save_session_manifest(request.base_workdir, session_id, session_payload)
+            except Exception as exc:
+                log_event(self.log_path, "WARN", "failed to persist active session snapshot", error=str(exc))
 
         stage_specs = list(request.stage_specs)
         if not stage_specs:
@@ -1339,8 +1389,249 @@ class TaskExecutionEngine:
         artifact_bundle = build_stage_artifact_bundle(workdir=request.workdir, task_id=task_id)
         artifact_prompt_vars = dict(artifact_bundle.to_prompt_vars())
         enforce_stage_artifacts = bool(request.stage_specs)
+        implementation_stage_index = _find_first_stage_index(stage_specs, "implementation")
+        feedback_iteration_count = 0
+        stage_index = 0
 
-        for stage_index, stage_spec in enumerate(stage_specs):
+        def _complete_stage(
+            *,
+            current_task_id: str,
+            current_task_text: str,
+            current_tag: str,
+            current_monitor,
+            current_stage_id: str,
+            current_stage_index: int,
+            current_stage_is_final: bool,
+            current_attempt_number: int,
+            current_attempt_started_ms: int,
+            completion_reason: str = "",
+        ) -> tuple[Optional[TaskExecutionResult], Optional[int], bool]:
+            nonlocal feedback_iteration_count
+            if enforce_stage_artifacts:
+                artifact_ok, artifact_reason, artifact_path = validate_stage_artifact_output(
+                    stage_id=current_stage_id,
+                    bundle=artifact_bundle,
+                )
+                if not artifact_ok:
+                    failure_reason = f"stage_artifact_{current_stage_id}_{artifact_reason}"
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "sdlc stage artifact validation failed",
+                        task_id=current_task_id,
+                        stage_id=current_stage_id,
+                        stage_index=current_stage_index + 1,
+                        stage_total=len(stage_specs),
+                        artifact_path=str(artifact_path),
+                        artifact_reason=artifact_reason,
+                    )
+                    ui_error(
+                        "❌ SDLC stage завершился без валидного артефакта: "
+                        f"{current_stage_id} -> {artifact_path}"
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="agent_attempt",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        attempt=current_attempt_number,
+                        started_at_ms=current_attempt_started_ms,
+                        result="failed",
+                        reason=failure_reason,
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="failed",
+                        reason=failure_reason,
+                    )
+                    return TaskExecutionResult(status="failed", reason=failure_reason), None, False
+            if enforce_stage_artifacts and current_stage_id in {"review", "testing"}:
+                status_ok, stage_status, stage_status_reason, stage_status_path = parse_stage_artifact_status(
+                    stage_id=current_stage_id,
+                    bundle=artifact_bundle,
+                )
+                if not status_ok:
+                    failure_reason = f"stage_artifact_{current_stage_id}_{stage_status_reason}"
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "sdlc stage status parsing failed",
+                        task_id=current_task_id,
+                        stage_id=current_stage_id,
+                        stage_index=current_stage_index + 1,
+                        stage_total=len(stage_specs),
+                        artifact_path=str(stage_status_path),
+                        artifact_reason=stage_status_reason,
+                        artifact_status=stage_status,
+                    )
+                    ui_error(
+                        "❌ SDLC stage артефакт не содержит валидный `status:` заголовок: "
+                        f"{current_stage_id} -> {stage_status_path}"
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="agent_attempt",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        attempt=current_attempt_number,
+                        started_at_ms=current_attempt_started_ms,
+                        result="failed",
+                        reason=failure_reason,
+                    )
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="failed",
+                        reason=failure_reason,
+                    )
+                    return TaskExecutionResult(status="failed", reason=failure_reason), None, False
+            completion_data = {
+                "timeline_id": timeline_id,
+                "task_id": current_task_id,
+                "step": "agent_attempt",
+                "location": "orc_core/task_execution.py:TaskExecutionEngine.execute",
+                "attempt": current_attempt_number,
+                "started_at_ms": current_attempt_started_ms,
+                "result": "completed",
+            }
+            if completion_reason:
+                completion_data["reason"] = completion_reason
+            timeline_step_finished(**completion_data)
+            if current_stage_is_final:
+                return None, None, True
+
+            next_stage_index = current_stage_index + 1
+            if enforce_stage_artifacts and current_stage_id == "review":
+                status_ok, stage_status, _stage_status_reason, _stage_status_path = parse_stage_artifact_status(
+                    stage_id=current_stage_id,
+                    bundle=artifact_bundle,
+                )
+                if status_ok and stage_status == "needs_changes":
+                    feedback_iteration_count += 1
+                    if feedback_iteration_count > SDLC_FEEDBACK_MAX_ITERATIONS:
+                        failure_reason = "sdlc_feedback_limit_exceeded"
+                        log_event(
+                            self.log_path,
+                            "ERROR",
+                            "sdlc feedback iteration limit exceeded",
+                            task_id=current_task_id,
+                            stage_id=current_stage_id,
+                            stage_index=current_stage_index + 1,
+                            stage_total=len(stage_specs),
+                            feedback_iteration_count=feedback_iteration_count,
+                            max_feedback_iterations=SDLC_FEEDBACK_MAX_ITERATIONS,
+                        )
+                        ui_error("❌ SDLC feedback loop превысил лимит итераций.")
+                        timeline_step_finished(
+                            timeline_id=timeline_id,
+                            task_id=current_task_id,
+                            step="task_execute",
+                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                            started_at_ms=execute_started_ms,
+                            result="failed",
+                            reason=failure_reason,
+                        )
+                        return TaskExecutionResult(status="failed", reason=failure_reason), None, False
+                    if implementation_stage_index is None:
+                        failure_reason = "sdlc_feedback_missing_implementation_stage"
+                        log_event(
+                            self.log_path,
+                            "ERROR",
+                            "sdlc feedback loop requested but implementation stage missing",
+                            task_id=current_task_id,
+                            stage_id=current_stage_id,
+                            stage_index=current_stage_index + 1,
+                            stage_total=len(stage_specs),
+                        )
+                        ui_error("❌ SDLC feedback loop не может вернуться: отсутствует stage `implementation`.")
+                        timeline_step_finished(
+                            timeline_id=timeline_id,
+                            task_id=current_task_id,
+                            step="task_execute",
+                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                            started_at_ms=execute_started_ms,
+                            result="failed",
+                            reason=failure_reason,
+                        )
+                        return TaskExecutionResult(status="failed", reason=failure_reason), None, False
+                    next_stage_index = implementation_stage_index
+                    log_event(
+                        self.log_path,
+                        "INFO",
+                        "sdlc feedback loop requested by review verdict",
+                        task_id=current_task_id,
+                        stage_id=current_stage_id,
+                        stage_index=current_stage_index + 1,
+                        stage_total=len(stage_specs),
+                        next_stage_id=stage_specs[next_stage_index].stage_id,
+                        next_stage_index=next_stage_index + 1,
+                        feedback_iteration_count=feedback_iteration_count,
+                        max_feedback_iterations=SDLC_FEEDBACK_MAX_ITERATIONS,
+                    )
+            if enforce_stage_artifacts and current_stage_id == "testing":
+                status_ok, stage_status, _stage_status_reason, _stage_status_path = parse_stage_artifact_status(
+                    stage_id=current_stage_id,
+                    bundle=artifact_bundle,
+                )
+                if status_ok and stage_status == "fail":
+                    failure_reason = "testing_failed"
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "testing stage reported failure verdict",
+                        task_id=current_task_id,
+                        stage_id=current_stage_id,
+                        stage_index=current_stage_index + 1,
+                        stage_total=len(stage_specs),
+                    )
+                    ui_error("❌ Testing stage завершился с verdict `status: fail`.")
+                    timeline_step_finished(
+                        timeline_id=timeline_id,
+                        task_id=current_task_id,
+                        step="task_execute",
+                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                        started_at_ms=execute_started_ms,
+                        result="failed",
+                        reason=failure_reason,
+                    )
+                    return TaskExecutionResult(status="failed", reason=failure_reason), None, False
+            log_event(
+                self.log_path,
+                "INFO",
+                "sdlc stage completed",
+                task_id=current_task_id,
+                stage_id=current_stage_id,
+                stage_index=current_stage_index + 1,
+                stage_total=len(stage_specs),
+                next_stage_index=(next_stage_index + 1) if next_stage_index is not None else None,
+                completion_reason=completion_reason or "monitor_completed",
+            )
+            return None, next_stage_index, False
+
+        def _should_retry_after_missing_stage_artifact(
+            *,
+            stage_failure: TaskExecutionResult,
+            monitor_result: str,
+            current_stage_id: str,
+            retry_budget_left: int,
+        ) -> bool:
+            if retry_budget_left <= 0:
+                return False
+            if monitor_result != "process_exited":
+                return False
+            if stage_failure.status != "failed":
+                return False
+            return stage_failure.reason.startswith(f"stage_artifact_{current_stage_id}_")
+
+        while stage_index < len(stage_specs):
+            stage_spec = stage_specs[stage_index]
             stage_id = (stage_spec.stage_id or f"stage_{stage_index + 1}").strip()
             stage_model = (stage_spec.model or request.model).strip() or request.model
             stage_is_final = stage_index == (len(stage_specs) - 1)
@@ -1376,6 +1667,8 @@ class TaskExecutionEngine:
             restart_count = persisted_restart_count if stage_resume_existing else 0
             elapsed_before_start_stage = elapsed_before_start if stage_resume_existing else 0.0
 
+            stage_next_index: Optional[int] = None
+            missing_artifact_retry_budget = 1
             while True:
                 attempt_number = restart_count + 1
                 attempt_started_ms = timeline_step_started(
@@ -1496,68 +1789,21 @@ class TaskExecutionEngine:
                 )
 
                 if result == "completed":
-                    if enforce_stage_artifacts:
-                        artifact_ok, artifact_reason, artifact_path = validate_stage_artifact_output(
-                            stage_id=stage_id,
-                            bundle=artifact_bundle,
-                        )
-                        if not artifact_ok:
-                            failure_reason = f"stage_artifact_{stage_id}_{artifact_reason}"
-                            log_event(
-                                self.log_path,
-                                "ERROR",
-                                "sdlc stage artifact validation failed",
-                                task_id=task_id,
-                                stage_id=stage_id,
-                                stage_index=stage_index + 1,
-                                stage_total=len(stage_specs),
-                                artifact_path=str(artifact_path),
-                                artifact_reason=artifact_reason,
-                            )
-                            ui_error(
-                                "❌ SDLC stage завершился без валидного артефакта: "
-                                f"{stage_id} -> {artifact_path}"
-                            )
-                            timeline_step_finished(
-                                timeline_id=timeline_id,
-                                task_id=task_id,
-                                step="agent_attempt",
-                                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                                attempt=attempt_number,
-                                started_at_ms=attempt_started_ms,
-                                result="failed",
-                                reason=failure_reason,
-                            )
-                            timeline_step_finished(
-                                timeline_id=timeline_id,
-                                task_id=task_id,
-                                step="task_execute",
-                                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                                started_at_ms=execute_started_ms,
-                                result="failed",
-                                reason=failure_reason,
-                            )
-                            return TaskExecutionResult(status="failed", reason=failure_reason)
-                    timeline_step_finished(
-                        timeline_id=timeline_id,
-                        task_id=task_id,
-                        step="agent_attempt",
-                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                        attempt=attempt_number,
-                        started_at_ms=attempt_started_ms,
-                        result="completed",
+                    stage_failure, stage_next_index, stage_completed_final = _complete_stage(
+                        current_task_id=task_id,
+                        current_task_text=task_text,
+                        current_tag=tag,
+                        current_monitor=active_monitor,
+                        current_stage_id=stage_id,
+                        current_stage_index=stage_index,
+                        current_stage_is_final=stage_is_final,
+                        current_attempt_number=attempt_number,
+                        current_attempt_started_ms=attempt_started_ms,
                     )
-                    if stage_is_final:
+                    if stage_failure is not None:
+                        return stage_failure
+                    if stage_completed_final:
                         return _finalize_completed(task_id, task_text, tag, active_monitor)
-                    log_event(
-                        self.log_path,
-                        "INFO",
-                        "sdlc stage completed",
-                        task_id=task_id,
-                        stage_id=stage_id,
-                        stage_index=stage_index + 1,
-                        stage_total=len(stage_specs),
-                    )
                     break
                 if result == "model_unavailable":
                     log_event(
@@ -1667,34 +1913,104 @@ class TaskExecutionEngine:
                         log_event(
                             self.log_path,
                             "WARN",
-                            "task marked done after non-completed monitor result; treating as completed",
+                            "task marked done after non-completed monitor result",
                             task_id=task_id,
                             monitor_result=result,
                         )
-                        if request.task_path.exists():
-                            try:
-                                request.task_path.unlink()
-                                delete_runtime_state_file(request.task_path, self.log_path, reason="base_backlog_marked_done")
-                            except Exception as exc:
-                                log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
-                        return _finalize_completed(task_id, task_text, tag, active_monitor)
+                        stage_failure, stage_next_index, stage_completed_final = _complete_stage(
+                            current_task_id=task_id,
+                            current_task_text=task_text,
+                            current_tag=tag,
+                            current_monitor=active_monitor,
+                            current_stage_id=stage_id,
+                            current_stage_index=stage_index,
+                            current_stage_is_final=stage_is_final,
+                            current_attempt_number=attempt_number,
+                            current_attempt_started_ms=attempt_started_ms,
+                            completion_reason="base_backlog_marked_done",
+                        )
+                        if stage_failure is not None:
+                            if _should_retry_after_missing_stage_artifact(
+                                stage_failure=stage_failure,
+                                monitor_result=result,
+                                current_stage_id=stage_id,
+                                retry_budget_left=missing_artifact_retry_budget,
+                            ):
+                                missing_artifact_retry_budget -= 1
+                                log_event(
+                                    self.log_path,
+                                    "WARN",
+                                    "task marked done but stage artifact missing after process exit; retrying",
+                                    task_id=task_id,
+                                    stage_id=stage_id,
+                                    monitor_result=result,
+                                    reason=stage_failure.reason,
+                                    retry_budget_left=missing_artifact_retry_budget,
+                                )
+                            else:
+                                return stage_failure
+                        else:
+                            if stage_completed_final and request.task_path.exists():
+                                try:
+                                    request.task_path.unlink()
+                                    delete_runtime_state_file(request.task_path, self.log_path, reason="base_backlog_marked_done")
+                                except Exception as exc:
+                                    log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
+                            if stage_completed_final:
+                                return _finalize_completed(task_id, task_text, tag, active_monitor)
+                            break
                     if runtime_done:
                         log_event(
                             self.log_path,
                             "WARN",
-                            "task marked done in runtime worktree backlog after non-completed monitor result; treating as completed",
+                            "task marked done in runtime worktree backlog after non-completed monitor result",
                             task_id=task_id,
                             monitor_result=result,
                             base_backlog_path=str(base_backlog_path),
                             runtime_backlog_path=str(runtime_backlog_path),
                         )
-                        if request.task_path.exists():
-                            try:
-                                request.task_path.unlink()
-                                delete_runtime_state_file(request.task_path, self.log_path, reason="runtime_backlog_marked_done")
-                            except Exception as exc:
-                                log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
-                        return _finalize_completed(task_id, task_text, tag, active_monitor)
+                        stage_failure, stage_next_index, stage_completed_final = _complete_stage(
+                            current_task_id=task_id,
+                            current_task_text=task_text,
+                            current_tag=tag,
+                            current_monitor=active_monitor,
+                            current_stage_id=stage_id,
+                            current_stage_index=stage_index,
+                            current_stage_is_final=stage_is_final,
+                            current_attempt_number=attempt_number,
+                            current_attempt_started_ms=attempt_started_ms,
+                            completion_reason="runtime_backlog_marked_done",
+                        )
+                        if stage_failure is not None:
+                            if _should_retry_after_missing_stage_artifact(
+                                stage_failure=stage_failure,
+                                monitor_result=result,
+                                current_stage_id=stage_id,
+                                retry_budget_left=missing_artifact_retry_budget,
+                            ):
+                                missing_artifact_retry_budget -= 1
+                                log_event(
+                                    self.log_path,
+                                    "WARN",
+                                    "runtime backlog marked done but stage artifact missing after process exit; retrying",
+                                    task_id=task_id,
+                                    stage_id=stage_id,
+                                    monitor_result=result,
+                                    reason=stage_failure.reason,
+                                    retry_budget_left=missing_artifact_retry_budget,
+                                )
+                            else:
+                                return stage_failure
+                        else:
+                            if stage_completed_final and request.task_path.exists():
+                                try:
+                                    request.task_path.unlink()
+                                    delete_runtime_state_file(request.task_path, self.log_path, reason="runtime_backlog_marked_done")
+                                except Exception as exc:
+                                    log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
+                            if stage_completed_final:
+                                return _finalize_completed(task_id, task_text, tag, active_monitor)
+                            break
                 except Exception as exc:
                     log_event(
                         self.log_path,
@@ -1773,6 +2089,9 @@ class TaskExecutionEngine:
                     started_at_ms=backoff_started_ms,
                     result="completed",
                 )
+            if stage_next_index is None:
+                break
+            stage_index = stage_next_index
 
         timeline_step_finished(
             timeline_id=timeline_id,

@@ -16,7 +16,6 @@ from .backlog_status import inspect_backlog
 from .gitignore_guard import validate_workspace_gitignore
 from .logging import (
     ORC_LOG_NAME,
-    ORC_ROOT,
     emit_crash_stdout_payload,
     init_debug_logging,
     install_crash_handlers,
@@ -51,10 +50,7 @@ from .task_execution import TaskExecutionEngine, TaskStageSpec
 from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn
 from .worktree_flow import detect_base_branch
-
-TASK_FILE_NAME = "orc-task.json"
-LOCK_FILE_NAME = "orc.lock"
-
+from .state_paths import active_task_path, app_log_path, lock_path as state_lock_path, run_root as state_run_root
 
 def load_prompt(path: Path) -> str:
     # Backward-compatible shim for tests and legacy imports.
@@ -217,7 +213,7 @@ def _failure_message(reason: str) -> str:
     normalized = str(reason or "").strip()
     if normalized == "missing_conversation_id":
         return (
-            "Resume state повреждён: в `.cursor/orc-task.json` отсутствует `conversation_id`."
+            "Resume state повреждён: в active task state отсутствует `conversation_id`."
             " Запустите с `--drop` для чистого старта или удалите файл состояния вручную."
         )
     if normalized == "model_unavailable":
@@ -227,7 +223,7 @@ def _failure_message(reason: str) -> str:
         )
     if normalized:
         return f"ORC завершился с ошибкой: {normalized}"
-    return "ORC завершился с ошибкой без детали причины. Проверьте `.orc/orc.log`."
+    return "ORC завершился с ошибкой без детали причины. Проверьте лог ORC."
 
 
 def _build_stage_specs(
@@ -241,7 +237,11 @@ def _build_stage_specs(
     handoff_config,
     commit_phase: bool,
     default_handoff_model: str,
+    enforce_coder_artifact_contract: bool = False,
 ) -> list[TaskStageSpec]:
+    coder_prompt_template = coder_prompt
+    if enforce_coder_artifact_contract:
+        coder_prompt_template = _append_sdlc_artifact_contract_if_missing(coder_prompt_template)
     stage_specs: list[TaskStageSpec] = []
     if bool(planning_config.enabled):
         stage_specs.append(
@@ -263,7 +263,7 @@ def _build_stage_specs(
         TaskStageSpec(
             stage_id="implementation",
             model=coder_model,
-            prompt_template=coder_prompt,
+            prompt_template=coder_prompt_template,
         )
     )
     if bool(review_config.enabled):
@@ -293,21 +293,35 @@ def _build_stage_specs(
     return stage_specs
 
 
+def _append_sdlc_artifact_contract_if_missing(template: str) -> str:
+    text = str(template or "")
+    if "{artifact_implementation}" in text:
+        return text
+    return (
+        text.rstrip()
+        + "\n\n"
+        + "## SDLC Artifact Contract (mandatory)\n"
+        + "- Artifact directory: `{artifacts_dir}`.\n"
+        + "- Write a non-empty implementation report to `{artifact_implementation}`.\n"
+        + "- Do not finish the task until `{artifact_implementation}` is written.\n"
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     role_registry = RoleProfileRegistry()
     workdir = str(Path(args.workspace).resolve())
     set_log_context(workdir=workdir)
     base_branch = detect_base_branch(workdir)
-    lock_path = Path(workdir) / ".orc" / LOCK_FILE_NAME
-    log_path = ORC_ROOT / ".orc" / ORC_LOG_NAME
+    lock_path = state_lock_path(workdir)
+    log_path = app_log_path(workdir)
     install_crash_handlers(
         entrypoint="orc_core.cli_app:main",
         phase="main",
         workspace=workdir,
         log_path=log_path,
     )
-    task_path = Path(workdir) / ".cursor" / TASK_FILE_NAME
+    task_path = active_task_path(workdir)
     temp_backlog_path: Optional[Path] = None
     lock_acquired = False
 
@@ -441,13 +455,14 @@ def main() -> int:
                         handoff_config=handoff_config,
                         commit_phase=bool(args.commit_phase),
                         default_handoff_model=args.commit_model or args.model,
+                        enforce_coder_artifact_contract=bool(prompt_coder_text and not str(args.prompt_template).strip()),
                     )
                 except FileNotFoundError as exc:
                     log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
                     ui_error(str(exc))
                     return 2
 
-                run_root = Path(workdir) / ".orc" / "backlog-run"
+                run_root = state_run_root(workdir, "backlog-run")
                 engine = TaskExecutionEngine(log_path=log_path)
                 orchestrator = BacklogOrchestrator(
                     workdir=workdir,

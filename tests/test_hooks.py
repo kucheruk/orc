@@ -12,6 +12,7 @@ from unittest.mock import patch
 from orc_core.atomic_io import write_json_atomic
 from orc_core.hooks import ensure_repo_hooks, ensure_repo_hooks_config, write_task_file
 from orc_core.hooks import update_task_restart_count
+from orc_core.task_state import runtime_state_path
 from orc_core.task_source import MarkdownTaskSource, Task
 
 
@@ -37,13 +38,12 @@ class HooksStopBehaviorTest(unittest.TestCase):
             backlog.write_text("- [ ] TASK-001 test task\n", encoding="utf-8")
 
             _, stop_path = ensure_repo_hooks(str(tmpdir))
-            write_task_file(
+            task_path = write_task_file(
                 str(tmpdir),
                 Task(task_id="TASK-001", text="test task", done=False),
                 backlog,
                 log_path,
             )
-            task_path = tmpdir / ".cursor" / "orc-task.json"
 
             payload = {"status": "error", "loop_count": 0, "conversation_id": "conv-123"}
             env = os.environ.copy()
@@ -79,13 +79,12 @@ class HooksStopBehaviorTest(unittest.TestCase):
             )
 
             _, stop_path = ensure_repo_hooks(str(tmpdir))
-            write_task_file(
+            task_path = write_task_file(
                 str(tmpdir),
                 Task(task_id="TASK-001", text="test task", done=False),
                 backlog,
                 log_path,
             )
-            task_path = tmpdir / ".cursor" / "orc-task.json"
             task_payload = json.loads(task_path.read_text(encoding="utf-8"))
             task_payload["created_at"] = "2999-01-01T00:00:00Z"
             task_path.write_text(json.dumps(task_payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -115,13 +114,12 @@ class HooksStopBehaviorTest(unittest.TestCase):
             backlog.write_text("- [ ] TASK-001 test task\n", encoding="utf-8")
 
             _, stop_path = ensure_repo_hooks(str(tmpdir))
-            write_task_file(
+            task_path = write_task_file(
                 str(tmpdir),
                 Task(task_id="TASK-001", text="test task", done=False),
                 backlog,
                 log_path,
             )
-            task_path = tmpdir / ".cursor" / "orc-task.json"
             task_payload = json.loads(task_path.read_text(encoding="utf-8"))
             task_payload["sdlc_stage_id"] = "review"
             task_payload["sdlc_stage_is_final"] = False
@@ -164,7 +162,7 @@ class HooksAtomicWriteTest(unittest.TestCase):
             self.assertNotIn("active_seconds", payload)
             self.assertNotIn("last_heartbeat_at", payload)
             self.assertNotIn("run_id", payload)
-            runtime_payload = json.loads((tmpdir / ".cursor" / "orc-task-runtime.json").read_text(encoding="utf-8"))
+            runtime_payload = json.loads(runtime_state_path(task_path).read_text(encoding="utf-8"))
             self.assertEqual(runtime_payload.get("task_id"), "TASK-001")
             self.assertEqual(runtime_payload.get("active_seconds"), 0.0)
             self.assertEqual(runtime_payload.get("run_id"), "")
@@ -210,6 +208,7 @@ class HooksAtomicWriteTest(unittest.TestCase):
             hooks_payload = payload.get("hooks", {})
             self.assertIn("beforeSubmitPrompt", hooks_payload)
             self.assertIn("stop", hooks_payload)
+            self.assertIn("preToolUse", hooks_payload)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import orc_hook_lib as lib
+from orc_core.state_paths import active_task_path, hook_log_path
 
 
 def _norm_path(raw: str) -> str:
@@ -20,8 +21,7 @@ def _norm_path(raw: str) -> str:
 def main() -> int:
     script_repo = Path(__file__).resolve().parents[2]
     base_workspace = Path(str(os.environ.get("ORC_BASE_WORKSPACE") or "").strip() or str(script_repo))
-    orc_dir = base_workspace / ".orc"
-    log_path = orc_dir / "orc-hook.log"
+    log_path = hook_log_path(str(base_workspace))
     try:
         raw = sys.stdin.read() or "{}"
         data = json.loads(raw)
@@ -37,7 +37,7 @@ def main() -> int:
         return 0
 
     env_task_file = str(os.environ.get("ORC_TASK_FILE") or "").strip()
-    task_file = Path(env_task_file) if env_task_file else (script_repo / ".cursor" / "orc-task.json")
+    task_file = Path(env_task_file) if env_task_file else active_task_path(str(base_workspace))
     runtime_task_file = lib.resolve_runtime_task_file(task_file)
     lib.log_event(log_path, "INFO", "stop: task file resolved", task_file=str(task_file))
     lib.log_event(log_path, "INFO", "stop: runtime task file resolved", runtime_task_file=str(runtime_task_file))
@@ -80,8 +80,8 @@ def main() -> int:
         lib.log_event(log_path, "ERROR", "stop: missing backlog_path/task_id")
         return 0
     status = data.get("status")
-    stage_is_final = bool(task.get("sdlc_stage_is_final"))
     stage_id = str(task.get("sdlc_stage_id") or "").strip()
+    stage_is_final = bool(task.get("sdlc_stage_is_final")) if stage_id else True
     if status == "completed" and not stage_is_final:
         lib.log_event(
             log_path,

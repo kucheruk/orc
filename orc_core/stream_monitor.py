@@ -16,6 +16,7 @@ from .atomic_io import write_json_atomic
 from .logging import log_event, now_ms, timeline_instant
 from .process import kill_process_tree
 from .process_groups import resolve_process_group_id, subprocess_group_spawn_kwargs, terminate_process_group
+from .state_paths import active_task_path, metrics_path, stats_path
 from .stream_monitor_state import MonitorSnapshot, StreamMonitorState
 from .task_state import init_runtime_payload, load_runtime_payload, runtime_state_path
 from .task_source import MarkdownTaskSource
@@ -85,12 +86,15 @@ class StreamJsonMonitor:
         self._last_report_time = 0.0
         self._last_git_stats_time = 0.0
         task_state_override = str(self._child_env_overrides.get("ORC_TASK_FILE", "")).strip()
-        self._task_state_path = Path(task_state_override) if task_state_override else (Path(self.workdir) / ".cursor" / "orc-task.json")
+        self._task_state_path = Path(task_state_override) if task_state_override else active_task_path(self.workdir)
         runtime_override = str(self._child_env_overrides.get("ORC_TASK_RUNTIME_FILE", "")).strip()
         self._task_runtime_state_path = (
             Path(runtime_override) if runtime_override else runtime_state_path(self._task_state_path)
         )
-        self._stats_path = Path(self.workdir) / ".orc" / "orc-stats.json"
+        stats_override = str(self._child_env_overrides.get("ORC_STATS_FILE", "")).strip()
+        self._stats_path = Path(stats_override) if stats_override else stats_path(self.workdir)
+        metrics_override = str(self._child_env_overrides.get("ORC_METRICS_FILE", "")).strip()
+        self._metrics_path = Path(metrics_override) if metrics_override else metrics_path(self.workdir)
         self._run_id = f"{int(self.started_at)}-{self.task_id}"
         self._stop = threading.Event()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -343,6 +347,9 @@ class StreamJsonMonitor:
 
     def _write_metrics_snapshot(self) -> None:
         try:
+            target_metrics_path = getattr(self, "_metrics_path", None)
+            if target_metrics_path is None:
+                target_metrics_path = Path(self.workdir) / ".orc" / "orc-metrics.json"
             payload = {
                 "ts": datetime.now().isoformat(timespec="seconds"),
                 "task_id": self.task_id,
@@ -355,9 +362,8 @@ class StreamJsonMonitor:
                 "tokens_status": self.metrics.tokens_status,
                 "tokens_source": self.metrics.tokens_source,
             }
-            path = Path(self.workdir) / ".orc" / "orc-metrics.json"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            write_json_atomic(path, payload, ensure_ascii=False, indent=2)
+            target_metrics_path.parent.mkdir(parents=True, exist_ok=True)
+            write_json_atomic(target_metrics_path, payload, ensure_ascii=False, indent=2)
         except Exception as exc:
             log_event(self.log_path, "ERROR", "metrics snapshot write failed", error=str(exc))
 

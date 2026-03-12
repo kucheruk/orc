@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from .state_paths import artifacts_dir as external_artifacts_dir
+
 
 _ARTIFACT_SUFFIX_BY_STAGE_ID = {
     "planning": "plan",
@@ -14,6 +16,12 @@ _ARTIFACT_SUFFIX_BY_STAGE_ID = {
     "review": "review",
     "testing": "testing",
     "handoff": "handoff",
+}
+
+_STATUS_LINE_RE = re.compile(r"^status:\s*([a-z_]+)\s*$", re.IGNORECASE)
+_STAGE_ALLOWED_STATUSES = {
+    "review": {"needs_changes", "approved"},
+    "testing": {"pass", "fail"},
 }
 
 
@@ -58,7 +66,7 @@ class StageArtifactBundle:
 
 
 def build_stage_artifact_bundle(*, workdir: str, task_id: str) -> StageArtifactBundle:
-    artifacts_dir = Path(workdir) / ".orc" / "artifacts"
+    artifacts_dir = external_artifacts_dir(workdir)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     safe_task_id = _safe_task_id(task_id)
     return StageArtifactBundle(
@@ -84,3 +92,32 @@ def validate_stage_artifact_output(*, stage_id: str, bundle: StageArtifactBundle
     if not body:
         return False, "empty", artifact_path
     return True, "ok", artifact_path
+
+
+def parse_stage_artifact_status(*, stage_id: str, bundle: StageArtifactBundle) -> tuple[bool, str, str, Path]:
+    artifact_path = bundle.expected_for_stage(stage_id)
+    if not artifact_path.exists():
+        return False, "", "missing", artifact_path
+    try:
+        lines = artifact_path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return False, "", "unreadable", artifact_path
+
+    first_non_empty = ""
+    for raw in lines:
+        line = raw.strip()
+        if line:
+            first_non_empty = line
+            break
+    if not first_non_empty:
+        return False, "", "empty", artifact_path
+
+    match = _STATUS_LINE_RE.match(first_non_empty)
+    if not match:
+        return False, "", "missing_status", artifact_path
+
+    status = match.group(1).strip().lower()
+    allowed_statuses = _STAGE_ALLOWED_STATUSES.get(str(stage_id or "").strip().lower(), set())
+    if allowed_statuses and status not in allowed_statuses:
+        return False, status, "invalid_status", artifact_path
+    return True, status, "ok", artifact_path

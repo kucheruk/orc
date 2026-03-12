@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Optional
 
 from .atomic_io import write_json_atomic
+from .state_paths import model_selection_path
 
 DEFAULT_MODEL = "gpt-5.3-codex"
-MODEL_STATE_PATH = Path(".orc") / "model-selection.json"
 AGENT_LIST_MODELS_TIMEOUT_SECONDS = 15.0
 
 
@@ -93,7 +93,10 @@ def start_model_list_loading() -> ModelListLoader:
 
 
 def load_last_selected_model(workdir: str) -> Optional[str]:
-    path = Path(workdir) / MODEL_STATE_PATH
+    path = model_selection_path(workdir)
+    legacy_path = Path(workdir) / ".orc" / "model-selection.json"
+    if not path.exists() and legacy_path.exists():
+        path = legacy_path
     if not path.exists():
         return None
     try:
@@ -105,10 +108,13 @@ def load_last_selected_model(workdir: str) -> Optional[str]:
 
 
 def save_last_selected_model(workdir: str, model: str) -> None:
-    path = Path(workdir) / MODEL_STATE_PATH
+    path = model_selection_path(workdir)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"last_selected_model": model}
     write_json_atomic(path, payload, ensure_ascii=False, indent=2)
+    legacy_path = Path(workdir) / ".orc" / "model-selection.json"
+    legacy_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(legacy_path, payload, ensure_ascii=False, indent=2)
 
 
 def choose_model_interactive(models: list[str], default_model: str) -> str:
