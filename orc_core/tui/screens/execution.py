@@ -110,6 +110,8 @@ class ExecutionScreen(Screen[None]):
             tool_suffix = f" x{count}" if count > 1 else ""
             color = "magenta" if (self.is_subagent_activity or phase == "subagent") else "cyan"
             return f"[{color}]{role} EXEC {status}{tool_suffix} [{age_text}][/{color}]"
+        if phase == "network_problem":
+            return f"[red]{role} NETWORK {status} [{age_text}][/red]"
         if phase == "assistant":
             return f"[green]{role} OUTPUT {status} [{age_text}][/green]"
         if age_seconds < 60.0:

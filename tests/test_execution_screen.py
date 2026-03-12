@@ -36,6 +36,17 @@ class ExecutionScreenRenderTest(unittest.TestCase):
         screen.live_since = time.time() - 75.0
         self.assertIn("STALL?", screen._activity_markup())
 
+    def test_activity_markup_shows_network_problem_as_red_status(self) -> None:
+        screen = ExecutionScreen()
+        screen.live_phase = "network_problem"
+        screen.live_status = "Network problems: reconnecting"
+        screen.live_since = time.time() - 5.0
+
+        markup = screen._activity_markup()
+        self.assertIn("NETWORK", markup)
+        self.assertIn("[red]", markup)
+        self.assertIn("Network problems", markup)
+
     def test_render_text_contains_key_sections(self) -> None:
         metrics = MetricsStore(
             tokens_total=42,

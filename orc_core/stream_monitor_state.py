@@ -838,6 +838,34 @@ class StreamMonitorState:
                 return f"[{timestamp}] {base} {value.strip()[:50]}"
         return f"[{timestamp}] {base} {preview}" if preview else f"[{timestamp}] {base}"
 
+    def _update_live_status_for_network_event(self, event: Dict[str, object], event_type: str, subtype: str) -> bool:
+        event_lower = str(event_type or "").strip().lower()
+        subtype_lower = str(subtype or "").strip().lower()
+        if event_lower not in {"connection", "retry"}:
+            return False
+
+        if event_lower == "connection":
+            if subtype_lower in {"reconnecting", "disconnected", "degraded"}:
+                self._set_live_status("network_problem", "Network problems: reconnecting", is_subagent=False)
+                return True
+            if subtype_lower == "reconnected":
+                self._set_live_status("waiting", "Network recovered: reconnected", is_subagent=False)
+                return True
+
+        if event_lower == "retry":
+            attempt_raw = event.get("attempt")
+            attempt = ""
+            if isinstance(attempt_raw, int) and attempt_raw > 0:
+                attempt = f" (attempt {attempt_raw})"
+            if subtype_lower == "starting":
+                self._set_live_status("network_problem", f"Network problems: retry starting{attempt}", is_subagent=False)
+                return True
+            if subtype_lower == "resuming":
+                self._set_live_status("network_problem", f"Network problems: retry resuming{attempt}", is_subagent=False)
+                return True
+
+        return False
+
     def record_event(self, event: Dict[str, object]) -> tuple[str, str, str]:
         raw = json.dumps(event, ensure_ascii=False)
         self.metrics.total_lines += 1
@@ -906,6 +934,8 @@ class StreamMonitorState:
         elif event_type == "result":
             status = str(event.get("status") or subtype or "result").strip().lower() or "result"
             self._set_live_status("waiting", f"result {status}", is_subagent=False)
+        elif self._update_live_status_for_network_event(event, event_type, subtype):
+            pass
         elif event_type != "tool_call" and self._active_tool_calls:
             label, is_subagent = self._active_tool_status()
             self._set_live_status(

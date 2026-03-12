@@ -690,6 +690,25 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(snapshot.live_phase, "waiting")
         self.assertEqual(snapshot.active_tool_call_count, 0)
 
+    def test_live_status_shows_network_problem_during_reconnect_and_retry(self) -> None:
+        from orc_core.stream_monitor_state import StreamMonitorState
+
+        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
+        state.record_event({"type": "connection", "subtype": "reconnecting"})
+        reconnect_snapshot = state.build_snapshot()
+        self.assertEqual(reconnect_snapshot.live_phase, "network_problem")
+        self.assertIn("network problems", reconnect_snapshot.live_status.lower())
+
+        state.record_event({"type": "retry", "subtype": "starting", "attempt": 3, "is_resume": True})
+        retry_snapshot = state.build_snapshot()
+        self.assertEqual(retry_snapshot.live_phase, "network_problem")
+        self.assertIn("attempt 3", retry_snapshot.live_status.lower())
+
+        state.record_event({"type": "connection", "subtype": "reconnected"})
+        recovered_snapshot = state.build_snapshot()
+        self.assertEqual(recovered_snapshot.live_phase, "waiting")
+        self.assertIn("recovered", recovered_snapshot.live_status.lower())
+
     def test_force_finalize_live_tool_calls_clears_stuck_tool_phase(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
