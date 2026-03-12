@@ -34,7 +34,7 @@ from .task_state import delete_runtime_state_file, read_task_active_seconds, run
 from .task_source import Task
 from .text_parse import clean_summary_lines
 from .ui import ui_error, ui_info, ui_warn
-from .worktree_flow import get_head_commit, integrate_commit_into_main
+from .worktree_flow import get_head_commit, integrate_commit_into_main, preflight_main_integration
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
 SDLC_FEEDBACK_MAX_ITERATIONS = 3
@@ -519,6 +519,25 @@ def _has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> b
         return False
 
 
+def _classify_main_integration_error(error: str) -> str:
+    text = (error or "").strip().lower()
+    if not text:
+        return "unknown"
+    if "dirty before integration" in text:
+        return "dirty_base_repo"
+    if text.startswith("git status failed"):
+        return "git_status_failed"
+    if "main branch" in text and "not found" in text:
+        return "main_branch_missing"
+    if text.startswith("checkout"):
+        return "checkout_failed"
+    if "timeout" in text:
+        return "git_timeout"
+    if "cherry-pick" in text or "cherrypick" in text:
+        return "cherry_pick_failed"
+    return "unknown"
+
+
 def _run_commit_phase(
     worker: TaskWorker,
     request: TaskExecutionRequest,
@@ -927,6 +946,32 @@ class TaskExecutionEngine:
             base_backlog_path=str(base_backlog_path),
             runtime_backlog_path=str(runtime_backlog_path),
         )
+        if request.integrate_to_main:
+            preflight = preflight_main_integration(base_workdir=request.base_workdir, main_branch=request.main_branch)
+            if not preflight.ok:
+                failure_kind = _classify_main_integration_error(preflight.error)
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "main integration preflight failed",
+                    task_id=task_id,
+                    branch=request.main_branch,
+                    integration_failure_kind=failure_kind,
+                    error=preflight.error[:500],
+                )
+                ui_error(
+                    f"❌ Невозможно подготовить интеграцию в {request.main_branch}: {preflight.error}"
+                )
+                timeline_step_finished(
+                    timeline_id=timeline_id,
+                    task_id=task_id,
+                    step="task_execute",
+                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                    started_at_ms=execute_started_ms,
+                    result="failed",
+                    reason=f"main_integration_preflight_failed:{failure_kind}",
+                )
+                return TaskExecutionResult(status="failed", reason="main_integration_preflight_failed")
         resume_existing = request.task_path.exists()
         resume_id: Optional[str] = None
         worktree_path_value = request.workdir if Path(request.workdir).resolve() != Path(request.base_workdir).resolve() else ""
@@ -1131,12 +1176,14 @@ class TaskExecutionEngine:
                         main_branch=request.main_branch,
                     )
                 if not integration.ok:
+                    failure_kind = _classify_main_integration_error(integration.error)
                     log_event(
                         self.log_path,
                         "ERROR",
                         "failed to integrate task commit into main",
                         task_id=current_task_id,
                         commit_sha=commit_sha,
+                        integration_failure_kind=failure_kind,
                         error=integration.error[:500],
                     )
                     ui_error(f"❌ Не удалось перенести commit в {request.main_branch}: {integration.error}")
@@ -1148,7 +1195,7 @@ class TaskExecutionEngine:
                         attempt=restart_count + 1,
                         started_at_ms=integration_started_ms,
                         result="failed",
-                        reason="main_integration_failed",
+                        reason=f"main_integration_failed:{failure_kind}",
                     )
                     timeline_step_finished(
                         timeline_id=timeline_id,
@@ -1157,7 +1204,7 @@ class TaskExecutionEngine:
                         location="orc_core/task_execution.py:TaskExecutionEngine.execute",
                         started_at_ms=execute_started_ms,
                         result="failed",
-                        reason="main_integration_failed",
+                        reason=f"main_integration_failed:{failure_kind}",
                     )
                     return TaskExecutionResult(status="failed", reason="main_integration_failed")
                 timeline_step_finished(

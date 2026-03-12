@@ -862,6 +862,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertIn(".orc/run/raw-stream/", launch_path)
 
     @patch("orc_core.task_execution.integrate_commit_into_main")
+    @patch("orc_core.task_execution.preflight_main_integration")
     @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=False)
     @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
     @patch("orc_core.task_execution.kill_process_tree")
@@ -869,6 +870,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
     def test_execute_skips_main_integration_when_worktree_not_ahead(self, *_mocks) -> None:
+        task_execution.preflight_main_integration.return_value = SimpleNamespace(ok=True, error="")
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
@@ -884,6 +886,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
     @patch("orc_core.task_execution._run_merge_expert_phase", return_value=True)
     @patch("orc_core.task_execution.integrate_commit_into_main")
+    @patch("orc_core.task_execution.preflight_main_integration")
     @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
     @patch("orc_core.task_execution.kill_process_tree")
@@ -894,6 +897,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self,
         *_mocks,
     ) -> None:
+        task_execution.preflight_main_integration.return_value = SimpleNamespace(ok=True, error="")
         task_execution.integrate_commit_into_main.side_effect = [
             SimpleNamespace(ok=False, conflict=True, error="conflict"),
             SimpleNamespace(ok=True, conflict=False, error=""),
@@ -909,6 +913,63 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(task_execution.integrate_commit_into_main.call_count, 2)
         task_execution._run_merge_expert_phase.assert_called_once()
+
+    @patch("orc_core.task_execution.preflight_main_integration")
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    def test_execute_fails_fast_when_main_integration_preflight_fails(self, *_mocks) -> None:
+        task_execution.preflight_main_integration.return_value = SimpleNamespace(
+            ok=False,
+            error="base repository is dirty before integration: untracked:notes.txt",
+        )
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            request = TaskExecutionRequest(**{**request.__dict__, "integrate_to_main": True})
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "main_integration_preflight_failed")
+        self.assertEqual(worker.launch_calls, 0)
+
+    @patch("orc_core.task_execution.timeline_step_finished")
+    @patch("orc_core.task_execution.integrate_commit_into_main")
+    @patch("orc_core.task_execution.preflight_main_integration")
+    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    def test_execute_marks_specific_main_integration_failure_reason(
+        self,
+        *_mocks,
+    ) -> None:
+        task_execution.preflight_main_integration.return_value = SimpleNamespace(ok=True, error="")
+        task_execution.integrate_commit_into_main.return_value = SimpleNamespace(
+            ok=False,
+            conflict=False,
+            error="checkout main failed: branch is locked",
+        )
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            request = TaskExecutionRequest(**{**request.__dict__, "integrate_to_main": True})
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "main_integration_failed")
+        reasons = [
+            kwargs.get("reason")
+            for _args, kwargs in task_execution.timeline_step_finished.call_args_list
+            if kwargs.get("step") == "main_integration"
+        ]
+        self.assertIn("main_integration_failed:checkout_failed", reasons)
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")

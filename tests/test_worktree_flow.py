@@ -39,7 +39,10 @@ class WorktreeFlowTest(unittest.TestCase):
 
     @patch("orc_core.worktree_flow._git")
     def test_integrate_commit_fails_when_base_repo_dirty(self, git_mock) -> None:
-        git_mock.return_value = (True, " M tracked.py\n", "", 0)
+        git_mock.side_effect = [
+            (True, " M tracked.py\n", "", 0),  # tracked status
+            (True, "", "", 0),  # untracked list
+        ]
         result = worktree_flow.integrate_commit_into_main(
             base_workdir="/tmp/repo",
             commit_sha="abc123",
@@ -48,11 +51,14 @@ class WorktreeFlowTest(unittest.TestCase):
         )
         self.assertFalse(result.ok)
         self.assertIn("dirty", result.error)
+        self.assertIn("tracked:tracked.py", result.error)
 
     @patch("orc_core.worktree_flow._git")
     def test_integrate_commit_returns_already_integrated(self, git_mock) -> None:
         git_mock.side_effect = [
-            (True, "", "", 0),  # status clean
+            (True, "", "", 0),  # tracked status clean
+            (True, "", "", 0),  # untracked list
+            (True, "", "", 0),  # show-ref main
             (True, "", "", 0),  # checkout main
             (True, "", "", 0),  # merge-base --is-ancestor
         ]
@@ -68,12 +74,21 @@ class WorktreeFlowTest(unittest.TestCase):
     @patch("orc_core.worktree_flow._git")
     def test_integrate_commit_ignores_runtime_untracked_before_integration(self, git_mock) -> None:
         git_mock.side_effect = [
+            (True, "", "", 0),  # tracked status clean
             (
                 True,
-                "?? .cursor/orc-task.json\n?? .cursor/orc-task-runtime.json\n?? .orc/run/raw-stream/task.log\n",
+                ".cursor/hooks.json\n"
+                ".cursor/hooks/orc_before_submit.py\n"
+                ".cursor/hooks/orc_hook_lib.py\n"
+                ".cursor/hooks/orc_pre_tool_use.py\n"
+                ".cursor/hooks/orc_stop.py\n"
+                ".cursor/orc-task.json\n"
+                ".cursor/orc-task-runtime.json\n"
+                ".orc/run/raw-stream/task.log\n",
                 "",
                 0,
             ),
+            (True, "", "", 0),  # show-ref main
             (True, "", "", 0),  # checkout main
             (True, "", "", 0),  # merge-base --is-ancestor
         ]
@@ -88,7 +103,10 @@ class WorktreeFlowTest(unittest.TestCase):
 
     @patch("orc_core.worktree_flow._git")
     def test_integrate_commit_fails_when_non_runtime_untracked_exists(self, git_mock) -> None:
-        git_mock.return_value = (True, "?? notes.txt\n", "", 0)
+        git_mock.side_effect = [
+            (True, "", "", 0),  # tracked status clean
+            (True, "notes.txt\n", "", 0),  # untracked list
+        ]
         result = worktree_flow.integrate_commit_into_main(
             base_workdir="/tmp/repo",
             commit_sha="abc123",
@@ -97,11 +115,14 @@ class WorktreeFlowTest(unittest.TestCase):
         )
         self.assertFalse(result.ok)
         self.assertIn("dirty", result.error)
+        self.assertIn("untracked:notes.txt", result.error)
 
     @patch("orc_core.worktree_flow._git")
     def test_integrate_commit_ignores_runtime_tracked_before_integration(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, " M .cursor/orc-task-runtime.json\n", "", 0),  # tracked runtime artifact
+            (True, "", "", 0),  # untracked list clean
+            (True, "", "", 0),  # show-ref main
             (True, "", "", 0),  # checkout main
             (True, "", "", 0),  # merge-base --is-ancestor
         ]
@@ -117,7 +138,9 @@ class WorktreeFlowTest(unittest.TestCase):
     @patch("orc_core.worktree_flow._git")
     def test_integrate_commit_treats_empty_cherry_pick_as_already_integrated(self, git_mock) -> None:
         git_mock.side_effect = [
-            (True, "", "", 0),  # status clean
+            (True, "", "", 0),  # tracked status clean
+            (True, "", "", 0),  # untracked list clean
+            (True, "", "", 0),  # show-ref main
             (True, "", "", 0),  # checkout main
             (False, "", "", 1),  # merge-base not ancestor
             (
@@ -127,6 +150,24 @@ class WorktreeFlowTest(unittest.TestCase):
                 1,
             ),  # cherry-pick stderr
             (True, "", "", 0),  # diff conflicts check
+        ]
+        result = worktree_flow.integrate_commit_into_main(
+            base_workdir="/tmp/repo",
+            commit_sha="abc123",
+            task_id="TASK-001",
+            log_path=Path("/tmp/orc.log"),
+        )
+        self.assertTrue(result.ok)
+        self.assertTrue(result.already_integrated)
+
+    @patch("orc_core.worktree_flow._git")
+    def test_integrate_commit_handles_collapsed_cursor_status_entry(self, git_mock) -> None:
+        git_mock.side_effect = [
+            (True, "?? .cursor/\n", "", 0),  # tracked status (unexpected collapsed entry)
+            (True, ".cursor/orc-task.json\n.orc/run/raw-stream/task.log\n", "", 0),  # untracked expanded
+            (True, "", "", 0),  # show-ref main
+            (True, "", "", 0),  # checkout main
+            (True, "", "", 0),  # merge-base --is-ancestor
         ]
         result = worktree_flow.integrate_commit_into_main(
             base_workdir="/tmp/repo",
