@@ -54,11 +54,11 @@ class RoleProfileRegistryTest(unittest.TestCase):
             handoff = registry.resolve_role(tmpdir, ROLE_HANDOFF)
             coder = registry.resolve_role(tmpdir, ROLE_CODER)
 
-        self.assertTrue(planning.enabled)
+        self.assertFalse(planning.enabled)
         self.assertTrue(planning.can_toggle_enabled)
         self.assertFalse(design.enabled)
         self.assertTrue(design.can_toggle_enabled)
-        self.assertTrue(review.enabled)
+        self.assertFalse(review.enabled)
         self.assertTrue(review.can_toggle_enabled)
         self.assertFalse(testing.enabled)
         self.assertTrue(testing.can_toggle_enabled)

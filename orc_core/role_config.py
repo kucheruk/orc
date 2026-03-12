@@ -77,7 +77,7 @@ class RoleProfileRegistry:
             ROLE_ANALYSIS_PLANNING: RoleDefinition(
                 role_id=ROLE_ANALYSIS_PLANNING,
                 title="Исследование и планирование",
-                default_enabled=True,
+                default_enabled=False,
                 can_toggle_enabled=True,
                 default_prompt_path=PLANNING_PROMPT_PATH,
             ),
@@ -108,7 +108,7 @@ class RoleProfileRegistry:
             ROLE_CODE_REVIEW: RoleDefinition(
                 role_id=ROLE_CODE_REVIEW,
                 title="Код-ревью",
-                default_enabled=True,
+                default_enabled=False,
                 can_toggle_enabled=True,
                 default_prompt_path=REVIEW_PROMPT_PATH,
             ),

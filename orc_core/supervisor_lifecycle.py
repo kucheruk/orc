@@ -144,6 +144,7 @@ def wait_for_completion(
     timeline_id: str = "",
     attempt: int = 0,
     elapsed_before_start: float = 0.0,
+    ignore_initial_backlog_done: bool = False,
     escape_requested: Optional[Callable[[], bool]] = None,
     confirm_exit: Optional[Callable[[], bool]] = None,
 ) -> str:
@@ -153,6 +154,7 @@ def wait_for_completion(
     last_tokens_value: Optional[int] = None
     last_tokens_time = time.time()
     last_stuck_notice_time = 0.0
+    backlog_done_at_start = _task_done_in_backlog(task_path)
     debug_log(
         "H3",
         "orc_core/supervisor_lifecycle.py:wait_for_completion:start",
@@ -164,6 +166,8 @@ def wait_for_completion(
             "task_ttl": task_ttl,
             "elapsed_before_start": elapsed_before_start,
             "poll": poll,
+            "backlog_done_at_start": backlog_done_at_start,
+            "ignore_initial_backlog_done": ignore_initial_backlog_done,
         },
     )
     timeline_instant(
@@ -222,7 +226,8 @@ def wait_for_completion(
             if (time.time() - pid_missing_since) < PID_MISSING_GRACE_SECONDS:
                 time.sleep(max(min(poll, 0.2), 0.05))
                 continue
-            if _task_done_in_backlog(task_path):
+            backlog_done = _task_done_in_backlog(task_path)
+            if backlog_done and not (ignore_initial_backlog_done and backlog_done_at_start):
                 log_event(log_path, "INFO", "agent pid missing and task marked done; treating as completed", task_id=task_id)
                 try:
                     task_path.unlink()
@@ -253,7 +258,12 @@ def wait_for_completion(
         else:
             pid_missing_since = None
         now = time.time()
-        if _task_done_in_backlog(task_path) and (now - monitor.last_output_time) >= DONE_BACKLOG_IDLE_GRACE_SECONDS:
+        backlog_done = _task_done_in_backlog(task_path)
+        if (
+            backlog_done
+            and not (ignore_initial_backlog_done and backlog_done_at_start)
+            and (now - monitor.last_output_time) >= DONE_BACKLOG_IDLE_GRACE_SECONDS
+        ):
             log_event(log_path, "INFO", "task marked done and agent idle; treating as completed", task_id=task_id)
             try:
                 task_path.unlink()

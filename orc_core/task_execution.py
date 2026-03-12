@@ -1846,6 +1846,7 @@ class TaskExecutionEngine:
                             stall_timeout=request.stall_timeout,
                             task_ttl=request.task_ttl,
                             elapsed_before_start=elapsed_before_start_stage,
+                            ignore_initial_backlog_done=enforce_stage_artifacts and stage_index > 0,
                             log_path=self.log_path,
                             nudge_after=request.nudge_after,
                             nudge_cooldown=request.nudge_cooldown,

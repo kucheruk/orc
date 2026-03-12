@@ -149,6 +149,46 @@ class SupervisorLifecycleTest(unittest.TestCase):
 
         self.assertEqual(result, "completed")
 
+    def test_wait_for_completion_ignores_preexisting_done_backlog_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backlog_path = Path(tmpdir) / "BACKLOG.md"
+            backlog_path.write_text("- [x] REFACT-778 done\n", encoding="utf-8")
+            task_path = Path(tmpdir) / "orc-task.json"
+            task_path.write_text(
+                '{"task_id":"REFACT-778","backlog_path":"%s"}' % str(backlog_path),
+                encoding="utf-8",
+            )
+            monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
+            monitor.proc = SimpleNamespace(pid=None, returncode=None, poll=lambda: None)
+            monitor.last_output_time = time.time() - 1000.0
+
+            report_calls = {"count": 0}
+
+            def _maybe_report() -> None:
+                report_calls["count"] += 1
+                monitor.ui_followup_prompt = True
+
+            monitor.maybe_report = _maybe_report
+
+            with patch("orc_core.supervisor_lifecycle.DONE_BACKLOG_IDLE_GRACE_SECONDS", 0.01):
+                result = wait_for_completion(
+                    task_path=task_path,
+                    monitor=monitor,
+                    poll=0.01,
+                    stall_timeout=600.0,
+                    task_ttl=30.0,
+                    log_path=Path(tmpdir) / "orc.log",
+                    nudge_after=10,
+                    nudge_cooldown=300.0,
+                    nudge_text="continue",
+                    task_id="REFACT-778",
+                    task_text="repro",
+                    ignore_initial_backlog_done=True,
+                )
+
+        self.assertEqual(result, "waiting_for_input")
+        self.assertGreaterEqual(report_calls["count"], 1)
+
     def test_wait_for_completion_treats_missing_agent_pid_as_completed_when_backlog_done(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backlog_path = Path(tmpdir) / "BACKLOG.md"

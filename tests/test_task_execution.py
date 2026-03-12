@@ -1246,6 +1246,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
                 "handoff TASK-001",
             ],
         )
+        self.assertFalse(wait_for_completion.call_args_list[0].kwargs["ignore_initial_backlog_done"])
+        self.assertTrue(wait_for_completion.call_args_list[1].kwargs["ignore_initial_backlog_done"])
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
