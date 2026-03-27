@@ -21,6 +21,8 @@ INTEGRATION_SAFE_UNTRACKED_EXACT = {
     ".cursor/orc-stop-request.json",
     ".cursor/orc-task.json",
     ".cursor/orc-task-runtime.json",
+    "BACKLOG.md",
+    "BACKLOG.md.lock",
 }
 
 
@@ -142,10 +144,14 @@ def _summarize_dirty_paths(tracked: list[str], untracked: list[str], limit: int 
     return ", ".join(sliced)
 
 
-def _evaluate_integration_repo_safety(tracked: list[str], untracked: list[str]) -> IntegrationPreflightResult:
-    safe_tracked = [path for path in tracked if _is_integration_safe_untracked(path)]
+def _evaluate_integration_repo_safety(
+    tracked: list[str],
+    untracked: list[str],
+    extra_safe: frozenset[str] = frozenset(),
+) -> IntegrationPreflightResult:
+    safe_tracked = [path for path in tracked if _is_integration_safe_untracked(path) or path in extra_safe]
     unsafe_tracked = [path for path in tracked if path not in safe_tracked]
-    safe_untracked = [path for path in untracked if _is_integration_safe_untracked(path)]
+    safe_untracked = [path for path in untracked if _is_integration_safe_untracked(path) or path in extra_safe]
     unsafe_untracked = [path for path in untracked if path not in safe_untracked]
     if unsafe_tracked or unsafe_untracked:
         error_summary = _summarize_dirty_paths(unsafe_tracked, unsafe_untracked)
@@ -167,11 +173,16 @@ def _evaluate_integration_repo_safety(tracked: list[str], untracked: list[str]) 
     )
 
 
-def preflight_main_integration(*, base_workdir: str, main_branch: str) -> IntegrationPreflightResult:
+def preflight_main_integration(
+    *,
+    base_workdir: str,
+    main_branch: str,
+    extra_safe_paths: frozenset[str] = frozenset(),
+) -> IntegrationPreflightResult:
     ok_state, tracked, untracked, state_error = _collect_integration_repo_state(base_workdir)
     if not ok_state:
         return IntegrationPreflightResult(ok=False, error=state_error)
-    safety = _evaluate_integration_repo_safety(tracked, untracked)
+    safety = _evaluate_integration_repo_safety(tracked, untracked, extra_safe_paths)
     if not safety.ok:
         return safety
     ok_branch, _, stderr_branch, _ = run_git(base_workdir, ["git", "show-ref", "--verify", f"refs/heads/{main_branch}"])

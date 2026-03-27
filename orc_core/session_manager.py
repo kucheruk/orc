@@ -115,8 +115,10 @@ class SessionManager:
             single_mode=(mode == "single"),
             selected_task_id=str(getattr(self.args, "task_id", "") or "").strip(),
         )
+        backlog_relative = str(backlog_path.relative_to(Path(workdir).resolve()))
         self._integrator = IntegrationManager(
             workdir=workdir, main_branch=self.main_branch, log_path=log_path,
+            safe_tracked_paths=frozenset({backlog_relative, f"{backlog_relative}.lock"}),
         )
 
         self.snapshot_publisher: Optional[SnapshotPublisher] = None

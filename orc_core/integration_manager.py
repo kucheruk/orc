@@ -72,10 +72,12 @@ class IntegrationContext:
 class IntegrationManager:
     """Serializes cherry-pick integration of task commits into main."""
 
-    def __init__(self, *, workdir: str, main_branch: str, log_path: Path) -> None:
+    def __init__(self, *, workdir: str, main_branch: str, log_path: Path,
+                 safe_tracked_paths: frozenset[str] = frozenset()) -> None:
         self.workdir = workdir
         self.main_branch = main_branch
         self.log_path = log_path
+        self._safe_tracked_paths = safe_tracked_paths
         self._lock = threading.Lock()
 
     def integrate(
@@ -141,7 +143,8 @@ class IntegrationManager:
     def _preflight(self, ctx: IntegrationContext) -> bool:
         ctx.step("preflight_start")
         result = preflight_main_integration(
-            base_workdir=self.workdir, main_branch=self.main_branch)
+            base_workdir=self.workdir, main_branch=self.main_branch,
+            extra_safe_paths=self._safe_tracked_paths)
         if not result.ok:
             ctx.step_error("preflight_failed", error=result.error)
             ctx.save_report("failed", f"preflight_failed:{result.error[:REASON_TRUNCATE]}")
