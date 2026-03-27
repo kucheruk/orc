@@ -314,14 +314,14 @@ def _format_duration(seconds: float) -> str:
 
 def _format_token_display(metrics) -> str:
     if metrics.tokens_total is None:
-        return "-"
+        return "pending"
     val = str(metrics.tokens_total)
     return f"~{val}" if metrics.tokens_status == "estimated" else val
 
 
 def _short_tokens(raw: str) -> str:
-    if raw in ("-", "unknown"):
-        return "-"
+    if raw in ("-", "unknown", "pending"):
+        return raw
     try:
         val = int(raw.lstrip("~"))
     except ValueError:
