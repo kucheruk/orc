@@ -515,6 +515,8 @@ def main() -> int:
                     print(app.last_error, file=sys.stderr, flush=True)
                 elif exit_code != 0:
                     ui_error(f"❌ {_failure_message(manager.last_failure_reason)}")
+                if exit_code == 0:
+                    print(f"\n{manager.get_summary()}", flush=True)
                 if interactive_requested and exit_code == 0 and str(args.mode).strip() == "single":
                     completed_task_id = str(args.task_id).strip()
                     task_done_msg = f"Задача {completed_task_id} завершена успешно" if completed_task_id else "Задача завершена успешно"

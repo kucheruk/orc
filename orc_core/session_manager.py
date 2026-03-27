@@ -124,6 +124,9 @@ class SessionManager:
         self.snapshot_publisher: Optional[SnapshotPublisher] = None
         self.task_body_publisher: Optional[Callable[[str, str], None]] = None
         self.last_failure_reason = ""
+        self._started_at = 0.0
+        self._completed_tasks: list[str] = []
+        self._failed_tasks: list[str] = []
 
     # ── Public API (TUI thread) ──────────────────────────────────
 
@@ -142,6 +145,7 @@ class SessionManager:
 
     def run(self, snapshot_publisher: SnapshotPublisher) -> int:
         self.snapshot_publisher = snapshot_publisher
+        self._started_at = time.time()
         self._broadcast_status("Recovering git state...")
         self._integrator.recover_stale_git_state()
         self._handle_drop()
@@ -189,6 +193,22 @@ class SessionManager:
 
     def shutdown(self) -> None:
         self._shutdown_all()
+
+    def get_summary(self) -> str:
+        elapsed = time.time() - self._started_at if self._started_at > 0 else 0
+        mins, secs = divmod(int(elapsed), 60)
+        hours, mins = divmod(mins, 60)
+        time_str = f"{hours}h {mins}m {secs}s" if hours else f"{mins}m {secs}s"
+        done, _ip, total = self._distributor.get_progress()
+        lines = [
+            f"Completed: {len(self._completed_tasks)} tasks in {time_str}",
+        ]
+        if self._completed_tasks:
+            lines.append(f"  Tasks: {', '.join(self._completed_tasks)}")
+        if self._failed_tasks:
+            lines.append(f"  Failed: {', '.join(self._failed_tasks)}")
+        lines.append(f"  Backlog: {done}/{total} done")
+        return "\n".join(lines)
 
     # ── Manager loop ─────────────────────────────────────────────
 
@@ -356,6 +376,7 @@ class SessionManager:
     def _record_failure(self, ctx: TaskContext, result) -> None:
         reason = (result.reason if result else "execution_crashed") or "unknown"
         ctx.slot.error = reason
+        self._failed_tasks.append(ctx.task_id)
         log_event(self.log_path, "ERROR", "task failed",
                   session_id=ctx.session_id, task_id=ctx.task_id, reason=reason)
         if self.max_sessions == 1:
@@ -389,6 +410,7 @@ class SessionManager:
 
         clear_active_session(self.workdir)
         self._distributor.release_task(ctx.task_id)
+        self._completed_tasks.append(ctx.task_id)
         return True
 
     def _make_merge_fn(self, ctx: TaskContext) -> Callable[[], bool]:
