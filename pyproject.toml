@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 orc = "orc_core.cli_app:main"
+orcs = "orc_core.cli_app:main_multi"
 
 [tool.uv]
 package = true

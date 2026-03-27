@@ -11,7 +11,14 @@ from .backlog_status import BacklogStatus
 from .quit_signal import clear_stop_request, request_stop, toggle_quit_after_task
 from .start_menu import StartMenuChoice
 from .stream_monitor_state import MonitorSnapshot
-from .tui.messages import OrchestratorFinished, SnapshotUpdated
+from .tui.messages import (
+    OrchestratorFinished,
+    SessionAdded,
+    SessionClosing,
+    SessionFailed,
+    SessionRemoved,
+    SnapshotUpdated,
+)
 from .tui.screens.confirm_quit import ConfirmQuitModal
 from .tui.screens.execution import ExecutionScreen
 from .tui.screens.start_menu import StartMenuScreen
@@ -70,11 +77,14 @@ class OrcApp(App[int]):
         ("escape", "request_quit", "Stop ORC"),
         ("q", "request_quit_after_task", "Quit After Task"),
         ("t", "toggle_dark", "Theme"),
+        ("plus_sign", "add_session", "Add Session"),
+        ("hyphen_minus", "remove_session", "Remove Session"),
     ]
 
-    def __init__(self, run_orchestrator: Callable[[Callable[[MonitorSnapshot], None]], int]) -> None:
+    def __init__(self, run_orchestrator: Callable[[Callable[[str, MonitorSnapshot], None]], int], *, session_manager=None) -> None:
         super().__init__()
         self._run_orchestrator = run_orchestrator
+        self._session_manager = session_manager
         self._execution_screen = ExecutionScreen()
         self._last_error: str | None = None
 
@@ -96,11 +106,26 @@ class OrcApp(App[int]):
             return
         self.call_from_thread(self.post_message, OrchestratorFinished(code))
 
-    def _publish_snapshot_from_worker(self, snapshot: MonitorSnapshot) -> None:
-        self.call_from_thread(self.post_message, SnapshotUpdated(snapshot))
+    def _publish_snapshot_from_worker(self, session_id: str, snapshot: MonitorSnapshot | None) -> None:
+        if snapshot is None:
+            self.call_from_thread(self.post_message, SessionAdded(session_id))
+        else:
+            self.call_from_thread(self.post_message, SnapshotUpdated(session_id, snapshot))
 
     def on_snapshot_updated(self, message: SnapshotUpdated) -> None:
-        self._execution_screen.update_from_snapshot(message.snapshot)
+        self._execution_screen.update_session(message.session_id, message.snapshot)
+
+    def on_session_added(self, message: SessionAdded) -> None:
+        self._execution_screen.add_session(message.session_id)
+
+    def on_session_removed(self, message: SessionRemoved) -> None:
+        self._execution_screen.remove_session(message.session_id)
+
+    def on_session_failed(self, message: SessionFailed) -> None:
+        self._execution_screen.mark_session_failed(message.session_id)
+
+    def on_session_closing(self, message: SessionClosing) -> None:
+        self._execution_screen.mark_session_closing(message.session_id)
 
     def on_orchestrator_finished(self, message: OrchestratorFinished) -> None:
         if message.error_text:
@@ -125,6 +150,14 @@ class OrcApp(App[int]):
     def action_request_quit_after_task(self) -> None:
         requested = toggle_quit_after_task()
         self._execution_screen.set_quit_after_task_requested(requested)
+
+    def action_add_session(self) -> None:
+        if self._session_manager:
+            self._session_manager.request_add_session()
+
+    def action_remove_session(self) -> None:
+        if self._session_manager:
+            self._session_manager.request_remove_session()
 
 
 def run_start_menu(

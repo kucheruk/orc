@@ -568,7 +568,7 @@ def _attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, tas
     return ok_commit
 
 
-def _has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> bool:
+def has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> bool:
     ok, stdout, stderr, _ = _git_run(
         workdir,
         log_path,
@@ -585,7 +585,7 @@ def _has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> b
         return False
 
 
-def _classify_main_integration_error(error: str) -> str:
+def classify_main_integration_error(error: str) -> str:
     text = (error or "").strip().lower()
     if not text:
         return "unknown"
@@ -865,7 +865,7 @@ def _run_commit_phase(
     return True
 
 
-def _run_merge_expert_phase(
+def run_merge_expert_phase(
     worker: TaskWorker,
     request: TaskExecutionRequest,
     prompt_vars: SafeDict,
@@ -880,7 +880,7 @@ def _run_merge_expert_phase(
         timeline_id=timeline_id,
         task_id=task_id,
         step="merge_expert_phase",
-        location="orc_core/task_execution.py:_run_merge_expert_phase",
+        location="orc_core/task_execution.py:run_merge_expert_phase",
         attempt=attempt,
         data={"model": request.merge_expert_model},
     )
@@ -920,7 +920,7 @@ def _run_merge_expert_phase(
             timeline_id=timeline_id,
             task_id=task_id,
             step="merge_expert_phase",
-            location="orc_core/task_execution.py:_run_merge_expert_phase",
+            location="orc_core/task_execution.py:run_merge_expert_phase",
             attempt=attempt,
             started_at_ms=merge_started_ms,
             result="failed",
@@ -954,7 +954,7 @@ def _run_merge_expert_phase(
             timeline_id=timeline_id,
             task_id=task_id,
             step="merge_expert_phase",
-            location="orc_core/task_execution.py:_run_merge_expert_phase",
+            location="orc_core/task_execution.py:run_merge_expert_phase",
             attempt=attempt,
             started_at_ms=merge_started_ms,
             result="failed",
@@ -967,7 +967,7 @@ def _run_merge_expert_phase(
         timeline_id=timeline_id,
         task_id=task_id,
         step="merge_expert_phase",
-        location="orc_core/task_execution.py:_run_merge_expert_phase",
+        location="orc_core/task_execution.py:run_merge_expert_phase",
         attempt=attempt,
         started_at_ms=merge_started_ms,
         result="completed",
@@ -1014,7 +1014,7 @@ class TaskExecutionEngine:
         )
         if request.integrate_to_main:
             preflight = preflight_main_integration(base_workdir=request.base_workdir, main_branch=request.main_branch)
-            failure_kind = _classify_main_integration_error(preflight.error)
+            failure_kind = classify_main_integration_error(preflight.error)
             safe_tracked = tuple(getattr(preflight, "safe_tracked", ()) or ())
             safe_untracked = tuple(getattr(preflight, "safe_untracked", ()) or ())
             unsafe_tracked = tuple(getattr(preflight, "unsafe_tracked", ()) or ())
@@ -1159,7 +1159,7 @@ class TaskExecutionEngine:
                     attempt=restart_count + 1,
                     data={"branch": request.main_branch},
                 )
-                if not _has_commits_ahead_of_branch(request.workdir, request.main_branch, self.log_path):
+                if not has_commits_ahead_of_branch(request.workdir, request.main_branch, self.log_path):
                     log_event(
                         self.log_path,
                         "INFO",
@@ -1232,7 +1232,7 @@ class TaskExecutionEngine:
                         backlog=request.backlog_arg,
                         workspace=request.base_workdir,
                     )
-                    if not _run_merge_expert_phase(
+                    if not run_merge_expert_phase(
                         self.worker,
                         request,
                         merge_prompt_vars,
@@ -1271,7 +1271,7 @@ class TaskExecutionEngine:
                         main_branch=request.main_branch,
                     )
                 if not integration.ok:
-                    failure_kind = _classify_main_integration_error(integration.error)
+                    failure_kind = classify_main_integration_error(integration.error)
                     log_event(
                         self.log_path,
                         "ERROR",

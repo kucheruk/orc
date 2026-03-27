@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from orc_core.backlog_orchestrator import BacklogOrchestrator
+from orc_core.session_manager import SessionManager
 from orc_core.task_execution import TaskExecutionResult
 from orc_core.task_source import MarkdownTaskSource
 
@@ -61,11 +61,11 @@ def _args(backlog: str) -> Namespace:
     )
 
 
-class BacklogOrchestratorTest(unittest.TestCase):
-    @patch("orc_core.backlog_orchestrator.cleanup_task_worktree")
-    @patch("orc_core.backlog_orchestrator.create_task_worktree")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+class SessionManagerTest(unittest.TestCase):
+    @patch("orc_core.session_manager.cleanup_task_worktree")
+    @patch("orc_core.session_manager.create_task_worktree")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
     def test_orchestrator_uses_worktree_and_cleans_up_on_success(
         self,
         hooks_config,
@@ -83,7 +83,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text("- [ ] TASK-001 first\n", encoding="utf-8")
             engine = _FakeEngine(backlog_path)
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),
@@ -105,8 +105,8 @@ class BacklogOrchestratorTest(unittest.TestCase):
         self.assertEqual(hooks.call_args_list[0].args[0], tmpdir)
         self.assertEqual(hooks.call_args_list[1].args[0], "/tmp/repo/.orc/worktrees/TASK-001-1")
 
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
     def test_orchestrator_runs_until_backlog_complete(self, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
@@ -118,7 +118,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
                 encoding="utf-8",
             )
             engine = _FakeEngine(backlog_path)
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),
@@ -139,8 +139,8 @@ class BacklogOrchestratorTest(unittest.TestCase):
         self.assertEqual([call.task.task_id for call in engine.calls], ["TASK-001", "TASK-002"])
         hooks.assert_called()
 
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
     def test_orchestrator_exits_immediately_for_completed_backlog(self, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
@@ -148,7 +148,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text("- [x] TASK-001 done\n", encoding="utf-8")
             engine = _FakeEngine(backlog_path)
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),
@@ -170,8 +170,8 @@ class BacklogOrchestratorTest(unittest.TestCase):
         hooks.assert_called_once_with(tmpdir)
         hooks_config.assert_called_once()
 
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
     def test_request_contains_progress_values(self, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
@@ -179,7 +179,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text("- [ ] TASK-001 only\n", encoding="utf-8")
             engine = _FakeEngine(backlog_path)
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),
@@ -208,8 +208,8 @@ class BacklogOrchestratorTest(unittest.TestCase):
             str(Path(tmpdir) / ".cursor" / "orc-task-runtime.json"),
         )
 
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
     def test_request_propagates_allow_fallback_commits_flag(self, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
@@ -219,7 +219,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
             engine = _FakeEngine(backlog_path)
             args = _args("BACKLOG.md")
             args.allow_fallback_commits = True
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=args,
@@ -240,8 +240,8 @@ class BacklogOrchestratorTest(unittest.TestCase):
         self.assertEqual(len(engine.calls), 1)
         self.assertTrue(engine.calls[0].allow_fallback_commits)
 
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
     def test_single_mode_runs_selected_task_once(self, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
@@ -256,7 +256,7 @@ class BacklogOrchestratorTest(unittest.TestCase):
             args = _args("BACKLOG.md")
             args.mode = "single"
             args.task_id = "TASK-002"
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=args,
@@ -276,16 +276,16 @@ class BacklogOrchestratorTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual([call.task.task_id for call in engine.calls], ["TASK-002"])
 
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
-    @patch("orc_core.backlog_orchestrator.ui_error")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
+    @patch("orc_core.session_manager.ui_error")
     def test_failed_execution_exposes_failure_reason(self, ui_error, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
         with tempfile.TemporaryDirectory() as tmpdir:
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text("- [ ] TASK-001 first\n", encoding="utf-8")
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),
@@ -307,16 +307,16 @@ class BacklogOrchestratorTest(unittest.TestCase):
         ui_error.assert_called_once()
         self.assertIn("missing_conversation_id", ui_error.call_args.args[0])
 
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
-    @patch("orc_core.backlog_orchestrator.ui_error")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
+    @patch("orc_core.session_manager.ui_error")
     def test_worktree_base_invariant_failure_reason_is_exposed(self, ui_error, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
         with tempfile.TemporaryDirectory() as tmpdir:
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text("- [ ] TASK-001 first\n", encoding="utf-8")
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),
@@ -338,16 +338,16 @@ class BacklogOrchestratorTest(unittest.TestCase):
         ui_error.assert_called_once()
         self.assertIn("worktree_not_integrated_to_base", ui_error.call_args.args[0])
 
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
-    @patch("orc_core.backlog_orchestrator.ui_error")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
+    @patch("orc_core.session_manager.ui_error")
     def test_unexpected_engine_exception_is_converted_to_failed_result(self, ui_error, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
         with tempfile.TemporaryDirectory() as tmpdir:
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text("- [ ] TASK-001 first\n", encoding="utf-8")
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),

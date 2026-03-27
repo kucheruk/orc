@@ -40,32 +40,161 @@
     margin-top: 1;
 }
 
+/* ═══════════ EXECUTION SCREEN ═══════════ */
+
 #exec_root {
-    padding: 1 2;
+    padding: 0 1;
 }
 
-#mode_label {
+#global_status {
     height: 1;
-    margin-bottom: 1;
+    background: $accent;
+    color: $text;
+    padding: 0 1;
 }
 
-#recent_grid {
+/* ═══════════ GRID LAYOUTS ═══════════ */
+
+#sessions_grid {
+    height: 1fr;
+}
+
+#sessions_grid.cols-1 {
+    grid-size: 1;
+}
+
+#sessions_grid.cols-2 {
+    grid-size: 2;
+    grid-columns: 1fr 1fr;
+}
+
+#sessions_grid.cols-3 {
+    grid-size: 3;
+    grid-columns: 1fr 1fr 1fr;
+}
+
+#sessions_grid.cols-4 {
+    grid-size: 2 2;
+    grid-columns: 1fr 1fr;
+    grid-rows: 1fr 1fr;
+}
+
+/* ═══════════ SESSION PANEL BASE ═══════════ */
+
+.session-panel {
+    border: round $primary;
+    padding: 0 1;
+    height: 1fr;
+    overflow-y: auto;
+}
+
+.session-panel.panel-failed {
+    border: round red;
+}
+
+.session-panel.panel-closing {
+    border: round yellow;
+}
+
+/* ═══════════ DETAIL-FULL (1 session) ═══════════ */
+
+.detail-full .panel-reasoning {
+    height: 9;
+}
+
+.detail-full .panel-events {
+    height: 9;
+}
+
+.detail-full .panel-recent {
     grid-size: 2;
     grid-columns: 1fr 1fr;
     margin: 1 0;
 }
 
+.detail-full .panel-last-line {
+    display: none;
+}
+
+.detail-full .panel-mode {
+    height: 1;
+    margin-bottom: 1;
+}
+
+/* ═══════════ DETAIL-MEDIUM (2 sessions) ═══════════ */
+
+.detail-medium .panel-recent {
+    display: none;
+}
+
+.detail-medium .panel-mode {
+    display: none;
+}
+
+.detail-medium .panel-reasoning {
+    height: 5;
+}
+
+.detail-medium .panel-events {
+    height: 4;
+}
+
+.detail-medium .panel-last-line {
+    display: none;
+}
+
+/* ═══════════ DETAIL-COMPACT (3 sessions) ═══════════ */
+
+.detail-compact .panel-recent {
+    display: none;
+}
+
+.detail-compact .panel-mode {
+    display: none;
+}
+
+.detail-compact .panel-events-section {
+    display: none;
+}
+
+.detail-compact .panel-reasoning {
+    height: 3;
+}
+
+.detail-compact .panel-last-line {
+    display: none;
+}
+
+/* ═══════════ DETAIL-MINIMAL (4 sessions) ═══════════ */
+
+.detail-minimal .panel-recent {
+    display: none;
+}
+
+.detail-minimal .panel-mode {
+    display: none;
+}
+
+.detail-minimal .panel-reasoning-section {
+    display: none;
+}
+
+.detail-minimal .panel-events-section {
+    display: none;
+}
+
+.detail-minimal .panel-last-line {
+    display: block;
+    height: 1;
+}
+
+/* ═══════════ COMMON SECTION STYLING ═══════════ */
+
 .section {
     margin-top: 1;
 }
 
-#reasoning_log {
-    height: 9;
-}
-
-#events_log {
-    height: 9;
-}
+/* ═══════════ MODALS ═══════════ */
 
 #quit_modal {
     width: 60;

@@ -864,7 +864,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
     @patch("orc_core.task_execution.integrate_commit_into_main")
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=False)
+    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=False)
     @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
@@ -885,10 +885,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         task_execution.integrate_commit_into_main.assert_not_called()
 
-    @patch("orc_core.task_execution._run_merge_expert_phase", return_value=True)
+    @patch("orc_core.task_execution.run_merge_expert_phase", return_value=True)
     @patch("orc_core.task_execution.integrate_commit_into_main")
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
@@ -913,7 +913,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(task_execution.integrate_commit_into_main.call_count, 2)
-        task_execution._run_merge_expert_phase.assert_called_once()
+        task_execution.run_merge_expert_phase.assert_called_once()
 
     @patch("orc_core.task_execution.preflight_main_integration")
     @patch("orc_core.task_execution.kill_process_tree")
@@ -942,7 +942,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
     @patch("orc_core.task_execution.timeline_step_finished")
     @patch("orc_core.task_execution.integrate_commit_into_main")
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")

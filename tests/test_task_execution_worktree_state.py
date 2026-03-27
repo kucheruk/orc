@@ -153,7 +153,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 1)
 
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
     @patch("orc_core.task_execution.integrate_commit_into_main")
     @patch("orc_core.task_execution._cleanup_monitor_processes")
@@ -191,7 +191,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 1)
 
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
     @patch("orc_core.task_execution.integrate_commit_into_main")
     @patch("orc_core.task_execution._cleanup_monitor_processes")

@@ -320,7 +320,7 @@ class CliAppTuiMouseReportingTest(unittest.TestCase):
     @patch("orc_core.cli_app._resolve_model")
     @patch("orc_core.cli_app.ensure_agent_installed")
     @patch("orc_core.cli_app.OrcApp")
-    @patch("orc_core.cli_app.BacklogOrchestrator")
+    @patch("orc_core.cli_app.SessionManager")
     @patch("orc_core.cli_app.TaskExecutionEngine")
     @patch("orc_core.cli_app.build_parser")
     def test_main_disables_mouse_reporting_for_tui_run(
@@ -395,7 +395,7 @@ class CliAppTuiMouseReportingTest(unittest.TestCase):
     @patch("orc_core.cli_app.start_model_list_loading")
     @patch("orc_core.cli_app.ensure_agent_installed")
     @patch("orc_core.cli_app.OrcApp")
-    @patch("orc_core.cli_app.BacklogOrchestrator")
+    @patch("orc_core.cli_app.SessionManager")
     @patch("orc_core.cli_app.TaskExecutionEngine")
     @patch("orc_core.cli_app.build_parser")
     def test_main_returns_to_menu_after_single_success(
@@ -495,7 +495,7 @@ class CliAppCrashStdoutDiagnosticsTest(unittest.TestCase):
     @patch("orc_core.cli_app._resolve_model")
     @patch("orc_core.cli_app.ensure_agent_installed")
     @patch("orc_core.cli_app.OrcApp")
-    @patch("orc_core.cli_app.BacklogOrchestrator")
+    @patch("orc_core.cli_app.SessionManager")
     @patch("orc_core.cli_app.TaskExecutionEngine")
     @patch("orc_core.cli_app.build_parser")
     def test_main_emits_crash_json_to_stdout_when_orchestrator_worker_fails(
