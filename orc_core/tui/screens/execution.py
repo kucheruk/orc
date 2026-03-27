@@ -95,7 +95,7 @@ class ExecutionScreen(Screen[None]):
     def _activity_markup(self) -> str:
         phase = str(self.live_phase or "starting").strip().lower()
         status = str(self.live_status or "").strip() or "waiting for output"
-        status = status[:96]
+        status = status[:96].replace("[", r"\[")
         since = float(self.live_since or 0.0)
         age_seconds = max(time.time() - since, 0.0) if since > 0 else 0.0
         age_text = self._format_duration(age_seconds)

@@ -134,7 +134,8 @@ class StartMenuScreen(Screen[StartMenuChoice]):
         return self._selected_model_value
 
     def _set_error(self, message: str) -> None:
-        self.query_one("#error_text", Label).update(f"[red]{message}[/red]")
+        safe_message = message.replace("[", r"\[")
+        self.query_one("#error_text", Label).update(f"[red]{safe_message}[/red]")
 
     def _set_visible(self, widget_id: str, is_visible: bool) -> None:
         widget = self.query_one(f"#{widget_id}")

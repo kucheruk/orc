@@ -47,6 +47,15 @@ class ExecutionScreenRenderTest(unittest.TestCase):
         self.assertIn("[red]", markup)
         self.assertIn("Network problems", markup)
 
+    def test_activity_markup_escapes_live_status_markup_tokens(self) -> None:
+        screen = ExecutionScreen()
+        screen.live_phase = "assistant"
+        screen.live_status = "responding [/"
+        screen.live_since = time.time() - 1.0
+
+        markup = screen._activity_markup()
+        self.assertIn(r"\[/", markup)
+
     def test_render_text_contains_key_sections(self) -> None:
         metrics = MetricsStore(
             tokens_total=42,

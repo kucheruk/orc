@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock
 
+from textual.app import App
 from textual.message_pump import active_app
 
 from orc_core.backlog_status import BacklogStatus
@@ -138,6 +139,25 @@ class StartMenuScreenTaskHintsTest(unittest.TestCase):
             active_app.reset(token)
 
         app.push_screen.assert_called_once()
+
+    def test_set_error_escapes_markup_tokens(self) -> None:
+        status = BacklogStatus(path=Path("BACKLOG.md"), exists=True, tasks=[], open_tasks=[])
+        screen = StartMenuScreen(status, models=["gpt-5.3-codex"], default_model="gpt-5.3-codex")
+
+        class _TestApp(App[None]):
+            def compose(self):
+                yield screen
+
+        async def _run() -> None:
+            async with _TestApp().run_test() as pilot:
+                _ = pilot
+                screen._set_error("broken [/")
+                error = screen.query_one("#error_text")
+                self.assertIn("broken [/", str(error.render()))
+
+        import asyncio
+
+        asyncio.run(_run())
 
 
 if __name__ == "__main__":
