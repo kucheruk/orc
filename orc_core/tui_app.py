@@ -77,8 +77,8 @@ class OrcApp(App[int]):
         ("escape", "request_quit", "Stop ORC"),
         ("q", "request_quit_after_task", "Quit After Task"),
         ("t", "toggle_dark", "Theme"),
-        ("plus", "add_session", "Add Session"),
-        ("minus", "remove_session", "Remove Session"),
+        ("+", "add_session", "Add Session"),
+        ("-", "remove_session", "Remove Session"),
     ]
 
     def __init__(self, run_orchestrator: Callable[[Callable[[str, MonitorSnapshot], None]], int], *, session_manager=None) -> None:
@@ -153,8 +153,11 @@ class OrcApp(App[int]):
         self._execution_screen.set_quit_after_task_requested(requested)
 
     def action_add_session(self) -> None:
-        if self._session_manager:
-            self._session_manager.request_add_session()
+        if not self._session_manager:
+            return
+        sid = self._session_manager.request_add_session()
+        if sid:
+            self._execution_screen.add_session(sid)
 
     def action_remove_session(self) -> None:
         if self._session_manager:

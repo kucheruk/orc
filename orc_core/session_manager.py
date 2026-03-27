@@ -124,8 +124,8 @@ class SessionManager:
 
     # ── Public API (TUI thread) ──────────────────────────────────
 
-    def request_add_session(self) -> None:
-        self._start_session()
+    def request_add_session(self) -> Optional[str]:
+        return self._start_session()
 
     def request_remove_session(self, session_id: str = "") -> None:
         with self._slots_lock:
@@ -233,6 +233,8 @@ class SessionManager:
         thread.start()
 
     def _notify_session_added(self, sid: str) -> None:
+        # Called from worker thread during _launch_initial_sessions.
+        # When called from TUI thread (action_add_session), TUI adds panel directly.
         if not self.snapshot_publisher:
             return
         try:
