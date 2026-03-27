@@ -38,8 +38,6 @@ from ...session_types import (
     STATUS_TRUNCATE_COMPACT,
     STATUS_TRUNCATE_FULL,
     STATUS_TRUNCATE_MEDIUM,
-    TOKEN_THRESHOLD_MILLIONS,
-    TOKEN_THRESHOLD_THOUSANDS,
 )
 from ...stream_monitor_state import MonitorSnapshot
 
@@ -58,7 +56,8 @@ class SessionPanel(Widget):
     DEFAULT_CLASSES = "session-panel"
 
     detail_level = reactive("full")
-    tokens_total = reactive("-")
+    input_bytes = reactive(0)
+    output_bytes = reactive(0)
     files_edited = reactive("-")
     git_added = reactive("-")
     git_deleted = reactive("-")
@@ -159,7 +158,8 @@ class SessionPanel(Widget):
         self.progress_added_delta = snap.progress_added_delta
         self.total_lines = snap.metrics.total_lines
         self.commands_count = snap.metrics.command_count
-        self.tokens_total = _format_token_display(snap.metrics)
+        self.input_bytes = snap.metrics.input_bytes
+        self.output_bytes = snap.metrics.output_bytes
         self.files_edited = str(snap.metrics.files_edited or "-")
         self.git_added = str(snap.metrics.git_added if snap.metrics.git_added is not None else "-")
         self.git_deleted = str(snap.metrics.git_deleted if snap.metrics.git_deleted is not None else "-")
@@ -210,7 +210,8 @@ class SessionPanel(Widget):
             total=self.progress_total, delta=self.progress_added_delta,
             lines=self.total_lines, commands=self.commands_count,
             files=self.files_edited, git_added=self.git_added,
-            git_deleted=self.git_deleted, tokens=self.tokens_total))
+            git_deleted=self.git_deleted,
+            input_bytes=self.input_bytes, output_bytes=self.output_bytes))
         self._set_label("activity_label", _format_activity(
             phase=self.live_phase, status=self.live_status,
             since=self.live_since, tool_count=self.active_tool_call_count,
@@ -312,25 +313,20 @@ def _format_duration(seconds: float) -> str:
     return f"{mins:02d}:{secs:02d}"
 
 
-def _format_token_display(metrics) -> str:
-    if metrics.tokens_total is None:
-        return "pending"
-    val = str(metrics.tokens_total)
-    return f"~{val}" if metrics.tokens_status == "estimated" else val
+def _human_bytes(n: int) -> str:
+    if n < 1024:
+        return f"{n}B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f}K"
+    return f"{n / (1024 * 1024):.1f}M"
 
 
-def _short_tokens(raw: str) -> str:
-    if raw in ("-", "unknown", "pending"):
-        return raw
-    try:
-        val = int(raw.lstrip("~"))
-    except ValueError:
-        return raw
-    if val >= TOKEN_THRESHOLD_MILLIONS:
-        return f"{val / TOKEN_THRESHOLD_MILLIONS:.1f}M"
-    if val >= TOKEN_THRESHOLD_THOUSANDS:
-        return f"{val // TOKEN_THRESHOLD_THOUSANDS}k"
-    return str(val)
+def _format_io(input_bytes: int, output_bytes: int) -> str:
+    return f"In: {_human_bytes(input_bytes)} | Out: {_human_bytes(output_bytes)}"
+
+
+def _short_io(input_bytes: int, output_bytes: int) -> str:
+    return f"I:{_human_bytes(input_bytes)} O:{_human_bytes(output_bytes)}"
 
 
 def _format_task_label(*, task_id, done, total, delta, heading, detail) -> str:
@@ -345,16 +341,18 @@ def _format_task_label(*, task_id, done, total, delta, heading, detail) -> str:
 
 
 def _format_stats(*, elapsed, detail, done, remaining, total, delta,
-                  lines, commands, files, git_added, git_deleted, tokens) -> str:
+                  lines, commands, files, git_added, git_deleted,
+                  input_bytes, output_bytes) -> str:
+    io = _format_io(input_bytes, output_bytes)
     if detail == "full":
         delta_part = f" [yellow](+{delta})[/yellow]" if delta > 0 else ""
         git = f" | Git: [green]+{git_added}[/green] [red]-{git_deleted}[/red]"
         return (f"Elapsed: {elapsed} | Done: {done} | Ahead: {remaining} | "
                 f"Total: {total}{delta_part} | Lines: {lines} | "
-                f"Commands: {commands} | Files: {files}{git} | Tokens: {tokens}")
+                f"Commands: {commands} | Files: {files}{git} | {io}")
     if detail == "medium":
-        return f"{elapsed} | Ln:{lines} Cmd:{commands} F:{files} T:{_short_tokens(tokens)}"
-    return f"{elapsed} | Tokens: {tokens} | Ln: {lines}"
+        return f"{elapsed} | Ln:{lines} Cmd:{commands} F:{files} {_short_io(input_bytes, output_bytes)}"
+    return f"{elapsed} | {_short_io(input_bytes, output_bytes)} | Ln: {lines}"
 
 
 def _format_activity(*, phase, status, since, tool_count, is_subagent, detail) -> str:

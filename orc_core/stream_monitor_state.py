@@ -22,6 +22,8 @@ class MetricsStore:
     command_count: int = 0
     total_lines: int = 0
     total_output_chars: int = 0
+    input_bytes: int = 0
+    output_bytes: int = 0
     git_added: Optional[int] = None
     git_deleted: Optional[int] = None
 
@@ -874,6 +876,11 @@ class StreamMonitorState:
 
         event_type = str(event.get("type") or "")
         subtype = str(event.get("subtype") or "")
+        raw_bytes = len(raw.encode("utf-8"))
+        if event_type in ("user", "tool_result", "system"):
+            self.metrics.input_bytes += raw_bytes
+        elif event_type in ("assistant", "tool_call"):
+            self.metrics.output_bytes += raw_bytes
         stream_kind = self._reasoning_stream_kind_for_event(event_type, subtype)
         self._remember_tool_activity(event, event_type, subtype)
         self._last_event_type = event_type or "event"
