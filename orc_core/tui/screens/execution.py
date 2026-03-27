@@ -55,6 +55,11 @@ class ExecutionScreen(Screen[None]):
         if panel:
             panel.add_class("panel-closing")
 
+    def set_task_body(self, session_id: str, body: str) -> None:
+        panel = self._find_panel(session_id)
+        if panel:
+            panel.set_task_body(body)
+
     def set_quit_after_task_requested(self, requested: bool) -> None:
         for panel in self.query(SessionPanel):
             panel.set_quit_after_task_requested(requested)

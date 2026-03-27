@@ -18,6 +18,7 @@ from .tui.messages import (
     SessionFailed,
     SessionRemoved,
     SnapshotUpdated,
+    TaskBodyUpdated,
 )
 from .tui.screens.confirm_quit import ConfirmQuitModal
 from .tui.screens.execution import ExecutionScreen
@@ -95,6 +96,8 @@ class OrcApp(App[int]):
 
     @work(thread=True)
     def _run_in_background_worker(self) -> None:
+        if self._session_manager:
+            self._session_manager.task_body_publisher = self._publish_task_body_from_worker
         code = 1
         try:
             code = int(self._run_orchestrator(self._publish_snapshot_from_worker))
@@ -105,6 +108,9 @@ class OrcApp(App[int]):
             self.call_from_thread(self.post_message, OrchestratorFinished(code, error_text))
             return
         self.call_from_thread(self.post_message, OrchestratorFinished(code))
+
+    def _publish_task_body_from_worker(self, session_id: str, body: str) -> None:
+        self.call_from_thread(self.post_message, TaskBodyUpdated(session_id, body))
 
     def _publish_snapshot_from_worker(self, session_id: str, snapshot: MonitorSnapshot | None) -> None:
         if snapshot is None:
@@ -126,6 +132,9 @@ class OrcApp(App[int]):
 
     def on_session_closing(self, message: SessionClosing) -> None:
         self._execution_screen.mark_session_closing(message.session_id)
+
+    def on_task_body_updated(self, message: TaskBodyUpdated) -> None:
+        self._execution_screen.set_task_body(message.session_id, message.body)
 
     def on_orchestrator_finished(self, message: OrchestratorFinished) -> None:
         if message.error_text:

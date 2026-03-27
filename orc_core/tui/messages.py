@@ -42,3 +42,10 @@ class SessionClosing(Message):
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         super().__init__()
+
+
+class TaskBodyUpdated(Message):
+    def __init__(self, session_id: str, body: str) -> None:
+        self.session_id = session_id
+        self.body = body
+        super().__init__()

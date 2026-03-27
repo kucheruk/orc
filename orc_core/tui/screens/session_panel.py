@@ -83,10 +83,12 @@ class SessionPanel(Widget):
         self._heading_cache: dict[str, str] = {}
         self._last_command = ""
         self._last_file = ""
+        self._task_body = ""
 
     def compose(self) -> ComposeResult:
         sid = self.session_id
         yield Label("", id=f"task_label_{sid}", classes="panel-task")
+        yield Static("", id=f"task_body_{sid}", classes="panel-task-body")
         yield Label("", id=f"activity_label_{sid}", classes="panel-activity")
         with Vertical(classes="panel-stats-section"):
             yield Label("", id=f"mode_label_{sid}", classes="panel-mode")
@@ -182,10 +184,13 @@ class SessionPanel(Widget):
             self._write_log("reasoning_log", snap.reasoning_lines)
             self._write_log("events_log", snap.recent_events[-EVENTS_LINES_FULL:])
         elif level == "medium":
+            self._update_recent_tables(snap)
             self._write_log("reasoning_log", snap.reasoning_lines)
             self._write_log("events_log", snap.recent_events[-EVENTS_LINES_MEDIUM:])
         elif level == "compact":
-            self._write_log("reasoning_log", snap.reasoning_lines[-REASONING_LINES_COMPACT:])
+            self._update_recent_tables(snap)
+            self._write_log("reasoning_log", snap.reasoning_lines)
+            self._write_log("events_log", snap.recent_events[-EVENTS_LINES_MEDIUM:])
         elif level == "minimal":
             self._refresh_last_line()
 
@@ -285,6 +290,14 @@ class SessionPanel(Widget):
         heading = _read_task_heading(task_id)
         self._heading_cache[task_id] = heading
         return heading
+
+    def set_task_body(self, body: str) -> None:
+        self._task_body = body
+        try:
+            widget = self.query_one(f"#{self._wid('task_body')}", Static)
+            widget.update(f"[dim]{body}[/dim]")
+        except NoMatches:
+            _logger.debug("task_body widget not mounted yet: %s", self._wid("task_body"))
 
     def set_quit_after_task_requested(self, requested: bool) -> None:
         self._quit_after_task = requested

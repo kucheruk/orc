@@ -122,6 +122,7 @@ class SessionManager:
         )
 
         self.snapshot_publisher: Optional[SnapshotPublisher] = None
+        self.task_body_publisher: Optional[Callable[[str, str], None]] = None
         self.last_failure_reason = ""
 
     # ── Public API (TUI thread) ──────────────────────────────────
@@ -235,14 +236,20 @@ class SessionManager:
         thread.start()
 
     def _notify_session_added(self, sid: str) -> None:
-        # Called from worker thread during _launch_initial_sessions.
-        # When called from TUI thread (action_add_session), TUI adds panel directly.
         if not self.snapshot_publisher:
             return
         try:
             self.snapshot_publisher(sid, None)
         except Exception as exc:
             _logger.debug("snapshot_publisher failed for session %s: %s", sid, exc)
+
+    def _notify_task_body(self, session_id: str, body: str) -> None:
+        if not self.task_body_publisher:
+            return
+        try:
+            self.task_body_publisher(session_id, body)
+        except Exception as exc:
+            _logger.debug("task_body_publisher failed: %s", exc)
 
     # ── Session thread ───────────────────────────────────────────
 
@@ -288,6 +295,7 @@ class SessionManager:
     def _process_one_task(self, slot, task, rate_limit_retries) -> tuple[bool, bool]:
         """Returns (success, was_rate_limited)."""
         slot.task = task
+        self._notify_task_body(slot.session_id, task.text)
         worktree = self._create_worktree(slot, task)
         slot.worktree = worktree
         ctx = TaskContext(slot=slot, task=task, worktree=worktree)

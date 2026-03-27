@@ -96,6 +96,12 @@
     border: round yellow;
 }
 
+.panel-task-body {
+    height: auto;
+    max-height: 6;
+    margin-bottom: 1;
+}
+
 /* ═══════════ DETAIL-FULL (1 session) ═══════════ */
 
 .detail-full .panel-reasoning {
@@ -123,12 +129,14 @@
 
 /* ═══════════ DETAIL-MEDIUM (2 sessions) ═══════════ */
 
-.detail-medium .panel-recent {
+.detail-medium .panel-mode {
     display: none;
 }
 
-.detail-medium .panel-mode {
-    display: none;
+.detail-medium .panel-recent {
+    grid-size: 2;
+    grid-columns: 1fr 1fr;
+    margin: 1 0;
 }
 
 .detail-medium .panel-reasoning {
@@ -145,20 +153,22 @@
 
 /* ═══════════ DETAIL-COMPACT (3 sessions) ═══════════ */
 
-.detail-compact .panel-recent {
-    display: none;
-}
-
 .detail-compact .panel-mode {
     display: none;
 }
 
-.detail-compact .panel-events-section {
-    display: none;
+.detail-compact .panel-recent {
+    grid-size: 2;
+    grid-columns: 1fr 1fr;
+    margin: 1 0;
 }
 
 .detail-compact .panel-reasoning {
-    height: 3;
+    height: 1fr;
+}
+
+.detail-compact .panel-events {
+    height: 1fr;
 }
 
 .detail-compact .panel-last-line {
@@ -167,25 +177,28 @@
 
 /* ═══════════ DETAIL-MINIMAL (4 sessions) ═══════════ */
 
-.detail-minimal .panel-recent {
-    display: none;
-}
-
 .detail-minimal .panel-mode {
     display: none;
 }
 
-.detail-minimal .panel-reasoning-section {
+.detail-minimal .panel-recent {
     display: none;
 }
 
-.detail-minimal .panel-events-section {
-    display: none;
+.detail-minimal .panel-task-body {
+    max-height: 3;
+}
+
+.detail-minimal .panel-reasoning {
+    height: 1fr;
+}
+
+.detail-minimal .panel-events {
+    height: 1fr;
 }
 
 .detail-minimal .panel-last-line {
-    display: block;
-    height: 1;
+    display: none;
 }
 
 /* ═══════════ COMMON SECTION STYLING ═══════════ */
