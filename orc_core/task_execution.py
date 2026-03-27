@@ -86,6 +86,7 @@ class TaskExecutionRequest:
     commit_ttl: float
     progress_done: int
     progress_total: int
+    progress_in_progress: int = 0
     enforce_stage_artifacts: bool = False
     stage_specs: tuple[TaskStageSpec, ...] = ()
     agent_output_log_path: Optional[str] = None
@@ -1885,9 +1886,10 @@ class TaskExecutionEngine:
                         log_path=self.log_path,
                         report_interval=request.report_interval,
                         summary_lines=request.summary_lines,
-                        task_id=task_id,
+                        task_id=f"{task_id} [{stage_id}]" if stage_id else task_id,
                         progress_done=request.progress_done,
                         progress_total=request.progress_total,
+                        progress_in_progress=request.progress_in_progress,
                         agent_output_log_path=effective_agent_output_log_path,
                         agent_env=effective_agent_env,
                         snapshot_publisher=request.snapshot_publisher,

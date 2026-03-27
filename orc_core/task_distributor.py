@@ -89,13 +89,15 @@ class TaskDistributor:
         with self._lock:
             return bool(self._queues.get(session_id))
 
-    def get_progress(self) -> tuple[int, int]:
+    def get_progress(self) -> tuple[int, int, int]:
+        """Returns (done, in_progress, total)."""
         with self._lock:
             source = self._task_source_factory(self._backlog_path)
             tasks = source.list_tasks()
             total = len(tasks)
             done = sum(1 for t in tasks if t.done)
-            return done, total
+            in_progress = len(self._assigned_ids)
+            return done, in_progress, total
 
     # ── Private ──────────────────────────────────────────────────
 

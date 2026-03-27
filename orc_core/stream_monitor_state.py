@@ -44,6 +44,7 @@ class MonitorSnapshot:
     spinner_idx: int
     last_event_at: float
     progress_remaining: int = 0
+    progress_in_progress: int = 0
     progress_added_delta: int = 0
     eta_seconds: Optional[float] = None
     live_phase: str = "starting"
@@ -91,6 +92,7 @@ class StreamMonitorState:
         self._reasoning_stream_kind = ""
         self._progress_done = 0
         self._progress_total = 1
+        self._progress_in_progress = 0
         self._progress_baseline_total: Optional[int] = None
         self._progress_added_delta = 0
         self._eta_seconds: Optional[float] = None
@@ -105,9 +107,10 @@ class StreamMonitorState:
         self._live_since = started_at
         self._is_subagent_activity = False
 
-    def set_progress(self, done: int, total: int) -> None:
+    def set_progress(self, done: int, total: int, in_progress: int = 0) -> None:
         self._progress_done = max(0, int(done))
         self._progress_total = max(1, int(total))
+        self._progress_in_progress = max(0, int(in_progress))
         if self._progress_baseline_total is None:
             self._progress_baseline_total = self._progress_total
         self._progress_added_delta = max(self._progress_total - self._progress_baseline_total, 0)
@@ -138,6 +141,7 @@ class StreamMonitorState:
             spinner_idx=self._spinner_idx,
             last_event_at=self._last_event_at,
             progress_remaining=remaining,
+            progress_in_progress=self._progress_in_progress,
             progress_added_delta=self._progress_added_delta,
             eta_seconds=self._eta_seconds,
             live_phase=self._live_phase,

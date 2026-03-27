@@ -413,7 +413,7 @@ class SessionManager:
         session_id = ctx.session_id
         task_path = parallel_task_path(self.workdir, session_id)
         task_path.parent.mkdir(parents=True, exist_ok=True)
-        done, total = self._distributor.get_progress()
+        done, in_progress, total = self._distributor.get_progress()
 
         return TaskExecutionRequest(
             task=ctx.task,
@@ -438,6 +438,7 @@ class SessionManager:
             stage_specs=self.stage_specs,
             progress_done=done,
             progress_total=total,
+            progress_in_progress=in_progress,
             agent_env=self._build_agent_env(session_id, task_path),
             agent_output_log_path=self._agent_output_log_path(),
             snapshot_publisher=self._make_slot_publisher(session_id),

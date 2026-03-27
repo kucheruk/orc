@@ -58,6 +58,7 @@ class SessionPanel(Widget):
     detail_level = reactive("full")
     input_bytes = reactive(0)
     output_bytes = reactive(0)
+    progress_in_progress = reactive(0)
     files_edited = reactive("-")
     git_added = reactive("-")
     git_deleted = reactive("-")
@@ -155,6 +156,7 @@ class SessionPanel(Widget):
         self.progress_done = snap.progress_done
         self.progress_total = snap.progress_total
         self.progress_remaining = snap.progress_remaining
+        self.progress_in_progress = snap.progress_in_progress
         self.progress_added_delta = snap.progress_added_delta
         self.total_lines = snap.metrics.total_lines
         self.commands_count = snap.metrics.command_count
@@ -199,6 +201,7 @@ class SessionPanel(Widget):
     def _refresh_task_label(self) -> None:
         self._set_label("task_label", _format_task_label(
             task_id=self.task_title, done=self.progress_done,
+            in_progress=self.progress_in_progress,
             total=self.progress_total, delta=self.progress_added_delta,
             heading=self._get_heading(self.task_title), detail=self.detail_level))
 
@@ -329,15 +332,16 @@ def _short_io(input_bytes: int, output_bytes: int) -> str:
     return f"I:{_human_bytes(input_bytes)} O:{_human_bytes(output_bytes)}"
 
 
-def _format_task_label(*, task_id, done, total, delta, heading, detail) -> str:
+def _format_task_label(*, task_id, done, in_progress, total, delta, heading, detail) -> str:
     delta_str = f" (+{delta})" if delta > 0 else ""
+    progress = f"{done}+{in_progress}/{total}" if in_progress > 0 else f"{done}/{total}"
+    pct = int(100 * done / max(1, total))
     if detail == "full":
         heading_part = f" | {heading}" if heading else ""
-        return f"Task: {task_id} | Progress: {done}/{total}{delta_str}{heading_part}"
-    pct = int(100 * done / max(1, total))
+        return f"Task: {task_id} | Progress: {progress}{delta_str}{heading_part}"
     max_len = _HEADING_TRUNCATE.get(detail, HEADING_TRUNCATE_COMPACT)
     short = (heading[:max_len] + "...") if len(heading) > max_len else heading
-    return f"{task_id} {done}/{total} {pct}%{f' {short}' if short else ''}"
+    return f"{task_id} {progress} {pct}%{f' {short}' if short else ''}"
 
 
 def _format_stats(*, elapsed, detail, done, remaining, total, delta,

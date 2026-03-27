@@ -110,8 +110,8 @@ class StreamJsonMonitor:
         if self._spawn_error is not None:
             raise self._spawn_error
 
-    def set_progress(self, done: int, total: int) -> None:
-        self._state.set_progress(done, total)
+    def set_progress(self, done: int, total: int, in_progress: int = 0) -> None:
+        self._state.set_progress(done, total, in_progress)
         self._publish_snapshot()
 
     # Backward-compatible wrappers for tests/helpers.
