@@ -1,286 +1,210 @@
-# ORC — оркестратор задач для Cursor Agent
+# ORC / ORCS — оркестратор задач для Cursor Agent
 
-ORC нужен для репозитория с корректно оформленным `BACKLOG.md`: он последовательно запускает coding agent для каждой задачи, подставляя заранее заданные промпты. То есть это оркестратор, который ведёт агента по задачам одну за другой.
+ORC автоматизирует последовательное выполнение задач из `BACKLOG.md` с помощью Cursor Agent CLI.
+**ORCS** — параллельная версия: до 4 агентов работают одновременно, AI распределяет задачи по очередям чтобы минимизировать конфликты, merge expert автоматически разрешает коллизии при интеграции в main.
 
-Промпты спроектированы так, чтобы в начале агент читал информацию из доков, а по завершению — возвращал результаты обратно в документы. В итоге знания остаются консистентными по мере разработки, и каждый агент более‑менее в курсе контекста всей кодовой базы.
+## Два режима
+
+| Команда | Сессий | Когда использовать |
+|---------|--------|-------------------|
+| `orc` | 1 | Последовательная работа, как раньше |
+| `orcs` | до 4 | Параллельная работа, ускорение в 3-4 раза |
+
+Оба используют один и тот же код. `orcs` = `orc --max-sessions 4`.
 
 ## Быстрый старт
 
 ### Требования
 
 - Python 3.12+
-- Установлен `uv` (https://docs.astral.sh/uv/)
-- Установлен Cursor CLI (`agent`) и выполнен логин
-- Репозиторий с `BACKLOG.md` и задачами с ID
+- `uv` ([установка](https://docs.astral.sh/uv/))
+- Cursor CLI (`agent`) с выполненным логином
+- Репозиторий с `BACKLOG.md`
 
-Если `uv` не в PATH, установите через официальный инсталлер:
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-### Первичная настройка
-
-1. **Склонировать этот репозиторий:**
-   ```bash
-   git clone <repository-url>
-   cd orc
-   ```
-
-2. **Создать/обновить окружение через uv:**
-   ```bash
-   uv sync
-   ```
-
-3. **Настроить Telegram‑уведомления (опционально):**
-   ```bash
-   mkdir -p .orc
-   cp .orc/telegram.json.example .orc/telegram.json
-   # Отредактируйте .orc/telegram.json и добавьте bot token и chat ID
-   ```
-
-   Или через переменные окружения:
-   ```bash
-   export ORC_TELEGRAM_TOKEN="your_bot_token"
-   export ORC_TELEGRAM_CHAT_ID="your_chat_id"
-   ```
-
-4. **Подготовить целевой репозиторий:**
-   - Создайте `BACKLOG.md` в формате:
-     ```
-     - [ ] TASK-01 Описание первой задачи
-     - [ ] TASK-02 Описание второй задачи
-     ```
-   - Каждый task ID должен быть уникальным (заглавные буквы, цифры, дефисы, подчёркивания)
-
-5. **Отключить Telegram для тестов/локальной отладки (опционально):**
-   ```bash
-   export ORC_TELEGRAM_DISABLE=1
-   ```
-   При этом hook-скрипты не отправляют сообщения в Telegram.
-
-6. **Проверить Cursor CLI:**
-   ```bash
-   agent --version
-   ```
-
-7. **Запустить оркестратор:**
-   ```bash
-   # можно запускать из любой директории
-   uv run python /path/to/orc/orc.py
-   ```
-
-   Скрипт сам перезапустит себя в контексте проекта ORC через `uv run --project`, если runtime-зависимости ещё не доступны в текущем окружении запуска.
-
-   ORC сделает следующее:
-   - Покажет стартовое меню режимов (backlog-loop / single-task / arbitrary prompt)
-   - Для backlog-режимов прочитает `BACKLOG.md` и найдёт нужную задачу
-   - Создаст нужные hook‑файлы в `.cursor/` (и лог хуков в `.orc/`)
-   - Запустит Cursor Agent для текущей задачи
-   - Дождётся завершения и автоматически отметит задачу как выполненную
-   - Запустит отдельную commit phase (если включена), чтобы сделать git commit
-
-## Файлы, которые создаются в репозитории
-
-Когда `orc.py` запускается для репозитория, он создаёт:
-
-- `.cursor/orc-task.json` — основное состояние текущей задачи для хуков (task metadata, conversation_id, restart_count)
-- `.cursor/orc-task-runtime.json` — runtime heartbeat (active_seconds, last_heartbeat_at, run_id), single-writer файл монитора
-- `.cursor/hooks/orc_before_submit.py` — hook для сохранения `conversation_id`
-- `.cursor/hooks/orc_stop.py` — hook, который завершает задачу и отправляет follow‑up
-- `.cursor/hooks.json` — конфигурация хуков Cursor
-- `.orc/orc-hook.log` — лог работы хуков
-
-Если `.cursor/orc-task.json` отсутствует, хуки ничего не делают.  
-В режиме `use_task_worktrees=True` ORC также подготавливает `.cursor/hooks*` в активном task worktree перед запуском агента.
-
-## Алгоритм orc.py (в общих чертах)
-
-1. Разобрать `BACKLOG.md` и найти первую открытую задачу с ID.
-2. Если `.cursor/orc-task.json` уже существует:
-   - Прочитать задачу из файла.
-   - Если задача уже отмечена `[x]` в `BACKLOG.md`, удалить файл задачи и продолжить.
-   - Иначе запустить агента в режиме “continue” для сохранённой задачи.
-3. Если активной задачи нет:
-   - Создать `.cursor/orc-task.json` с `task_id`, `task_text`, `backlog_path`, `workspace_root`.
-   - Инициализировать `.cursor/orc-task-runtime.json` для heartbeat runtime-метрик.
-   - Убедиться, что хуки созданы, а `.cursor/hooks.json` содержит нужные записи.
-   - Запустить агента с дефолтным промптом для этой задачи.
-4. Подождать, пока stop‑hook удалит `.cursor/orc-task.json`.
-5. (Опционально) Запустить commit phase и дождаться её завершения.
-   - Если после commit phase остаются tracked-изменения, ORC по умолчанию завершит пайплайн ошибкой (fail-fast) и оставит рабочее дерево без авто-коммита.
-   - Для явного opt-in fallback-коммита используйте `--allow-fallback-commits`.
-6. Повторить цикл с шага 1.
-
-## Источник задач (Task Source)
-
-Работа с источником задач вынесена в интерфейсный слой `TaskSource` (`orc_core/task_source.py`).
-
-- `MarkdownTaskSource` — текущая реализация для `BACKLOG.md`
-- `supervisor` и hook-логика используют этот слой для:
-  - чтения списка задач,
-  - получения первой незавершённой задачи,
-  - проверки и пометки задачи как выполненной
-
-Это позволяет добавить другой backend (например, Jira/Kaiten/GitHub Issues) без изменения orchestration-цикла.
-
-## Поведение хуков
-
-### beforeSubmitPrompt
-
-Читает JSON из stdin и, если доступен task state, то:
-
-- забирает `conversation_id` из payload
-- сохраняет его в task state (`ORC_TASK_FILE`, либо fallback в `.cursor/orc-task.json`)
-- пишет лог в `.orc/orc-hook.log`
-
-### stop
-
-Читает JSON из stdin. Если `status = completed` и файл задачи существует, то:
-
-- проверяет соответствие `conversation_id` (если он задан)
-- отмечает строку с task ID в `BACKLOG.md` как `[x]`
-- удаляет task state (`ORC_TASK_FILE`, либо fallback в `.cursor/orc-task.json`)
-- пишет follow‑up JSON:
-  ```
-  {"followup_message":"commit+push with task ID and task description as commit message"}
-  ```
-- логирует детали в `.orc/orc-hook.log`
-
-В worktree-режиме источник истины task state остаётся в base workspace:
-- ORC пишет `.cursor/orc-task.json` и `.cursor/orc-task-runtime.json` в base workspace;
-- агент запускается в task worktree;
-- путь к task state передаётся в хуки через `ORC_TASK_FILE`, путь к runtime state через `ORC_TASK_RUNTIME_FILE`, а base workspace через `ORC_BASE_WORKSPACE`.
-
-## Диагностика проблем
-
-Если задача завершилась, но follow‑up не произошёл или файл задачи не удалён:
-
-1. Проверьте `.orc/orc-hook.log` — там причина выхода хуков.
-2. Убедитесь, что в `.cursor/orc-task.json` корректные `task_id` и `backlog_path`.
-3. Проверьте, что строка в `BACKLOG.md` содержит тот же `task_id` в формате `- [ ]`.
-4. Убедитесь, что `.cursor/hooks.json` ссылается на repo‑hooks.
-5. Для расширенной диагностики (включая debug-логи в системном temp-каталоге) используйте [docs/diagnostics-runbook.md](docs/diagnostics-runbook.md).
-
-Для безопасного прогона хуков и unit-тестов без реальных уведомлений используйте
-`ORC_TELEGRAM_DISABLE=1`.
-
-## Использование
-
-### Базовый запуск
+### Установка
 
 ```bash
-# запуск из любой директории, без обязательных ключей
-uv run python /path/to/orc/orc.py
+git clone <repository-url>
+cd orc
+uv tool install --editable .
 ```
 
-Или с абсолютным путём:
+После этого `orc` и `orcs` доступны из любой директории.
+
+### Формат BACKLOG.md
+
+```markdown
+- [ ] TASK-01 Описание первой задачи
+- [ ] TASK-02 Описание второй задачи
+- [x] TASK-03 Уже выполненная задача
+```
+
+Task ID: заглавные буквы, цифры, дефисы (например `AUTH-01`, `SECOPS-07`).
+
+### Запуск
 
 ```bash
-uv run python /path/to/orc/orc.py --workspace /path/to/repo
+cd /path/to/your/project
+
+# Однопоточный (по одной задаче)
+orc
+
+# Параллельный (до 4 агентов)
+orcs
+
+# Или с явным числом сессий
+orc --max-sessions 3
 ```
 
-### Параметры командной строки
+ORC покажет TUI с прогрессом, reasoning агента и статусом интеграции.
 
-#### Обязательные параметры
-- `--workspace PATH` — путь к целевому репозиторию (по умолчанию: `.`)
+## Как это работает
 
-#### One-off запуск без BACKLOG
-- `--task TEXT` — legacy one-off режим (создаёт временный backlog и выполняет одну задачу)
+### Однопоточный режим (`orc`)
 
-#### Backlog
-- `--backlog PATH` — путь к файлу backlog (по умолчанию: `BACKLOG.md`)
+1. Читает `BACKLOG.md`, находит первую незавершённую задачу
+2. Создаёт git worktree для изоляции
+3. Запускает Cursor Agent с промптом из `prompts/default.txt`
+4. Агент работает: читает код, пишет код, запускает тесты
+5. По завершении — commit phase (отдельный агент коммитит и пушит)
+6. Cherry-pick коммита в main branch
+7. Переходит к следующей задаче
 
-#### Режимы выполнения
-- `--mode backlog|single|prompt` — принудительно выбрать режим (иначе показывается интерактивное меню)
-- `--task-id TASK-ID` — выполнить только указанную задачу из backlog (single mode)
-- `--prompt TEXT` — выполнить произвольный prompt (создаётся временный backlog на одну задачу)
+### Параллельный режим (`orcs`)
 
-Приоритет выбора режима:
-- явные новые флаги (`--mode`, `--task-id`, `--prompt`)
-- затем legacy `--task`
-- затем интерактивное меню
+1. AI анализирует все открытые задачи и строит граф конфликтов (какие задачи могут затронуть одни и те же файлы)
+2. Задачи распределяются по очередям: конфликтующие — в одну (последовательно), неконфликтующие — в разные (параллельно)
+3. Запускается до 4 сессий, каждая в своём git worktree
+4. Интеграция в main — последовательная (через lock): cherry-pick по одному
+5. При конфликте автоматически запускается merge expert agent
+6. Если очередь опустела — повторный AI-анализ оставшихся задач
 
-Если `BACKLOG.md` отсутствует или в нём нет открытых задач, backlog-пункты в меню отображаются disabled с пояснением, но режим произвольного prompt доступен.
+### TUI (терминальный интерфейс)
 
-#### Агент
-- `--model MODEL` — модель Cursor agent (по умолчанию: `gpt-5.2-codex`)
-- `--prompt-coder PATH` — дефолтный файл промпта только для coder-фазы. Если файл не существует, ORC завершится с ошибкой. На continue/commit/merge_expert не влияет.
-- `--prompt-template PATH` — путь к кастомному prompt‑шаблону (по умолчанию: `prompts/default.txt`)
-- `--continue-template PATH` — путь к prompt‑шаблону для continue (по умолчанию: `prompts/continue.txt`)
+Экран адаптируется под количество сессий:
 
-#### Тайминги и таймауты
-- `--poll SECONDS` — интервал проверки статуса (по умолчанию: `1.0`)
-- `--stall-timeout SECONDS` — сколько секунд без вывода считать за зависание (по умолчанию: `600.0` = 10 минут)
-- `--task-ttl SECONDS` — максимальная длительность задачи (по умолчанию: `21600` = 6 часов)
-- `--report-interval SECONDS` — интервал статистики (по умолчанию: `2.0`)
+| Сессий | Layout | Детализация |
+|--------|--------|-------------|
+| 1 | Полный экран | Всё: stats, recent files/commands, reasoning, events |
+| 2 | 2 колонки | Stats, recent files/commands, reasoning, events |
+| 3 | 3 колонки | Stats, recent, reasoning, events (flexible height) |
+| 4 | 2x2 grid | Stats, reasoning, events |
 
-#### Рестарты и восстановление
-- `--max-restarts COUNT` — максимум рестартов (по умолчанию: `2`)
-- `--nudge-after COUNT` — отправлять continue после N одинаковых статистик (по умолчанию: `10`)
-- `--nudge-cooldown SECONDS` — интервал между auto‑nudge (по умолчанию: `300.0` = 5 минут)
-- `--nudge-text TEXT` — текст, отправляемый перед Enter (по умолчанию: `continue`)
+Горячие клавиши:
+- `+` / `-` — добавить / убрать сессию
+- `Escape` — остановить (подтверждение)
+- `q` — завершить после текущих задач
+- `t` — переключить тему
 
-#### Уведомления
-- `--summary-lines COUNT` — количество строк для Telegram‑сводки (по умолчанию: `25`)
-- `--telegram-test [MESSAGE]` — отправить тестовое сообщение и выйти (по умолчанию: `"orc telegram test"`)
+## Что отображается на панели
 
-#### Обслуживание
-- `--reinit-hooks` — пересоздать хуки при старте (полезно при поломанных конфигурациях)
-- `--drop` — удалить `.cursor/orc-task.json` (если есть) и перезапустить текущую задачу “с нуля” (без resume)
-- `--debug` — включить расширенное debug-логирование в `Path(tempfile.gettempdir()) / "orc"`
+- **Task ID и стадия**: `SECOPS-07 [implementation]`
+- **Прогресс**: `180+3/183 98%` (завершено + в работе / всего)
+- **Текст задачи**: полное описание из BACKLOG.md
+- **Активность агента**: BOOT → THINK → EXEC → OUTPUT → WAIT
+- **I/O**: объём данных к модели и от модели в реальном времени
+- **Reasoning**: последние мысли агента
+- **Events**: последние действия
 
-#### Commit phase
-- `--commit-phase` / `--no-commit-phase` — включить/выключить отдельную фазу коммита после каждой завершённой задачи (по умолчанию: включено)
-- `--commit-template PATH` — путь к prompt‑шаблону для commit phase (по умолчанию: `prompts/commit.txt`)
-- `--commit-model MODEL` — модель для commit phase (по умолчанию: как `--model`)
-- `--commit-stall-timeout SECONDS` — сколько секунд без вывода считать commit phase зависшей (по умолчанию: `300`)
-- `--commit-ttl SECONDS` — максимальная длительность commit phase (по умолчанию: `1800`)
-- `--allow-fallback-commits` / `--no-allow-fallback-commits` — разрешить/запретить fallback auto-commit, если commit phase оставила tracked-изменения (по умолчанию: выключено)
+## Архитектура (для разработчиков)
 
-По умолчанию fallback-коммит отключён: при остаточных tracked-изменениях ORC останавливается с ошибкой, чтобы изменения проверил человек (`git status`, `git diff`) и принял решение вручную.
+```
+SessionManager          — оркестрация 1..4 параллельных сессий
+├── TaskDistributor     — AI-анализ конфликтов, очереди задач
+├── IntegrationManager  — cherry-pick в main, merge expert, recovery
+├── TaskAnalyzer        — LLM-вызов для графа конфликтов
+└── TaskExecutionEngine — выполнение одной задачи (существующий код)
+```
 
-### Примеры
+Ключевые файлы:
+- `orc_core/session_manager.py` — главный оркестратор
+- `orc_core/integration_manager.py` — интеграция с отказоустойчивостью
+- `orc_core/task_distributor.py` — распределение задач
+- `orc_core/task_analyzer.py` — AI-анализ конфликтов
+- `orc_core/session_types.py` — типы, enum, константы
+- `orc_core/tui/screens/session_panel.py` — панель одной сессии
+- `orc_core/tui/screens/execution.py` — Grid-контейнер панелей
+- `prompts/default.txt` — промпт для агента
+- `prompts/merge_expert.txt` — промпт для разрешения конфликтов
+- `prompts/conflict_analysis.txt` — промпт для AI-анализа конфликтов
+
+## Параметры командной строки
+
+### Основные
+
+| Флаг | По умолчанию | Описание |
+|------|-------------|----------|
+| `--workspace PATH` | `.` | Путь к целевому репозиторию |
+| `--backlog PATH` | `BACKLOG.md` | Файл с задачами |
+| `--max-sessions N` | 1 (orc) / 4 (orcs) | Количество параллельных сессий |
+| `--model MODEL` | `gpt-5.2-codex` | Модель агента |
+| `--mode backlog\|single\|prompt` | интерактивно | Режим выполнения |
+| `--task-id ID` | — | Выполнить одну задачу (single mode) |
+| `--prompt TEXT` | — | Выполнить произвольный промпт |
+
+### Тайминги
+
+| Флаг | По умолчанию | Описание |
+|------|-------------|----------|
+| `--stall-timeout` | 600с | Таймаут без вывода (зависание) |
+| `--task-ttl` | 21600с (6ч) | Макс. время на задачу |
+| `--max-restarts` | 2 | Макс. рестартов при зависании |
+
+### Commit phase
+
+| Флаг | По умолчанию | Описание |
+|------|-------------|----------|
+| `--commit-phase` / `--no-commit-phase` | включено | Отдельная фаза коммита |
+| `--commit-model` | как `--model` | Модель для commit phase |
+| `--allow-fallback-commits` | выключено | Авто-коммит при остаточных изменениях |
+
+### Отладка
+
+| Флаг | Описание |
+|------|----------|
+| `--debug` | Debug-логирование в temp |
+| `--drop` | Удалить состояние и перезапустить задачу |
+| `--reinit-hooks` | Пересоздать хуки |
+
+## Отказоустойчивость интеграции
+
+При параллельной работе конфликты при cherry-pick неизбежны. ORC обрабатывает их:
+
+1. **Preflight** — проверка что base repo чистый
+2. **Cherry-pick** — перенос коммита задачи в main
+3. **Конфликт?** → запуск merge expert agent (разрешает, делает `cherry-pick --continue`)
+4. **Верификация** — проверка что cherry-pick завершён
+5. **При любой ошибке** — `cherry-pick --abort`, base repo возвращается в чистое состояние
+6. **Integration report** — JSON-файл с каждым шагом для диагностики
+
+BACKLOG.md и changelog.md конфликтуют практически всегда — merge expert знает об этом и принимает обе стороны.
+
+## Защита от rate limit
+
+При 4 параллельных агентах возможны API rate limits:
+
+- **Staggered start**: 5 секунд между запусками сессий
+- **Rate limit detection**: по `network_problem` в stream output
+- **Backoff**: 30 → 60 → 120 → 240 секунд при повторных rate limits
+
+## Telegram-уведомления (опционально)
 
 ```bash
-# Базовый запуск
-cd /path/to/myproject
-uv run python /path/to/orc/orc.py
+# Через конфиг
+mkdir -p .orc
+echo '{"bot_token": "YOUR_TOKEN", "chat_id": "YOUR_CHAT_ID"}' > .orc/telegram.json
 
-# Кастомная модель и другой backlog
-uv run python orc.py --workspace /path/to/myproject --model gpt-4 --backlog TODO.md
+# Или через переменные
+export ORC_TELEGRAM_TOKEN="your_bot_token"
+export ORC_TELEGRAM_CHAT_ID="your_chat_id"
 
-# Выполнить одну конкретную задачу из backlog
-uv run python orc.py --workspace /path/to/myproject --mode single --task-id TASK-123
-
-# Проверка Telegram
-uv run python orc.py --telegram-test "Hello from orc!"
-
-# Произвольная задача (ad-hoc prompt)
-uv run python orc.py --workspace /path/to/myproject --mode prompt --prompt "Проанализируй проект и предложи 3 безопасных рефакторинга"
-
-# Переинициализация хуков
-uv run python orc.py --workspace /path/to/myproject --reinit-hooks
-
-# Запуск с debug-логированием в системный temp-каталог
-uv run python orc.py --workspace /path/to/myproject --debug
-
-# Единый промпт для coder-фазы
-uv run python orc.py --workspace /path/to/myproject --prompt-coder specs/TASK-PROMPT.md
-
-# Кастомный coder-пrompt + отдельный commit-prompt
-uv run python orc.py --prompt-coder specs/TASK-PROMPT.md --commit-template prompts/my-commit.txt
-
-# Длинные задачи
-uv run python orc.py --workspace /path/to/myproject --task-ttl 43200 --stall-timeout 1200
+# Отключить
+export ORC_TELEGRAM_DISABLE=1
 ```
 
-## Как теперь запускается агент
+## Диагностика
 
-ORC использует headless Cursor CLI в event-driven режиме:
-
-```bash
-agent -p --force --output-format stream-json --stream-partial-output ...
-```
-
-Это дает структурированные события (`system`, `assistant`, `tool_call`, `result`) и убирает зависимость от terminal-scraping.
-Терминальный интерфейс использует Rich Live TUI: фиксированный экран, статус, последние команды и edited files.
+- **ORC лог**: `~/Library/Application Support/orc/repos/<hash>/logs/orc.log`
+- **Hook лог**: `~/Library/Application Support/orc/repos/<hash>/logs/orc-hook.log`
+- **Integration reports**: `~/Library/Application Support/orc/repos/<hash>/integration-reports/`
+- **Debug лог**: `--debug` → файл в системном temp
