@@ -86,7 +86,9 @@ class IntegrationManager:
         task: Task,
         execution_workdir: str,
         merge_expert_fn: Optional[Callable[[SessionSlot, Task], bool]] = None,
+        status_fn: Optional[Callable[[str], None]] = None,
     ) -> bool:
+        notify = status_fn or (lambda _msg: None)
         ctx = IntegrationContext(
             session_id=slot.session_id,
             task_id=task.task_id,
@@ -94,7 +96,9 @@ class IntegrationManager:
             main_branch=self.main_branch,
             log_path=self.log_path,
         )
+        notify(f"Waiting for integration lock ({task.task_id})...")
         with self._lock:
+            notify(f"Cherry-picking {task.task_id} into {self.main_branch}...")
             try:
                 return self._execute(ctx, execution_workdir, merge_expert_fn)
             except Exception as exc:
@@ -156,7 +160,38 @@ class IntegrationManager:
             return True
         if not self._resolve_commit(ctx, execution_workdir):
             return False
-        return self._cherry_pick_with_retry(ctx, merge_expert_fn)
+        saved = self._stash_safe_files(ctx)
+        try:
+            result = self._cherry_pick_with_retry(ctx, merge_expert_fn)
+        finally:
+            self._restore_safe_files(ctx, saved)
+        return result
+
+    def _stash_safe_files(self, ctx: IntegrationContext) -> dict[str, str]:
+        saved: dict[str, str] = {}
+        for safe_path in self._safe_tracked_paths:
+            full = Path(self.workdir) / safe_path
+            if not full.exists():
+                continue
+            try:
+                saved[safe_path] = full.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            run_git(self.workdir, ["git", "checkout", "--", safe_path])
+        if saved:
+            ctx.step("stashed_safe_files", files=list(saved.keys()))
+        return saved
+
+    def _restore_safe_files(self, ctx: IntegrationContext, saved: dict[str, str]) -> None:
+        if not saved:
+            return
+        for safe_path, content in saved.items():
+            full = Path(self.workdir) / safe_path
+            try:
+                full.write_text(content, encoding="utf-8")
+            except OSError:
+                pass
+        ctx.step("restored_safe_files", files=list(saved.keys()))
 
     def _preflight(self, ctx: IntegrationContext) -> bool:
         ctx.step("preflight_start")

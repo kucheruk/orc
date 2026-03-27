@@ -354,8 +354,16 @@ class SessionManager:
 
     def _finalize_completed_task(self, ctx: TaskContext, effective_workdir: str) -> bool:
         if self.integrate_to_main:
+            def _status(msg: str) -> None:
+                self._notify_task_body(ctx.session_id, f"[bold]{msg}[/bold]")
+
             merge_fn = self._make_merge_fn(ctx)
-            if not self._integrator.integrate(ctx.slot, ctx.task, effective_workdir, merge_fn):
+            ok = self._integrator.integrate(
+                ctx.slot, ctx.task, effective_workdir, merge_fn, status_fn=_status)
+            if ok:
+                _status(f"INTEGRATED {ctx.task_id} into {self.main_branch}")
+            else:
+                _status(f"INTEGRATION FAILED for {ctx.task_id}")
                 ctx.slot.error = "integration_failed"
                 if self.max_sessions == 1:
                     self.last_failure_reason = "main_integration_failed"
