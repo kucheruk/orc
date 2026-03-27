@@ -235,6 +235,7 @@ class BacklogOrchestrator:
                         commit_ttl=self.args.commit_ttl,
                         progress_done=done,
                         progress_total=total,
+                        enforce_stage_artifacts=bool(getattr(self.args, "require_stage_artifacts", False)),
                         stage_specs=self.stage_specs,
                         agent_output_log_path=str(getattr(self.args, "agent_output_log_path", "") or "").strip() or None,
                         agent_env={

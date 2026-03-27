@@ -92,6 +92,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Allow fallback autocommit when commit phase leaves tracked changes (default: false)",
     )
+    ap.add_argument(
+        "--require-stage-artifacts",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Require non-empty SDLC stage artifacts before allowing stage completion (default: false)",
+    )
     ap.add_argument("--poll", type=float, default=1.0, help="Poll interval for task completion")
     ap.add_argument("--stall-timeout", type=float, default=600.0, help="Seconds without output before stall")
     ap.add_argument("--task-ttl", type=float, default=6 * 3600, help="Max seconds per task before abort")

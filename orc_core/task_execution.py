@@ -86,6 +86,7 @@ class TaskExecutionRequest:
     commit_ttl: float
     progress_done: int
     progress_total: int
+    enforce_stage_artifacts: Optional[bool] = None
     stage_specs: tuple[TaskStageSpec, ...] = ()
     agent_output_log_path: Optional[str] = None
     agent_env: Optional[Mapping[str, str]] = None
@@ -1574,7 +1575,12 @@ class TaskExecutionEngine:
             stage_specs = [TaskStageSpec(stage_id="implementation", model=request.model, prompt_template=request.prompt_template)]
         artifact_bundle = build_stage_artifact_bundle(workdir=request.workdir, task_id=task_id)
         artifact_prompt_vars = dict(artifact_bundle.to_prompt_vars())
-        enforce_stage_artifacts = bool(request.stage_specs)
+        # Backward-compatible default: stage artifacts are required when SDLC stage
+        # specs are present, unless caller explicitly overrides this behavior.
+        if request.enforce_stage_artifacts is None:
+            enforce_stage_artifacts = bool(request.stage_specs)
+        else:
+            enforce_stage_artifacts = bool(request.enforce_stage_artifacts) and bool(request.stage_specs)
         implementation_stage_index = _find_first_stage_index(stage_specs, "implementation")
         feedback_iteration_count = 0
         stage_index = 0
