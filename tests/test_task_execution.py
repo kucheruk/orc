@@ -172,6 +172,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             commit_ttl=1.0,
             progress_done=0,
             progress_total=1,
+            enforce_stage_artifacts=bool(stage_specs),
             stage_specs=stage_specs,
             agent_output_log_path=None,
         )

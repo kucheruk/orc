@@ -465,7 +465,11 @@ def main() -> int:
                         handoff_config=handoff_config,
                         commit_phase=bool(args.commit_phase),
                         default_handoff_model=args.commit_model or args.model,
-                        enforce_coder_artifact_contract=bool(prompt_coder_text and not str(args.prompt_template).strip()),
+                        enforce_coder_artifact_contract=bool(
+                            getattr(args, "require_stage_artifacts", False)
+                            and prompt_coder_text
+                            and not str(args.prompt_template).strip()
+                        ),
                     )
                 except FileNotFoundError as exc:
                     log_event(log_path, "ERROR", "prompt file missing", error=str(exc))

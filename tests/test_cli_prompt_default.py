@@ -135,8 +135,8 @@ class CliPromptCoderOverrideTest(unittest.TestCase):
             stage_ids = [stage.stage_id for stage in stage_specs]
             self.assertIn("implementation", stage_ids)
             implementation_stage = next(stage for stage in stage_specs if stage.stage_id == "implementation")
-            self.assertIn("{artifact_implementation}", implementation_stage.prompt_template)
-            self.assertIn("SDLC Artifact Contract", implementation_stage.prompt_template)
+            self.assertNotIn("{artifact_implementation}", implementation_stage.prompt_template)
+            self.assertNotIn("SDLC Artifact Contract", implementation_stage.prompt_template)
 
     @patch("orc_core.cli_app.release_lock")
     @patch("orc_core.cli_app.acquire_lock")
