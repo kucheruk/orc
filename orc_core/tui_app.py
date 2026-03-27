@@ -134,7 +134,10 @@ class OrcApp(App[int]):
         self._execution_screen.mark_session_closing(message.session_id)
 
     def on_task_body_updated(self, message: TaskBodyUpdated) -> None:
-        self._execution_screen.set_task_body(message.session_id, message.body)
+        if message.session_id == "_global":
+            self._execution_screen.set_global_status(message.body)
+        else:
+            self._execution_screen.set_task_body(message.session_id, message.body)
 
     def on_orchestrator_finished(self, message: OrchestratorFinished) -> None:
         if message.error_text:

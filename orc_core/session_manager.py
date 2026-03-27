@@ -142,15 +142,21 @@ class SessionManager:
 
     def run(self, snapshot_publisher: SnapshotPublisher) -> int:
         self.snapshot_publisher = snapshot_publisher
+        self._broadcast_status("Recovering git state...")
         self._integrator.recover_stale_git_state()
         self._handle_drop()
+        self._broadcast_status("Installing hooks...")
         self._ensure_hooks()
 
-        if self.max_sessions > 1:
-            self._run_analysis()
-
-        if not self._launch_initial_sessions():
+        self._broadcast_status("Starting session 1...")
+        first_sid = self._start_session()
+        if not first_sid:
             return EXIT_OK
+
+        if self.max_sessions > 1:
+            self._broadcast_status("Analyzing task conflicts...")
+            self._run_analysis()
+            self._launch_remaining_sessions()
 
         try:
             return self._manager_loop()
@@ -158,6 +164,22 @@ class SessionManager:
             raise
         finally:
             self._shutdown_all()
+
+    def _broadcast_status(self, message: str) -> None:
+        if self.task_body_publisher:
+            try:
+                self.task_body_publisher("_global", f"[bold yellow]{message}[/bold yellow]")
+            except Exception:
+                pass
+
+    def _launch_remaining_sessions(self) -> None:
+        for i in range(1, self.max_sessions):
+            if is_stop_requested():
+                break
+            self._broadcast_status(f"Starting session {i + 1}/{self.max_sessions}...")
+            self._start_session()
+            if i < self.max_sessions - 1:
+                self.sleep_fn(STAGGER_DELAY_SECONDS)
 
     async def run_async(self, snapshot_publisher: SnapshotPublisher) -> int:
         return await asyncio.to_thread(self.run, snapshot_publisher)
@@ -200,16 +222,6 @@ class SessionManager:
                        for s in self._slots.values())
 
     # ── Session lifecycle ────────────────────────────────────────
-
-    def _launch_initial_sessions(self) -> bool:
-        for i in range(self.max_sessions):
-            if not self._start_session():
-                break
-            if i < self.max_sessions - 1 and self.max_sessions > 1:
-                self.sleep_fn(STAGGER_DELAY_SECONDS)
-                if is_stop_requested():
-                    break
-        return self._has_active_slots()
 
     def _start_session(self) -> Optional[str]:
         with self._slots_lock:

@@ -60,6 +60,9 @@ class ExecutionScreen(Screen[None]):
         if panel:
             panel.set_task_body(body)
 
+    def set_global_status(self, text: str) -> None:
+        self.query_one("#global_status", Label).update(text)
+
     def set_quit_after_task_requested(self, requested: bool) -> None:
         for panel in self.query(SessionPanel):
             panel.set_quit_after_task_requested(requested)

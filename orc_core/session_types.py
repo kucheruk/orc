@@ -21,7 +21,7 @@ class SlotStatus(str, Enum):
 # ── Timing constants ────────────────────────────────────────────
 
 MAX_SESSIONS = 4
-STAGGER_DELAY_SECONDS = 15.0
+STAGGER_DELAY_SECONDS = 5.0
 MANAGER_POLL_SECONDS = 0.5
 INTER_TASK_PAUSE_SECONDS = 2.0
 SHUTDOWN_JOIN_TIMEOUT_SECONDS = 15.0
