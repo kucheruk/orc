@@ -121,8 +121,26 @@ class IntegrationManager:
             else:
                 log_event(self.log_path, "ERROR", f"failed to abort stale {marker}",
                           stderr=stderr[:ERROR_TRUNCATE])
-                run_git(self.workdir, ["git", "reset", "--hard", "HEAD"])
-                log_event(self.log_path, "WARN", "hard reset to recover from stale state")
+                self._hard_reset_preserving_safe_files_no_ctx()
+
+    def _hard_reset_preserving_safe_files_no_ctx(self) -> None:
+        saved: dict[str, str] = {}
+        for safe_path in self._safe_tracked_paths:
+            full = Path(self.workdir) / safe_path
+            if full.exists():
+                try:
+                    saved[safe_path] = full.read_text(encoding="utf-8")
+                except OSError:
+                    pass
+        run_git(self.workdir, ["git", "reset", "--hard", "HEAD"])
+        for safe_path, content in saved.items():
+            full = Path(self.workdir) / safe_path
+            try:
+                full.write_text(content, encoding="utf-8")
+            except OSError:
+                pass
+        log_event(self.log_path, "WARN", "hard reset with preserved files",
+                  preserved=list(saved.keys()))
 
     # ── Private ──────────────────────────────────────────────────
 
@@ -247,5 +265,22 @@ class IntegrationManager:
         cherry_pick_head = Path(self.workdir) / ".git" / "CHERRY_PICK_HEAD"
         if cherry_pick_head.exists():
             ctx.step_error("cherry_pick_abort_failed", stderr=stderr[:ERROR_TRUNCATE])
-            run_git(self.workdir, ["git", "reset", "--hard", "HEAD"])
-            ctx.step("hard_reset_after_abort_failure")
+            self._hard_reset_preserving_safe_files(ctx)
+
+    def _hard_reset_preserving_safe_files(self, ctx: IntegrationContext) -> None:
+        saved: dict[str, str] = {}
+        for safe_path in self._safe_tracked_paths:
+            full = Path(self.workdir) / safe_path
+            if full.exists():
+                try:
+                    saved[safe_path] = full.read_text(encoding="utf-8")
+                except OSError:
+                    pass
+        run_git(self.workdir, ["git", "reset", "--hard", "HEAD"])
+        for safe_path, content in saved.items():
+            full = Path(self.workdir) / safe_path
+            try:
+                full.write_text(content, encoding="utf-8")
+            except OSError:
+                pass
+        ctx.step("hard_reset_with_preserved_files", preserved=list(saved.keys()))
