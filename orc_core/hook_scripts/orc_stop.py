@@ -111,58 +111,57 @@ def main() -> int:
             lib.log_event(log_path, "WARN", "stop: completed without new commit or local changes", task_id=task_id)
             return 0
 
-    if lib.mark_task_done(Path(backlog_path), task_id):
-        lib.log_event(log_path, "INFO", "stop: marked task", task_id=task_id)
+    # Task completion: clean up state files, track stats.
+    # BACKLOG.md marking is done by the agent via prompt instructions (not by hook).
+    lib.log_event(log_path, "INFO", "stop: task completed", task_id=task_id)
+    try:
+        task_file.unlink()
+    except Exception as exc:
+        lib.log_event(log_path, "ERROR", "stop: failed to delete task file", error=str(exc))
+    try:
+        runtime_task_file.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        lib.log_event(log_path, "ERROR", "stop: failed to delete runtime task file", error=str(exc))
+    loop_count = int(data.get("loop_count") or 0)
+    task_text = str(task.get("task_text") or "").strip()
+    task_notes_path = script_repo / "tasks" / f"{task_id}.md"
+    task_notes = ""
+    if task_notes_path.exists():
         try:
-            task_file.unlink()
+            task_notes = task_notes_path.read_text(encoding="utf-8").strip()
         except Exception as exc:
-            lib.log_event(log_path, "ERROR", "stop: failed to delete task file", error=str(exc))
-        try:
-            runtime_task_file.unlink()
-        except FileNotFoundError:
-            pass
-        except Exception as exc:
-            lib.log_event(log_path, "ERROR", "stop: failed to delete runtime task file", error=str(exc))
-        loop_count = int(data.get("loop_count") or 0)
-        task_text = str(task.get("task_text") or "").strip()
-        task_notes_path = script_repo / "tasks" / f"{task_id}.md"
-        task_notes = ""
-        if task_notes_path.exists():
-            try:
-                task_notes = task_notes_path.read_text(encoding="utf-8").strip()
-            except Exception as exc:
-                lib.log_event(log_path, "ERROR", "stop: failed to read task notes", error=str(exc))
-                task_notes = ""
-        if task_notes:
-            task_text = task_notes
-        total, done = (0, 0)
-        try:
-            total, done = lib.parse_backlog_counts(Path(backlog_path))
-        except Exception as exc:
-            lib.log_event(log_path, "ERROR", "stop: backlog parse failed", error=str(exc))
-        stats = lib.load_stats(base_workspace)
-        task_tokens = lib.read_task_tokens(script_repo)
-        stats = lib.update_tokens(stats, task_id, task_tokens)
-        task_active_seconds = lib.read_task_active_seconds(runtime_task_file, str(task_id))
-        stats = lib.record_task_duration(stats, task_id, task_active_seconds)
-        report = lib.build_report(stats, total, done)
-        report_text = lib.format_report(report)
-        tokens_line = f"spent_tokens={task_tokens}" if task_tokens is not None else "spent_tokens=unknown"
-        lib.log_event(
-            log_path,
-            "INFO",
-            "stop: completion tracked",
-            task_id=task_id,
-            task_text=task_text,
-            tokens=tokens_line,
-            report=report_text,
-        )
-        lib.save_stats(base_workspace, stats)
-        if loop_count < 5:
-            sys.stdout.write(json.dumps({"followup_message": "commit EVERYTHING+push with task ID and task description as commit message"}))
-            sys.stdout.flush()
-    else:
-        lib.log_event(log_path, "INFO", "stop: task not found in backlog", task_id=task_id)
+            lib.log_event(log_path, "ERROR", "stop: failed to read task notes", error=str(exc))
+            task_notes = ""
+    if task_notes:
+        task_text = task_notes
+    total, done = (0, 0)
+    try:
+        total, done = lib.parse_backlog_counts(Path(backlog_path))
+    except Exception as exc:
+        lib.log_event(log_path, "ERROR", "stop: backlog parse failed", error=str(exc))
+    stats = lib.load_stats(base_workspace)
+    task_tokens = lib.read_task_tokens(script_repo)
+    stats = lib.update_tokens(stats, task_id, task_tokens)
+    task_active_seconds = lib.read_task_active_seconds(runtime_task_file, str(task_id))
+    stats = lib.record_task_duration(stats, task_id, task_active_seconds)
+    report = lib.build_report(stats, total, done)
+    report_text = lib.format_report(report)
+    tokens_line = f"spent_tokens={task_tokens}" if task_tokens is not None else "spent_tokens=unknown"
+    lib.log_event(
+        log_path,
+        "INFO",
+        "stop: completion tracked",
+        task_id=task_id,
+        task_text=task_text,
+        tokens=tokens_line,
+        report=report_text,
+    )
+    lib.save_stats(base_workspace, stats)
+    if loop_count < 5:
+        sys.stdout.write(json.dumps({"followup_message": "commit EVERYTHING+push with task ID and task description as commit message"}))
+        sys.stdout.flush()
     return 0
 
 

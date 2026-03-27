@@ -21,8 +21,6 @@ INTEGRATION_SAFE_UNTRACKED_EXACT = {
     ".cursor/orc-stop-request.json",
     ".cursor/orc-task.json",
     ".cursor/orc-task-runtime.json",
-    "BACKLOG.md",
-    "BACKLOG.md.lock",
 }
 
 
