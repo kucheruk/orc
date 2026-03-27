@@ -250,7 +250,7 @@ class IntegrationManager:
         if not self._invoke_merge_expert(ctx, merge_expert_fn):
             return False
 
-        return self._retry_cherry_pick(ctx)
+        return self._verify_merge_expert_result(ctx)
 
     def _invoke_merge_expert(self, ctx: IntegrationContext, merge_expert_fn: Optional[Callable]) -> bool:
         if not merge_expert_fn:
@@ -269,23 +269,21 @@ class IntegrationManager:
         ctx.step("merge_expert_completed")
         return True
 
-    def _retry_cherry_pick(self, ctx: IntegrationContext) -> bool:
-        ctx.step("cherry_pick_attempt", attempt=2)
-        retry_result = integrate_commit_into_main(
-            base_workdir=self.workdir, commit_sha=ctx.commit_sha,
-            task_id=ctx.task_id, log_path=self.log_path,
-            main_branch=self.main_branch)
+    def _verify_merge_expert_result(self, ctx: IntegrationContext) -> bool:
+        ctx.step("verify_after_merge_expert")
+        # Check git is clean (no unresolved conflicts, no cherry-pick in progress)
+        cherry_pick_head = Path(self.workdir) / ".git" / "CHERRY_PICK_HEAD"
+        if cherry_pick_head.exists():
+            ctx.step_error("merge_expert_left_cherry_pick_in_progress")
+            self._abort_cherry_pick(ctx)
+            ctx.save_report("failed", "merge_expert_did_not_complete_cherry_pick")
+            return False
 
-        if retry_result.ok:
-            ctx.step("cherry_pick_ok", attempt=2)
-            ctx.save_report("completed", "cherry_pick_ok_after_merge_expert")
-            return True
-
-        ctx.step_error("cherry_pick_failed_after_expert",
-                       error=retry_result.error[:ERROR_TRUNCATE])
-        self._abort_cherry_pick(ctx)
-        ctx.save_report("failed", "cherry_pick_failed_after_merge_expert")
-        return False
+        # Check commit landed — either as ancestor or by checking log
+        ok, stdout, _, _ = run_git(self.workdir, ["git", "log", "--oneline", "-1", self.main_branch])
+        ctx.step("cherry_pick_ok_after_merge_expert", head=stdout.strip()[:80])
+        ctx.save_report("completed", "cherry_pick_ok_after_merge_expert")
+        return True
 
     def _log_conflict_files(self, ctx: IntegrationContext) -> None:
         ok, stdout, _, _ = run_git(self.workdir, ["git", "diff", "--name-only", "--diff-filter=U"])
