@@ -148,15 +148,18 @@ class SessionManager:
         self._broadcast_status("Installing hooks...")
         self._ensure_hooks()
 
-        self._broadcast_status("Starting session 1...")
+        open_task_count = self._distributor.open_task_count()
+        effective_sessions = min(self.max_sessions, open_task_count)
+
+        self._broadcast_status(f"Starting session 1/{effective_sessions}...")
         first_sid = self._start_session()
         if not first_sid:
             return EXIT_OK
 
-        if self.max_sessions > 1:
+        if effective_sessions > 1:
             self._broadcast_status("Analyzing task conflicts...")
             self._run_analysis()
-            self._launch_remaining_sessions()
+            self._launch_remaining_sessions(effective_sessions)
 
         try:
             return self._manager_loop()
@@ -172,13 +175,13 @@ class SessionManager:
             except Exception:
                 pass
 
-    def _launch_remaining_sessions(self) -> None:
-        for i in range(1, self.max_sessions):
+    def _launch_remaining_sessions(self, effective_sessions: int) -> None:
+        for i in range(1, effective_sessions):
             if is_stop_requested():
                 break
-            self._broadcast_status(f"Starting session {i + 1}/{self.max_sessions}...")
+            self._broadcast_status(f"Starting session {i + 1}/{effective_sessions}...")
             self._start_session()
-            if i < self.max_sessions - 1:
+            if i < effective_sessions - 1:
                 self.sleep_fn(STAGGER_DELAY_SECONDS)
 
     async def run_async(self, snapshot_publisher: SnapshotPublisher) -> int:

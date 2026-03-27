@@ -81,6 +81,10 @@ class TaskDistributor:
     def is_single_mode(self) -> bool:
         return self._single_mode
 
+    def open_task_count(self) -> int:
+        with self._lock:
+            return len(self._unassigned_open_tasks())
+
     def has_queued_tasks(self, session_id: str) -> bool:
         with self._lock:
             return bool(self._queues.get(session_id))
