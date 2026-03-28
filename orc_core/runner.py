@@ -23,6 +23,7 @@ def launch_agent_stream_json(
     task_id: str,
     progress_done: int = 0,
     progress_total: int = 1,
+    progress_in_progress: int = 0,
     agent_output_log_path: Optional[str] = None,
     agent_env: Optional[Mapping[str, str]] = None,
     snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
@@ -66,6 +67,7 @@ async def launch_agent_stream_json_async(
     task_id: str,
     progress_done: int = 0,
     progress_total: int = 1,
+    progress_in_progress: int = 0,
     agent_output_log_path: Optional[str] = None,
     agent_env: Optional[Mapping[str, str]] = None,
     snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
@@ -145,7 +147,7 @@ async def launch_agent_stream_json_async(
         attempt=attempt,
     )
     try:
-        monitor.set_progress(progress_done, progress_total)
+        monitor.set_progress(progress_done, progress_total, progress_in_progress)
     except Exception:
         monitor.stop()
         if not terminate_process_group(getattr(monitor, "process_group_id", None), log_path, label="agent-launch"):

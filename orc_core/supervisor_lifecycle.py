@@ -358,6 +358,21 @@ def wait_for_completion(
                 )
                 return "completed"
             if returncode == 0 and task_path.exists():
+                # Check stream result_status first (hook-free completion detection)
+                stream_result = getattr(monitor, "result_status", None)
+                if stream_result == "success":
+                    log_event(log_path, "INFO", "completed via stream result_status=success",
+                              task_id=task_id)
+                    timeline_instant(
+                        timeline_id=timeline_id,
+                        task_id=task_id,
+                        step="wait_for_completion_exit",
+                        location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                        attempt=attempt,
+                        result="completed",
+                        reason="stream_result_success",
+                    )
+                    return "completed"
                 grace_deadline = time.time() + PROCESS_EXIT_GRACE_SECONDS
                 while time.time() < grace_deadline:
                     if not task_path.exists():

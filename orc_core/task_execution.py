@@ -86,6 +86,7 @@ class TaskExecutionRequest:
     commit_ttl: float
     progress_done: int
     progress_total: int
+    progress_in_progress: int = 0
     enforce_stage_artifacts: bool = False
     stage_specs: tuple[TaskStageSpec, ...] = ()
     agent_output_log_path: Optional[str] = None
@@ -114,6 +115,7 @@ class TaskWorker(Protocol):
         task_id: str,
         progress_done: int,
         progress_total: int,
+        progress_in_progress: int = 0,
         agent_output_log_path: Optional[str] = None,
         agent_env: Optional[Mapping[str, str]] = None,
         snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
@@ -139,6 +141,7 @@ class AgentTaskWorker:
         task_id: str,
         progress_done: int,
         progress_total: int,
+        progress_in_progress: int = 0,
         agent_output_log_path: Optional[str] = None,
         agent_env: Optional[Mapping[str, str]] = None,
         snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
@@ -158,6 +161,7 @@ class AgentTaskWorker:
             task_id=task_id,
             progress_done=progress_done,
             progress_total=progress_total,
+            progress_in_progress=progress_in_progress,
             agent_output_log_path=agent_output_log_path,
             agent_env=agent_env,
             snapshot_publisher=snapshot_publisher,
@@ -174,6 +178,56 @@ RESTART_REASON_TEXT = {
     "ttl_exceeded": "Ты превысил лимит времени. Сделай коммит текущего прогресса или выбери более простой путь.",
     "process_exited": "Твой процесс неожиданно завершился (возможно, ошибка синтаксиса в bash).",
 }
+
+
+ETA_WINDOW_SIZE = 20
+
+
+def _update_completion_stats(
+    *,
+    monitor,
+    task_id: str,
+    task_path: Path,
+    workdir: str,
+    log_path: Path,
+) -> None:
+    """Record token usage and task duration in stats file (replaces stop hook stats logic)."""
+    from .state_paths import stats_path as get_stats_path
+    from .task_state import read_task_active_seconds
+
+    stats_file = get_stats_path(workdir)
+    try:
+        stats = json.loads(stats_file.read_text(encoding="utf-8")) if stats_file.exists() else {}
+    except Exception:
+        stats = {}
+    stats.setdefault("tokens_total", 0)
+    stats.setdefault("tokens_by_task", {})
+    stats.setdefault("durations_by_task", {})
+    stats.setdefault("recent_durations", [])
+    stats.setdefault("active_seconds_total", 0.0)
+
+    # Tokens
+    task_tokens = monitor.metrics.tokens_total
+    if task_tokens is not None and task_id and task_id not in stats["tokens_by_task"]:
+        stats["tokens_by_task"][task_id] = int(task_tokens)
+        stats["tokens_total"] = int(stats["tokens_total"]) + int(task_tokens)
+
+    # Duration
+    duration = read_task_active_seconds(task_path, expected_task_id=task_id)
+    if duration > 0 and task_id and task_id not in stats["durations_by_task"]:
+        duration_int = max(int(duration), 0)
+        stats["durations_by_task"][task_id] = duration_int
+        recent = stats.get("recent_durations") or []
+        if not isinstance(recent, list):
+            recent = []
+        recent.append(duration_int)
+        stats["recent_durations"] = recent[-ETA_WINDOW_SIZE:]
+        stats["active_seconds_total"] = float(stats.get("active_seconds_total", 0)) + float(duration_int)
+
+    try:
+        write_json_atomic(stats_file, stats, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        log_event(log_path, "WARN", "failed to update completion stats", error=str(exc))
 
 
 def _restart_backoff_seconds(restart_count: int) -> float:
@@ -568,7 +622,7 @@ def _attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, tas
     return ok_commit
 
 
-def _has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> bool:
+def has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> bool:
     ok, stdout, stderr, _ = _git_run(
         workdir,
         log_path,
@@ -585,7 +639,7 @@ def _has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> b
         return False
 
 
-def _classify_main_integration_error(error: str) -> str:
+def classify_main_integration_error(error: str) -> str:
     text = (error or "").strip().lower()
     if not text:
         return "unknown"
@@ -865,7 +919,7 @@ def _run_commit_phase(
     return True
 
 
-def _run_merge_expert_phase(
+def run_merge_expert_phase(
     worker: TaskWorker,
     request: TaskExecutionRequest,
     prompt_vars: SafeDict,
@@ -880,7 +934,7 @@ def _run_merge_expert_phase(
         timeline_id=timeline_id,
         task_id=task_id,
         step="merge_expert_phase",
-        location="orc_core/task_execution.py:_run_merge_expert_phase",
+        location="orc_core/task_execution.py:run_merge_expert_phase",
         attempt=attempt,
         data={"model": request.merge_expert_model},
     )
@@ -920,7 +974,7 @@ def _run_merge_expert_phase(
             timeline_id=timeline_id,
             task_id=task_id,
             step="merge_expert_phase",
-            location="orc_core/task_execution.py:_run_merge_expert_phase",
+            location="orc_core/task_execution.py:run_merge_expert_phase",
             attempt=attempt,
             started_at_ms=merge_started_ms,
             result="failed",
@@ -954,7 +1008,7 @@ def _run_merge_expert_phase(
             timeline_id=timeline_id,
             task_id=task_id,
             step="merge_expert_phase",
-            location="orc_core/task_execution.py:_run_merge_expert_phase",
+            location="orc_core/task_execution.py:run_merge_expert_phase",
             attempt=attempt,
             started_at_ms=merge_started_ms,
             result="failed",
@@ -967,7 +1021,7 @@ def _run_merge_expert_phase(
         timeline_id=timeline_id,
         task_id=task_id,
         step="merge_expert_phase",
-        location="orc_core/task_execution.py:_run_merge_expert_phase",
+        location="orc_core/task_execution.py:run_merge_expert_phase",
         attempt=attempt,
         started_at_ms=merge_started_ms,
         result="completed",
@@ -1014,7 +1068,7 @@ class TaskExecutionEngine:
         )
         if request.integrate_to_main:
             preflight = preflight_main_integration(base_workdir=request.base_workdir, main_branch=request.main_branch)
-            failure_kind = _classify_main_integration_error(preflight.error)
+            failure_kind = classify_main_integration_error(preflight.error)
             safe_tracked = tuple(getattr(preflight, "safe_tracked", ()) or ())
             safe_untracked = tuple(getattr(preflight, "safe_untracked", ()) or ())
             unsafe_tracked = tuple(getattr(preflight, "unsafe_tracked", ()) or ())
@@ -1086,6 +1140,13 @@ class TaskExecutionEngine:
             ui_info(
                 f"[orc] completed stats tokens={tokens} lines={monitor.metrics.total_lines} "
                 f"commands={monitor.metrics.command_count} files_edited={files_edited}"
+            )
+            _update_completion_stats(
+                monitor=monitor,
+                task_id=current_task_id,
+                task_path=request.task_path,
+                workdir=request.workdir,
+                log_path=self.log_path,
             )
             debug_log(
                 "H8",
@@ -1159,7 +1220,7 @@ class TaskExecutionEngine:
                     attempt=restart_count + 1,
                     data={"branch": request.main_branch},
                 )
-                if not _has_commits_ahead_of_branch(request.workdir, request.main_branch, self.log_path):
+                if not has_commits_ahead_of_branch(request.workdir, request.main_branch, self.log_path):
                     log_event(
                         self.log_path,
                         "INFO",
@@ -1167,6 +1228,11 @@ class TaskExecutionEngine:
                         task_id=current_task_id,
                         branch=request.main_branch,
                     )
+                    try:
+                        request.task_path.unlink(missing_ok=True)
+                        delete_runtime_state_file(request.task_path, self.log_path, reason="task_completed")
+                    except Exception:
+                        pass
                     timeline_step_finished(
                         timeline_id=timeline_id,
                         task_id=current_task_id,
@@ -1232,7 +1298,7 @@ class TaskExecutionEngine:
                         backlog=request.backlog_arg,
                         workspace=request.base_workdir,
                     )
-                    if not _run_merge_expert_phase(
+                    if not run_merge_expert_phase(
                         self.worker,
                         request,
                         merge_prompt_vars,
@@ -1271,7 +1337,7 @@ class TaskExecutionEngine:
                         main_branch=request.main_branch,
                     )
                 if not integration.ok:
-                    failure_kind = _classify_main_integration_error(integration.error)
+                    failure_kind = classify_main_integration_error(integration.error)
                     log_event(
                         self.log_path,
                         "ERROR",
@@ -1396,6 +1462,12 @@ class TaskExecutionEngine:
                     base_backlog_path=str(base_backlog_path),
                     runtime_backlog_path=str(runtime_backlog_path),
                 )
+            # Clean up task state files (previously done by stop hook)
+            try:
+                request.task_path.unlink(missing_ok=True)
+                delete_runtime_state_file(request.task_path, self.log_path, reason="task_completed")
+            except Exception:
+                pass
             timeline_step_finished(
                 timeline_id=timeline_id,
                 task_id=current_task_id,
@@ -1494,30 +1566,23 @@ class TaskExecutionEngine:
                 log_event(self.log_path, "INFO", "resume existing task", task_id=task_id)
                 ui_info(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
                 if not resume_id:
-                    missing_kind = "missing_key" if "conversation_id" not in active else "blank_value"
                     log_event(
                         self.log_path,
-                        "ERROR",
-                        "resume state invalid: conversation_id unavailable",
+                        "WARN",
+                        "task file has no conversation_id — auto-dropping for fresh start",
                         task_id=task_id,
-                        missing_kind=missing_kind,
-                        has_conversation_id_key=("conversation_id" in active),
-                        raw_conversation_id_repr=repr(raw_conversation_id)[:120],
+                        restart_count=persisted_restart_count,
                     )
-                    ui_error(
-                        "❌ Resume state поврежден: отсутствует conversation_id в task file. "
-                        "Запусти с --drop для намеренного перезапуска без resume."
-                    )
-                    timeline_step_finished(
-                        timeline_id=timeline_id,
-                        task_id=task_id,
-                        step="task_execute",
-                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                        started_at_ms=execute_started_ms,
-                        result="failed",
-                        reason="missing_conversation_id",
-                    )
-                    return TaskExecutionResult(status="failed", reason="missing_conversation_id")
+                    ui_info(f"🗑️ Стейт {task_id} без conversation_id — авто-сброс для чистого старта.")
+                    try:
+                        request.task_path.unlink()
+                        delete_runtime_state_file(request.task_path, self.log_path, reason="auto_drop_no_conversation")
+                    except Exception:
+                        pass
+                    resume_existing = False
+                    resume_id = None
+                    # Preserve restart_count so the agent knows it's a continuation
+                    elapsed_before_start = 0.0
                 log_event(
                     self.log_path,
                     "INFO",
@@ -1885,9 +1950,10 @@ class TaskExecutionEngine:
                         log_path=self.log_path,
                         report_interval=request.report_interval,
                         summary_lines=request.summary_lines,
-                        task_id=task_id,
+                        task_id=f"{task_id} [{stage_id}]" if stage_id else task_id,
                         progress_done=request.progress_done,
                         progress_total=request.progress_total,
+                        progress_in_progress=request.progress_in_progress,
                         agent_output_log_path=effective_agent_output_log_path,
                         agent_env=effective_agent_env,
                         snapshot_publisher=request.snapshot_publisher,

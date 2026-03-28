@@ -91,7 +91,7 @@ class CliPromptCoderOverrideTest(unittest.TestCase):
     @patch("orc_core.cli_app._resolve_model")
     @patch("orc_core.cli_app.ensure_agent_installed")
     @patch("orc_core.cli_app.OrcApp")
-    @patch("orc_core.cli_app.BacklogOrchestrator")
+    @patch("orc_core.cli_app.SessionManager")
     @patch("orc_core.cli_app.TaskExecutionEngine")
     @patch("orc_core.cli_app.build_parser")
     def test_prompt_coder_overrides_only_coder_prompt(
@@ -147,7 +147,7 @@ class CliPromptCoderOverrideTest(unittest.TestCase):
     @patch("orc_core.cli_app._resolve_model")
     @patch("orc_core.cli_app.ensure_agent_installed")
     @patch("orc_core.cli_app.OrcApp")
-    @patch("orc_core.cli_app.BacklogOrchestrator")
+    @patch("orc_core.cli_app.SessionManager")
     @patch("orc_core.cli_app.TaskExecutionEngine")
     @patch("orc_core.cli_app.build_parser")
     def test_specific_template_takes_priority_over_prompt_coder(

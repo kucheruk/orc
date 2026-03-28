@@ -144,6 +144,22 @@ def cursor_task_shim_path(workdir: str) -> Path:
     return Path(workdir) / ".cursor" / "orc-task.json"
 
 
+def parallel_session_dir(workdir: str, session_id: str) -> Path:
+    return _repo_root(workdir) / "parallel" / session_id
+
+
+def parallel_task_path(workdir: str, session_id: str) -> Path:
+    return parallel_session_dir(workdir, session_id) / "active-task.json"
+
+
+def parallel_runtime_path(workdir: str, session_id: str) -> Path:
+    return parallel_session_dir(workdir, session_id) / "active-task-runtime.json"
+
+
+def integration_report_path(workdir: str, session_id: str, task_id: str) -> Path:
+    return _repo_root(workdir) / "integration-reports" / f"{session_id}__{task_id}.json"
+
+
 def ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 

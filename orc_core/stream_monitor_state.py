@@ -22,6 +22,8 @@ class MetricsStore:
     command_count: int = 0
     total_lines: int = 0
     total_output_chars: int = 0
+    input_bytes: int = 0
+    output_bytes: int = 0
     git_added: Optional[int] = None
     git_deleted: Optional[int] = None
 
@@ -42,6 +44,7 @@ class MonitorSnapshot:
     spinner_idx: int
     last_event_at: float
     progress_remaining: int = 0
+    progress_in_progress: int = 0
     progress_added_delta: int = 0
     eta_seconds: Optional[float] = None
     live_phase: str = "starting"
@@ -49,6 +52,64 @@ class MonitorSnapshot:
     live_since: float = 0.0
     active_tool_call_count: int = 0
     is_subagent_activity: bool = False
+
+
+def make_terminal_snapshot(
+    task_id: str,
+    phase: str,
+    status: str,
+    *,
+    base: Optional[MonitorSnapshot] = None,
+) -> MonitorSnapshot:
+    """Create a snapshot that represents a terminal state (failed/completed).
+
+    If *base* is given, metrics and progress are carried over so the panel
+    keeps showing accumulated stats.  Otherwise a minimal empty snapshot is
+    returned.
+    """
+    now = time.time()
+    if base is not None:
+        return MonitorSnapshot(
+            task_id=task_id or base.task_id,
+            started_at=base.started_at,
+            progress_done=base.progress_done,
+            progress_total=base.progress_total,
+            metrics=base.metrics,
+            last_event_type=base.last_event_type,
+            last_event_note=base.last_event_note,
+            recent_commands=base.recent_commands,
+            recent_files=base.recent_files,
+            recent_events=base.recent_events,
+            reasoning_lines=base.reasoning_lines,
+            spinner_idx=base.spinner_idx,
+            last_event_at=now,
+            progress_remaining=base.progress_remaining,
+            progress_in_progress=base.progress_in_progress,
+            progress_added_delta=base.progress_added_delta,
+            live_phase=phase,
+            live_status=status,
+            live_since=now,
+            active_tool_call_count=0,
+            is_subagent_activity=False,
+        )
+    return MonitorSnapshot(
+        task_id=task_id,
+        started_at=now,
+        progress_done=0,
+        progress_total=1,
+        metrics=MetricsStore(),
+        last_event_type="",
+        last_event_note="",
+        recent_commands=[],
+        recent_files=[],
+        recent_events=[],
+        reasoning_lines=[],
+        spinner_idx=0,
+        last_event_at=now,
+        live_phase=phase,
+        live_status=status,
+        live_since=now,
+    )
 
 
 class StreamMonitorState:
@@ -89,6 +150,7 @@ class StreamMonitorState:
         self._reasoning_stream_kind = ""
         self._progress_done = 0
         self._progress_total = 1
+        self._progress_in_progress = 0
         self._progress_baseline_total: Optional[int] = None
         self._progress_added_delta = 0
         self._eta_seconds: Optional[float] = None
@@ -102,10 +164,16 @@ class StreamMonitorState:
         self._live_status = "starting, no messages yet"
         self._live_since = started_at
         self._is_subagent_activity = False
+        self._session_id: Optional[str] = None
 
-    def set_progress(self, done: int, total: int) -> None:
+    @property
+    def session_id(self) -> Optional[str]:
+        return self._session_id
+
+    def set_progress(self, done: int, total: int, in_progress: int = 0) -> None:
         self._progress_done = max(0, int(done))
         self._progress_total = max(1, int(total))
+        self._progress_in_progress = max(0, int(in_progress))
         if self._progress_baseline_total is None:
             self._progress_baseline_total = self._progress_total
         self._progress_added_delta = max(self._progress_total - self._progress_baseline_total, 0)
@@ -136,6 +204,7 @@ class StreamMonitorState:
             spinner_idx=self._spinner_idx,
             last_event_at=self._last_event_at,
             progress_remaining=remaining,
+            progress_in_progress=self._progress_in_progress,
             progress_added_delta=self._progress_added_delta,
             eta_seconds=self._eta_seconds,
             live_phase=self._live_phase,
@@ -874,6 +943,15 @@ class StreamMonitorState:
 
         event_type = str(event.get("type") or "")
         subtype = str(event.get("subtype") or "")
+        if self._session_id is None:
+            raw_sid = str(event.get("session_id") or "").strip()
+            if raw_sid:
+                self._session_id = raw_sid
+        raw_bytes = len(raw.encode("utf-8"))
+        if event_type in ("user", "tool_result", "system"):
+            self.metrics.input_bytes += raw_bytes
+        elif event_type in ("assistant", "tool_call"):
+            self.metrics.output_bytes += raw_bytes
         stream_kind = self._reasoning_stream_kind_for_event(event_type, subtype)
         self._remember_tool_activity(event, event_type, subtype)
         self._last_event_type = event_type or "event"
@@ -928,9 +1006,7 @@ class StreamMonitorState:
             status = f"thinking {preview}" if preview else "thinking"
             self._set_live_status("thinking", status, is_subagent=False)
         elif event_type == "assistant":
-            preview = self._trim_fragment(" ".join(text.split()).strip()) if text else ""
-            status = f"responding {preview}" if preview else "responding"
-            self._set_live_status("assistant", status, is_subagent=False)
+            self._set_live_status("assistant", "responding", is_subagent=False)
         elif event_type == "result":
             status = str(event.get("status") or subtype or "result").strip().lower() or "result"
             self._set_live_status("waiting", f"result {status}", is_subagent=False)

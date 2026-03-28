@@ -7,7 +7,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.backlog_orchestrator import BacklogOrchestrator
+from orc_core.session_manager import SessionManager
 from orc_core.task_execution import TaskExecutionResult
 from orc_core.task_source import MarkdownTaskSource
 
@@ -47,9 +47,9 @@ def _args(backlog: str) -> Namespace:
     )
 
 
-class BacklogOrchestratorReportLinkTest(unittest.TestCase):
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+class SessionManagerReportLinkTest(unittest.TestCase):
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
     def test_orchestrator_does_not_skip_open_task_with_report_link(self, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
@@ -61,7 +61,7 @@ class BacklogOrchestratorReportLinkTest(unittest.TestCase):
                 encoding="utf-8",
             )
             engine = _FakeEngine(backlog_path)
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),

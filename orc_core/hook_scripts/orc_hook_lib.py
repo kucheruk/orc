@@ -160,7 +160,16 @@ def is_task_marked(path: Path, task_id: str) -> bool:
 
 
 def mark_task_done(path: Path, task_id: str) -> bool:
-    return MarkdownTaskSource(path).mark_task_done(task_id)
+    import fcntl
+
+    lock_file = Path(str(path) + ".lock")
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_file, "w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            return MarkdownTaskSource(path).mark_task_done(task_id)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
 
 def parse_backlog_counts(path: Path) -> Tuple[int, int]:

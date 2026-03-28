@@ -6,7 +6,7 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 
-from orc_core.backlog_orchestrator import BacklogOrchestrator
+from orc_core.session_manager import SessionManager
 from orc_core.task_execution import TaskExecutionResult
 from orc_core.task_source import MarkdownTaskSource
 
@@ -52,7 +52,7 @@ class BacklogModeCycleGuardTest(unittest.TestCase):
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text("- [ ] TASK-001 a\n- [ ] TASK-002 b\n", encoding="utf-8")
             engine = _Engine(backlog_path)
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args(),

@@ -128,6 +128,12 @@ class _FailingWorker:
 
 
 class TaskExecutionEngineTest(unittest.TestCase):
+    def setUp(self):
+        self._tg_patcher = patch("orc_core.task_execution.send_telegram_message")
+        self._tg_mock = self._tg_patcher.start()
+
+    def tearDown(self):
+        self._tg_patcher.stop()
     def _request(
         self,
         tmpdir: str,
@@ -498,7 +504,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
     @patch("orc_core.task_execution.write_task_file")
-    def test_missing_resume_id_fails_fast(self, write_task_file, *_mocks) -> None:
+    def test_missing_resume_id_auto_drops_and_starts_fresh(self, write_task_file, *_mocks) -> None:
+        """Missing conversation_id → auto-drop stale state → fresh start."""
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
@@ -512,10 +519,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
             )
             result = engine.execute(request)
 
-        self.assertEqual(result.status, "failed")
-        self.assertEqual(result.reason, "missing_conversation_id")
-        self.assertEqual(worker.launch_calls, 0)
-        write_task_file.assert_not_called()
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 1)
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
@@ -864,7 +869,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
     @patch("orc_core.task_execution.integrate_commit_into_main")
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=False)
+    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=False)
     @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
@@ -885,10 +890,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         task_execution.integrate_commit_into_main.assert_not_called()
 
-    @patch("orc_core.task_execution._run_merge_expert_phase", return_value=True)
+    @patch("orc_core.task_execution.run_merge_expert_phase", return_value=True)
     @patch("orc_core.task_execution.integrate_commit_into_main")
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
@@ -913,7 +918,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(task_execution.integrate_commit_into_main.call_count, 2)
-        task_execution._run_merge_expert_phase.assert_called_once()
+        task_execution.run_merge_expert_phase.assert_called_once()
 
     @patch("orc_core.task_execution.preflight_main_integration")
     @patch("orc_core.task_execution.kill_process_tree")
@@ -942,7 +947,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
     @patch("orc_core.task_execution.timeline_step_finished")
     @patch("orc_core.task_execution.integrate_commit_into_main")
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution._has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")

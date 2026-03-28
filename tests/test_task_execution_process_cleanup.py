@@ -52,6 +52,12 @@ class _FakeWorker:
 
 
 class TaskExecutionProcessCleanupTest(unittest.TestCase):
+    def setUp(self):
+        self._tg_patcher = patch("orc_core.task_execution.send_telegram_message")
+        self._tg_mock = self._tg_patcher.start()
+
+    def tearDown(self):
+        self._tg_patcher.stop()
     def _request(self, tmpdir: str) -> TaskExecutionRequest:
         root = Path(tmpdir)
         backlog_path = root / "BACKLOG.md"

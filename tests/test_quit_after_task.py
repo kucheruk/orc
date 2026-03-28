@@ -7,7 +7,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.backlog_orchestrator import BacklogOrchestrator
+from orc_core.session_manager import SessionManager
 from orc_core.quit_signal import (
     clear_stop_request,
     is_quit_after_task_requested,
@@ -72,8 +72,8 @@ class QuitAfterTaskTest(unittest.TestCase):
         self.assertFalse(is_quit_after_task_requested())
         self.assertFalse(is_stop_requested())
 
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
     def test_orchestrator_stops_after_current_completed_task(self, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
@@ -85,7 +85,7 @@ class QuitAfterTaskTest(unittest.TestCase):
                 encoding="utf-8",
             )
             engine = _FakeEngine(backlog_path)
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),
@@ -107,8 +107,8 @@ class QuitAfterTaskTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual([call.task.task_id for call in engine.calls], ["TASK-001"])
 
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks")
-    @patch("orc_core.backlog_orchestrator.ensure_repo_hooks_config")
+    @patch("orc_core.session_manager.ensure_repo_hooks")
+    @patch("orc_core.session_manager.ensure_repo_hooks_config")
     def test_orchestrator_does_not_stop_without_commit(self, hooks_config, hooks) -> None:
         hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
         hooks_config.return_value = Path("/tmp/hooks.json")
@@ -120,7 +120,7 @@ class QuitAfterTaskTest(unittest.TestCase):
                 encoding="utf-8",
             )
             engine = _FakeEngine(backlog_path, committed=False)
-            orchestrator = BacklogOrchestrator(
+            orchestrator = SessionManager(
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),

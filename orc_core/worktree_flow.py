@@ -57,7 +57,7 @@ def _safe_name(value: str, limit: int = 64) -> str:
     return cleaned[:limit]
 
 
-def _git(
+def run_git(
     workdir: str,
     args: list[str],
 ) -> tuple[bool, str, str, int]:
@@ -110,7 +110,7 @@ def _is_integration_safe_untracked(path: str) -> bool:
 
 
 def _list_untracked_files(workdir: str) -> tuple[bool, list[str], str]:
-    ok, stdout, stderr, _ = _git(workdir, ["git", "ls-files", "--others", "--exclude-standard"])
+    ok, stdout, stderr, _ = run_git(workdir, ["git", "ls-files", "--others", "--exclude-standard"])
     if not ok:
         return False, [], f"git ls-files failed: {stderr.strip()}"
     untracked = [line.strip() for line in stdout.splitlines() if line.strip()]
@@ -118,7 +118,7 @@ def _list_untracked_files(workdir: str) -> tuple[bool, list[str], str]:
 
 
 def _collect_integration_repo_state(workdir: str) -> tuple[bool, list[str], list[str], str]:
-    ok_status, status_out, status_err, _ = _git(workdir, ["git", "status", "--porcelain", "--untracked-files=no"])
+    ok_status, status_out, status_err, _ = run_git(workdir, ["git", "status", "--porcelain", "--untracked-files=no"])
     if not ok_status:
         return False, [], [], f"git status failed: {status_err.strip()}"
     tracked, _ = _parse_git_porcelain(status_out)
@@ -142,10 +142,14 @@ def _summarize_dirty_paths(tracked: list[str], untracked: list[str], limit: int 
     return ", ".join(sliced)
 
 
-def _evaluate_integration_repo_safety(tracked: list[str], untracked: list[str]) -> IntegrationPreflightResult:
-    safe_tracked = [path for path in tracked if _is_integration_safe_untracked(path)]
+def _evaluate_integration_repo_safety(
+    tracked: list[str],
+    untracked: list[str],
+    extra_safe: frozenset[str] = frozenset(),
+) -> IntegrationPreflightResult:
+    safe_tracked = [path for path in tracked if _is_integration_safe_untracked(path) or path in extra_safe]
     unsafe_tracked = [path for path in tracked if path not in safe_tracked]
-    safe_untracked = [path for path in untracked if _is_integration_safe_untracked(path)]
+    safe_untracked = [path for path in untracked if _is_integration_safe_untracked(path) or path in extra_safe]
     unsafe_untracked = [path for path in untracked if path not in safe_untracked]
     if unsafe_tracked or unsafe_untracked:
         error_summary = _summarize_dirty_paths(unsafe_tracked, unsafe_untracked)
@@ -167,14 +171,19 @@ def _evaluate_integration_repo_safety(tracked: list[str], untracked: list[str]) 
     )
 
 
-def preflight_main_integration(*, base_workdir: str, main_branch: str) -> IntegrationPreflightResult:
+def preflight_main_integration(
+    *,
+    base_workdir: str,
+    main_branch: str,
+    extra_safe_paths: frozenset[str] = frozenset(),
+) -> IntegrationPreflightResult:
     ok_state, tracked, untracked, state_error = _collect_integration_repo_state(base_workdir)
     if not ok_state:
         return IntegrationPreflightResult(ok=False, error=state_error)
-    safety = _evaluate_integration_repo_safety(tracked, untracked)
+    safety = _evaluate_integration_repo_safety(tracked, untracked, extra_safe_paths)
     if not safety.ok:
         return safety
-    ok_branch, _, stderr_branch, _ = _git(base_workdir, ["git", "show-ref", "--verify", f"refs/heads/{main_branch}"])
+    ok_branch, _, stderr_branch, _ = run_git(base_workdir, ["git", "show-ref", "--verify", f"refs/heads/{main_branch}"])
     if not ok_branch:
         return IntegrationPreflightResult(
             ok=False,
@@ -200,10 +209,10 @@ def _is_empty_cherry_pick(stderr: str) -> bool:
 
 def detect_base_branch(workdir: str) -> str:
     for candidate in ("main", "master"):
-        ok, _, _, _ = _git(workdir, ["git", "show-ref", "--verify", f"refs/heads/{candidate}"])
+        ok, _, _, _ = run_git(workdir, ["git", "show-ref", "--verify", f"refs/heads/{candidate}"])
         if ok:
             return candidate
-    ok, stdout, _, _ = _git(workdir, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    ok, stdout, _, _ = run_git(workdir, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
     current = stdout.strip() if ok else ""
     if current and current != "HEAD":
         return current
@@ -223,7 +232,7 @@ def create_task_worktree(
     worktree_root = worktrees_root(base_workdir)
     worktree_root.mkdir(parents=True, exist_ok=True)
     worktree_path = worktree_root / f"{safe_task}-{stamp}"
-    ok, _, stderr, _ = _git(
+    ok, _, stderr, _ = run_git(
         base_workdir,
         ["git", "worktree", "add", "-b", branch_name, str(worktree_path), main_branch],
     )
@@ -246,9 +255,9 @@ def create_task_worktree(
 
 
 def cleanup_task_worktree(session: WorktreeSession, log_path: Path) -> None:
-    ok, _, stderr, _ = _git(session.base_workdir, ["git", "worktree", "remove", session.worktree_path])
+    ok, _, stderr, _ = run_git(session.base_workdir, ["git", "worktree", "remove", session.worktree_path])
     if not ok:
-        status_ok, status_out, status_err, _ = _git(session.worktree_path, ["git", "status", "--porcelain"])
+        status_ok, status_out, status_err, _ = run_git(session.worktree_path, ["git", "status", "--porcelain"])
         if not status_ok:
             raise RuntimeError(f"failed to remove worktree: {stderr.strip()} (status check failed: {status_err.strip()})")
         dirty_paths = []
@@ -270,13 +279,26 @@ def cleanup_task_worktree(session: WorktreeSession, log_path: Path) -> None:
             worktree_path=session.worktree_path,
             dirty_paths=dirty_paths[:20],
         )
-        ok_force, _, stderr_force, _ = _git(
+        ok_force, _, stderr_force, _ = run_git(
             session.base_workdir,
             ["git", "worktree", "remove", "--force", session.worktree_path],
         )
         if not ok_force:
             raise RuntimeError(f"failed to force remove worktree: {stderr_force.strip()}")
-    _git(session.base_workdir, ["git", "worktree", "prune"])
+    run_git(session.base_workdir, ["git", "worktree", "prune"])
+    # Delete the task branch after worktree removal (it's been cherry-picked to main)
+    if session.branch_name:
+        branch_ok, _, branch_err, _ = run_git(
+            session.base_workdir,
+            ["git", "branch", "-D", session.branch_name],
+        )
+        if branch_ok:
+            log_event(log_path, "INFO", "task branch deleted",
+                      task_id=session.task_id, branch=session.branch_name)
+        else:
+            log_event(log_path, "WARN", "failed to delete task branch",
+                      task_id=session.task_id, branch=session.branch_name,
+                      error=branch_err.strip()[:200])
     log_event(
         log_path,
         "INFO",
@@ -287,26 +309,26 @@ def cleanup_task_worktree(session: WorktreeSession, log_path: Path) -> None:
 
 
 def get_head_commit(workdir: str) -> str:
-    ok, stdout, stderr, _ = _git(workdir, ["git", "rev-parse", "HEAD"])
+    ok, stdout, stderr, _ = run_git(workdir, ["git", "rev-parse", "HEAD"])
     if not ok:
         raise RuntimeError(f"failed to get HEAD commit: {stderr.strip()}")
     return stdout.strip()
 
 
 def _is_commit_in_branch(workdir: str, commit_sha: str, branch: str) -> bool:
-    ok, _, _, rc = _git(workdir, ["git", "merge-base", "--is-ancestor", commit_sha, branch])
+    ok, _, _, rc = run_git(workdir, ["git", "merge-base", "--is-ancestor", commit_sha, branch])
     if ok:
         return True
     return rc == 1 and False
 
 
 def _cherry_pick_commit(workdir: str, commit_sha: str) -> tuple[bool, bool, str]:
-    ok, _, stderr, _ = _git(workdir, ["git", "cherry-pick", "-x", commit_sha])
+    ok, _, stderr, _ = run_git(workdir, ["git", "cherry-pick", "-x", commit_sha])
     if ok:
         return True, False, ""
     if _is_empty_cherry_pick(stderr):
         return False, False, stderr.strip()
-    ok_conflicts, conflict_files, _, _ = _git(workdir, ["git", "diff", "--name-only", "--diff-filter=U"])
+    ok_conflicts, conflict_files, _, _ = run_git(workdir, ["git", "diff", "--name-only", "--diff-filter=U"])
     if ok_conflicts and bool(conflict_files.strip()):
         return False, True, stderr.strip()
     lowered = stderr.lower()
@@ -336,7 +358,7 @@ def integrate_commit_into_main(
             untracked_runtime=list(preflight.safe_untracked[:20]),
         )
 
-    ok_checkout, _, stderr_checkout, _ = _git(base_workdir, ["git", "checkout", main_branch])
+    ok_checkout, _, stderr_checkout, _ = run_git(base_workdir, ["git", "checkout", main_branch])
     if not ok_checkout:
         return IntegrationResult(ok=False, conflict=False, error=f"checkout {main_branch} failed: {stderr_checkout.strip()}")
 

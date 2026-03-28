@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .agent_preflight import AgentNotInstalledError, ensure_agent_installed
-from .backlog_orchestrator import BacklogOrchestrator
+from .session_manager import SessionManager
 from .backlog_status import inspect_backlog
 from .failure_reasons import format_known_failure_message
 from .gitignore_guard import validate_workspace_gitignore
@@ -110,6 +110,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--telegram-test", nargs="?", const="orc telegram test", default=None, help="Test Telegram and exit")
     ap.add_argument("--reinit-hooks", action="store_true", help="Recreate hooks on startup")
     ap.add_argument("--drop", action="store_true", help="Drop active task state and restart from scratch")
+    ap.add_argument("--hooks", action="store_true", help="Install agent hooks (default: off, conversation_id captured from stream)")
+    ap.add_argument("--max-sessions", type=int, default=1, help="Max parallel agent sessions (1-4, default: 1)")
     ap.add_argument("--mode", choices=["backlog", "single", "prompt"], default="", help="Execution mode")
     ap.add_argument("--task-id", default="", help="Run exactly one backlog task by ID")
     ap.add_argument("--prompt", default="", help="Run one arbitrary prompt without requiring backlog")
@@ -476,31 +478,28 @@ def main() -> int:
                     ui_error(str(exc))
                     return 2
 
-                run_root = state_run_root(workdir, "backlog-run")
                 engine = TaskExecutionEngine(log_path=log_path)
-                orchestrator = BacklogOrchestrator(
+                manager = SessionManager(
                     workdir=workdir,
                     backlog_path=backlog_path,
                     args=args,
-                    task_path=task_path,
-                    run_root=run_root,
                     log_path=log_path,
+                    engine=engine,
                     prompt_template=template,
                     continue_template=continue_template,
                     commit_template=commit_template,
                     merge_expert_template=merge_expert_template,
-                    engine=engine,
                     merge_expert_model=merge_expert_model,
                     integrate_to_main=True,
                     main_branch=base_branch,
                     stage_specs=stage_specs,
+                    max_sessions=max(1, min(int(getattr(args, "max_sessions", 1) or 1), 4)),
                 )
 
-                def _run_orchestrator(snapshot_publisher: Callable[[MonitorSnapshot], None]) -> int:
-                    orchestrator.snapshot_publisher = snapshot_publisher
-                    return asyncio.run(orchestrator.run_async())
+                def _run_orchestrator(snapshot_publisher: Callable[[str, MonitorSnapshot | None], None]) -> int:
+                    return asyncio.run(manager.run_async(snapshot_publisher))
 
-                app = OrcApp(_run_orchestrator)
+                app = OrcApp(_run_orchestrator, session_manager=manager)
                 result = app.run(mouse=False)
                 exit_code = int(result if result is not None else 1)
                 if app.last_error:
@@ -516,7 +515,9 @@ def main() -> int:
                     ui_error("❌ ORC завершился из-за необработанной ошибки. Traceback:")
                     print(app.last_error, file=sys.stderr, flush=True)
                 elif exit_code != 0:
-                    ui_error(f"❌ {_failure_message(orchestrator.last_failure_reason)}")
+                    ui_error(f"❌ {_failure_message(manager.last_failure_reason)}")
+                if exit_code == 0:
+                    print(f"\n{manager.get_summary()}", flush=True)
                 if interactive_requested and exit_code == 0 and str(args.mode).strip() == "single":
                     completed_task_id = str(args.task_id).strip()
                     task_done_msg = f"Задача {completed_task_id} завершена успешно" if completed_task_id else "Задача завершена успешно"
@@ -564,3 +565,9 @@ def main() -> int:
         ui_error("❌ ORC завершился из-за необработанной ошибки.")
         print(traceback_text, file=sys.stderr, flush=True)
         return 1
+
+
+def main_multi() -> int:
+    sys.argv.insert(1, "--max-sessions")
+    sys.argv.insert(2, "4")
+    return main()

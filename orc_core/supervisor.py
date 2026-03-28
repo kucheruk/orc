@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .atomic_io import write_text_atomic
-from .backlog_orchestrator import BacklogOrchestrator
+from .session_manager import SessionManager
 from .hooks import (
     ensure_repo_hooks,
     ensure_repo_hooks_config,
@@ -503,25 +503,22 @@ def main() -> int:
             log_event(orc_log_path, "ERROR", "prompt file missing", error=str(exc))
             return 2
 
-        run_root = Path(workdir) / ".orc" / "backlog-run"
         engine = TaskExecutionEngine(log_path=orc_log_path)
-        orchestrator = BacklogOrchestrator(
+        manager = SessionManager(
             workdir=workdir,
             backlog_path=backlog_path,
             args=args,
-            task_path=task_path,
-            run_root=run_root,
             log_path=orc_log_path,
+            engine=engine,
             prompt_template=template,
             continue_template=continue_prompt,
             commit_template=commit_template,
             merge_expert_template=merge_expert_template,
-            engine=engine,
             merge_expert_model=merge_expert_model,
             integrate_to_main=True,
             main_branch=base_branch,
         )
-        return orchestrator.run()
+        return manager.run(lambda sid, snap: None)
     except KeyboardInterrupt:
         log_event(orc_log_path, "WARN", "keyboard interrupt")
         ui_warn("⏹️ Прервано. Состояние сохранено.")
