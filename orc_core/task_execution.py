@@ -10,7 +10,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Mapping, Optional, Protocol
+from typing import TYPE_CHECKING, Callable, Mapping, Optional, Protocol
+
+if TYPE_CHECKING:
+    from .backend import Backend as BackendProtocol
 
 from .atomic_io import write_json_atomic
 from .failure_reasons import build_main_integration_preflight_reason
@@ -129,6 +132,9 @@ class TaskWorker(Protocol):
 
 
 class AgentTaskWorker:
+    def __init__(self, backend: Optional["BackendProtocol"] = None) -> None:
+        self._backend = backend
+
     def launch(
         self,
         *,
@@ -170,6 +176,7 @@ class AgentTaskWorker:
             resume_prompt=resume_prompt,
             timeline_id=timeline_id,
             attempt=attempt,
+            backend=self._backend,
         )
 
 
@@ -1030,8 +1037,8 @@ def run_merge_expert_phase(
 
 
 class TaskExecutionEngine:
-    def __init__(self, *, worker: Optional[TaskWorker] = None, log_path: Path) -> None:
-        self.worker = worker or AgentTaskWorker()
+    def __init__(self, *, worker: Optional[TaskWorker] = None, log_path: Path, backend: Optional["BackendProtocol"] = None) -> None:
+        self.worker = worker or AgentTaskWorker(backend=backend)
         self.log_path = log_path
 
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResult:

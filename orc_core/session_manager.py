@@ -11,6 +11,7 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Callable, Optional
 
+from .backend import Backend, get_backend
 from .hooks import ensure_repo_hooks, ensure_repo_hooks_config
 from .integration_manager import IntegrationManager
 from .logging import log_event
@@ -86,7 +87,9 @@ class SessionManager:
         max_sessions: int = 1,
         task_source_factory: Callable[[Path], MarkdownTaskSource] = MarkdownTaskSource,
         sleep_fn: Callable[[float], None] = time.sleep,
+        backend: Backend | None = None,
     ) -> None:
+        self.backend: Backend = backend or get_backend()
         self.workdir = workdir
         self.backlog_path = backlog_path
         self.args = args
@@ -669,16 +672,14 @@ class SessionManager:
     def _ensure_hooks(self) -> None:
         if not self._hooks_enabled:
             return
-        before_path, stop_path = ensure_repo_hooks(self.workdir)
-        ensure_repo_hooks_config(self.workdir, before_path, stop_path, self.log_path)
+        self.backend.setup_hooks(self.workdir, self.log_path)
 
     def _ensure_hooks_for_workspace(self, workdir: str) -> None:
         if not self._hooks_enabled:
             return
         if not workdir or workdir == self.workdir:
             return
-        before_path, stop_path = ensure_repo_hooks(workdir)
-        ensure_repo_hooks_config(workdir, before_path, stop_path, self.log_path)
+        self.backend.setup_hooks(workdir, self.log_path)
 
     # ── Drop ─────────────────────────────────────────────────────
 

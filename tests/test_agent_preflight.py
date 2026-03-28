@@ -8,11 +8,11 @@ from orc_core.agent_preflight import AgentNotInstalledError, ensure_agent_instal
 
 
 class AgentPreflightTest(unittest.TestCase):
-    @patch("orc_core.agent_preflight.shutil.which", return_value="/usr/local/bin/agent")
+    @patch("orc_core.backends.cursor.shutil.which", return_value="/usr/local/bin/agent")
     def test_ensure_agent_installed_passes_when_binary_exists(self, _which) -> None:
         ensure_agent_installed()
 
-    @patch("orc_core.agent_preflight.shutil.which", return_value=None)
+    @patch("orc_core.backends.cursor.shutil.which", return_value=None)
     def test_ensure_agent_installed_raises_with_install_hint(self, _which) -> None:
         with self.assertRaises(AgentNotInstalledError) as ctx:
             ensure_agent_installed()

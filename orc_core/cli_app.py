@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .agent_preflight import AgentNotInstalledError, ensure_agent_installed
+from .backend import SUPPORTED_BACKENDS, get_backend
 from .session_manager import SessionManager
 from .backlog_status import inspect_backlog
 from .failure_reasons import format_known_failure_message
@@ -124,6 +125,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--agent-output-log",
         action="store_true",
         help="Write complete agent stdout/stderr to the system temp directory (/.../orc-agent-output-<timestamp>.log)",
+    )
+    ap.add_argument(
+        "--backend",
+        choices=list(SUPPORTED_BACKENDS),
+        default="cursor",
+        help="Agent backend to use (default: cursor)",
     )
     return ap
 
@@ -337,13 +344,15 @@ def main() -> int:
     temp_backlog_path: Optional[Path] = None
     lock_acquired = False
 
+    backend = get_backend(getattr(args, "backend", "cursor") or "cursor")
+
     try:
         if args.telegram_test is not None:
             send_telegram_message(args.telegram_test, log_path)
             return 0
 
         try:
-            ensure_agent_installed()
+            ensure_agent_installed(backend)
         except AgentNotInstalledError as exc:
             ui_error(str(exc))
             return 2
@@ -360,7 +369,7 @@ def main() -> int:
             ui_info(f"[orc] prompt coder: {prompt_coder_path}")
 
         interactive_requested = _should_use_interactive_flow(args)
-        model_loader = start_model_list_loading() if interactive_requested else None
+        model_loader = start_model_list_loading(backend=backend) if interactive_requested else None
 
         default_coder_model = role_registry.resolve_role(workdir, ROLE_CODER).model
         last_model = str(args.model).strip() or load_last_selected_model(workdir) or default_coder_model or DEFAULT_MODEL
@@ -478,7 +487,7 @@ def main() -> int:
                     ui_error(str(exc))
                     return 2
 
-                engine = TaskExecutionEngine(log_path=log_path)
+                engine = TaskExecutionEngine(log_path=log_path, backend=backend)
                 manager = SessionManager(
                     workdir=workdir,
                     backlog_path=backlog_path,
@@ -494,6 +503,7 @@ def main() -> int:
                     main_branch=base_branch,
                     stage_specs=stage_specs,
                     max_sessions=max(1, min(int(getattr(args, "max_sessions", 1) or 1), 4)),
+                    backend=backend,
                 )
 
                 def _run_orchestrator(snapshot_publisher: Callable[[str, MonitorSnapshot | None], None]) -> int:

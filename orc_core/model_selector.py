@@ -7,10 +7,13 @@ import re
 import subprocess
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .atomic_io import write_json_atomic
 from .state_paths import model_selection_path
+
+if TYPE_CHECKING:
+    from .backend import Backend
 
 DEFAULT_MODEL = "gpt-5.3-codex"
 AGENT_LIST_MODELS_TIMEOUT_SECONDS = 15.0
@@ -25,16 +28,17 @@ _MODEL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 
 class ModelListLoader:
-    def __init__(self) -> None:
+    def __init__(self, backend: Optional["Backend"] = None) -> None:
         self._done = threading.Event()
         self._models: Optional[list[str]] = None
         self._error: Optional[BaseException] = None
+        self._backend = backend
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def _run(self) -> None:
         try:
-            self._models = list_supported_models()
+            self._models = list_supported_models(backend=self._backend)
         except BaseException as exc:
             self._error = exc
         finally:
@@ -50,10 +54,17 @@ class ModelListLoader:
         return self._models
 
 
-def list_supported_models() -> list[str]:
+def list_supported_models(backend: Optional["Backend"] = None) -> list[str]:
+    if backend is not None:
+        cmd = backend.list_models_cmd()
+        if cmd is None:
+            return [backend.default_model()]
+    else:
+        cmd = ["agent", "--list-models"]
+    cmd_str = " ".join(cmd)
     try:
         result = subprocess.run(
-            ["agent", "--list-models"],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -62,12 +73,12 @@ def list_supported_models() -> list[str]:
             timeout=AGENT_LIST_MODELS_TIMEOUT_SECONDS,
         )
     except FileNotFoundError as exc:
-        raise ModelSelectionError("Команда agent недоступна для получения списка моделей.") from exc
+        raise ModelSelectionError(f"Команда {cmd[0]!r} недоступна для получения списка моделей.") from exc
     except subprocess.TimeoutExpired as exc:
-        raise ModelSelectionError("Не удалось выполнить `agent --list-models`: timeout.") from exc
+        raise ModelSelectionError(f"Не удалось выполнить `{cmd_str}`: timeout.") from exc
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
-        raise ModelSelectionError(f"Не удалось выполнить `agent --list-models`: {stderr or 'unknown error'}")
+        raise ModelSelectionError(f"Не удалось выполнить `{cmd_str}`: {stderr or 'unknown error'}")
     models: list[str] = []
     for raw in (result.stdout or "").splitlines():
         parsed_model = _parse_model_id(raw)
@@ -88,8 +99,8 @@ def _parse_model_id(raw: str) -> Optional[str]:
     return model_id
 
 
-def start_model_list_loading() -> ModelListLoader:
-    return ModelListLoader()
+def start_model_list_loading(backend: Optional["Backend"] = None) -> ModelListLoader:
+    return ModelListLoader(backend=backend)
 
 
 def load_last_selected_model(workdir: str) -> Optional[str]:

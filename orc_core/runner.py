@@ -4,13 +4,16 @@
 import asyncio
 import shlex
 from pathlib import Path
-from typing import Callable, Mapping, Optional
+from typing import TYPE_CHECKING, Callable, Mapping, Optional
 
 from .logging import debug_log, log_event, now_ms, timeline_instant
 from .process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
 from .process_groups import terminate_process_group
 from .stream_monitor import StreamJsonMonitor
 from .stream_monitor_state import MonitorSnapshot
+
+if TYPE_CHECKING:
+    from .backend import Backend
 
 
 def launch_agent_stream_json(
@@ -32,6 +35,7 @@ def launch_agent_stream_json(
     resume_prompt: Optional[str] = None,
     timeline_id: str = "",
     attempt: int = 0,
+    backend: Optional["Backend"] = None,
 ) -> StreamJsonMonitor:
     return asyncio.run(
         launch_agent_stream_json_async(
@@ -52,6 +56,7 @@ def launch_agent_stream_json(
             resume_prompt=resume_prompt,
             timeline_id=timeline_id,
             attempt=attempt,
+            backend=backend,
         )
     )
 
@@ -76,6 +81,7 @@ async def launch_agent_stream_json_async(
     resume_prompt: Optional[str] = None,
     timeline_id: str = "",
     attempt: int = 0,
+    backend: Optional["Backend"] = None,
 ) -> StreamJsonMonitor:
     #region agent log
     debug_log(
@@ -100,29 +106,23 @@ async def launch_agent_stream_json_async(
     )
     #endregion
 
-    agent_cmd = [
-        "agent",
-        "-p",
-        "--force",
-        "--model",
-        model,
-        "--output-format",
-        "stream-json",
-        "--stream-partial-output",
-    ]
-    if resume_id:
-        agent_cmd.extend(["--resume", resume_id])
-        if resume_prompt:
-            agent_cmd.append(resume_prompt)
-    elif resume_latest:
-        agent_cmd.append("--continue")
-        if resume_prompt:
-            agent_cmd.append(resume_prompt)
-    else:
+    if backend is None:
+        from .backend import get_backend
+        backend = get_backend()
+
+    prompt_text: str | None = None
+    if not resume_id and not resume_latest:
         if prompt_path is None:
             raise ValueError("prompt_path is required when not resuming")
-        prompt = prompt_path.read_text(encoding="utf-8")
-        agent_cmd.append(prompt)
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+
+    agent_cmd = backend.build_agent_cmd(
+        model=model,
+        prompt=prompt_text,
+        resume_id=resume_id,
+        resume_latest=resume_latest,
+        resume_prompt=resume_prompt,
+    )
     #region agent log
     debug_log(
         "H1",

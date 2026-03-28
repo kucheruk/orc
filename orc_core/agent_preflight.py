@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import shutil
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from .backend import Backend
 
 
 class AgentNotInstalledError(RuntimeError):
     pass
 
 
-def ensure_agent_installed() -> None:
-    if shutil.which("agent"):
-        return
-    raise AgentNotInstalledError(
-        "❌ agent не найден в PATH.\n"
-        "Install Cursor CLI: https://cursor.com/docs/cli/introduction\n"
-        "Проверьте установку командой: agent --version"
-    )
+def ensure_agent_installed(backend: Optional["Backend"] = None) -> None:
+    if backend is None:
+        from .backend import get_backend
+        backend = get_backend()
+    backend.ensure_installed()
