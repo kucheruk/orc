@@ -14,6 +14,9 @@ LogFn = Callable[[Path, str, str], None]
 def load_telegram_config(*, orc_root: Path, log_path: Path, log_event: LogFn) -> dict:
     config_path = orc_root / ".orc" / "telegram.json"
     if not config_path.exists():
+        from .state_paths import telegram_config_path
+        config_path = telegram_config_path()
+    if not config_path.exists():
         log_event(log_path, "ERROR", "telegram config missing", path=str(config_path))
         return {}
     try:

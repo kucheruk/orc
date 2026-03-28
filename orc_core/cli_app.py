@@ -578,6 +578,9 @@ def main() -> int:
 
 
 def main_multi() -> int:
-    sys.argv.insert(1, "--max-sessions")
-    sys.argv.insert(2, "4")
-    return main()
+    saved_argv = sys.argv[:]
+    sys.argv = [sys.argv[0], "--max-sessions", "4"] + sys.argv[1:]
+    try:
+        return main()
+    finally:
+        sys.argv = saved_argv

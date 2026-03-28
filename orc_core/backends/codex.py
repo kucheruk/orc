@@ -43,8 +43,11 @@ class CodexBackend:
         resume_latest: bool = False,
         resume_prompt: str | None = None,
     ) -> list[str]:
-        if resume_id or resume_latest:
+        if resume_id:
+            cmd = ["codex", "exec", "resume", resume_id]
+        elif resume_latest:
             cmd = ["codex", "exec", "resume", "--last"]
+        if resume_id or resume_latest:
             if resume_prompt:
                 cmd.append(resume_prompt)
             return cmd

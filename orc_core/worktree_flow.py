@@ -319,7 +319,7 @@ def _is_commit_in_branch(workdir: str, commit_sha: str, branch: str) -> bool:
     ok, _, _, rc = run_git(workdir, ["git", "merge-base", "--is-ancestor", commit_sha, branch])
     if ok:
         return True
-    return rc == 1 and False
+    return False
 
 
 def _cherry_pick_commit(workdir: str, commit_sha: str) -> tuple[bool, bool, str]:

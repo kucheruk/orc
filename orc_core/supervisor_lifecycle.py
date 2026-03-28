@@ -20,8 +20,6 @@ PID_MISSING_GRACE_SECONDS = 1.0
 TOOL_DIGESTION_GRACE_SECONDS = 180.0
 TOKENS_STUCK_NOTICE_SECONDS = 15 * 60
 TOKENS_STUCK_NOTICE_LABEL = "15m"
-DEBUG_SESSION_LOG_PATH = Path("/Users/vetinary/work/orc/.cursor/debug-bbb5e7.log")
-DEBUG_SESSION_ID = "bbb5e7"
 
 
 def _task_done_in_backlog(task_path: Path) -> bool:
@@ -69,23 +67,6 @@ def _is_model_unavailable_stderr(last_stderr_line: str) -> bool:
     return any(marker in normalized for marker in markers)
 
 
-def _session_debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    payload = {
-        "sessionId": DEBUG_SESSION_ID,
-        "id": f"log_{int(time.time() * 1000)}_{hypothesis_id}",
-        "runId": "run1",
-        "hypothesisId": hypothesis_id,
-        "location": location,
-        "message": message,
-        "data": data,
-        "timestamp": int(time.time() * 1000),
-    }
-    try:
-        DEBUG_SESSION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with DEBUG_SESSION_LOG_PATH.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except Exception:
-        return
 
 
 def _force_close_active_tools_if_needed(monitor, log_path: Path, task_id: str, reason: str) -> None:
@@ -280,39 +261,9 @@ def wait_for_completion(
                 reason="backlog_done_idle",
             )
             return "completed"
-        if (now - last_heartbeat_time) >= 20.0:
-            last_heartbeat_time = now
-            _session_debug_log(
-                "H3",
-                "orc_core/supervisor_lifecycle.py:wait_for_completion:heartbeat",
-                "wait loop heartbeat before maybe_report",
-                {
-                    "task_exists": task_path.exists(),
-                    "since_last_output": now - monitor.last_output_time,
-                    "lines": monitor.metrics.total_lines,
-                    "commands": monitor.metrics.command_count,
-                    "tokens_total": int(monitor.metrics.tokens_total or 0),
-                    "result_status": getattr(monitor, "result_status", None),
-                    "ui_followup_prompt": bool(getattr(monitor, "ui_followup_prompt", False)),
-                    "proc_pid": getattr(monitor.proc, "pid", None),
-                    "proc_returncode": monitor.proc.poll(),
-                },
-            )
         maybe_report_started = time.time()
         monitor.maybe_report()
         maybe_report_duration = time.time() - maybe_report_started
-        if maybe_report_duration >= 2.0:
-            _session_debug_log(
-                "H2",
-                "orc_core/supervisor_lifecycle.py:wait_for_completion:maybe_report",
-                "maybe_report is slow",
-                {
-                    "duration_seconds": maybe_report_duration,
-                    "task_exists": task_path.exists(),
-                    "since_last_output": time.time() - monitor.last_output_time,
-                    "proc_returncode": monitor.proc.poll(),
-                },
-            )
         timeline_instant(
             timeline_id=timeline_id,
             task_id=task_id,
@@ -540,7 +491,6 @@ def wait_for_completion(
             )
             return "ttl_exceeded"
         time.sleep(max(poll, 0.2))
-    return "completed"
 
 
 def wait_for_process_exit(

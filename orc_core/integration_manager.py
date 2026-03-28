@@ -85,7 +85,7 @@ class IntegrationManager:
         slot: SessionSlot,
         task: Task,
         execution_workdir: str,
-        merge_expert_fn: Optional[Callable[[SessionSlot, Task], bool]] = None,
+        merge_expert_fn: Optional[Callable[[], bool]] = None,
         status_fn: Optional[Callable[[str], None]] = None,
     ) -> bool:
         notify = status_fn or (lambda _msg: None)

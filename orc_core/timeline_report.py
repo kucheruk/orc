@@ -46,7 +46,7 @@ def build_timeline_report(path: Path, *, top_n: int = 15) -> Dict[str, Any]:
         marker = str(event.get("event") or "")
         duration_raw = event.get("duration_ms")
 
-        if marker == "finish" and isinstance(duration_raw, int):
+        if marker == "finish" and isinstance(duration_raw, (int, float)):
             by_step.setdefault(step, []).append(int(duration_raw))
             top_slowest.append(
                 {

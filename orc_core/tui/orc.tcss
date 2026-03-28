@@ -85,7 +85,7 @@
     border: round $primary;
     padding: 0 1;
     height: 1fr;
-    overflow-y: auto;
+    overflow-y: hidden;
 }
 
 .session-panel.panel-failed {
@@ -105,11 +105,12 @@
 /* ═══════════ DETAIL-FULL (1 session) ═══════════ */
 
 .detail-full .panel-reasoning {
-    height: 9;
+    height: 1fr;
 }
 
 .detail-full .panel-events {
-    height: 9;
+    height: auto;
+    max-height: 8;
 }
 
 .detail-full .panel-recent {
@@ -140,11 +141,12 @@
 }
 
 .detail-medium .panel-reasoning {
-    height: 5;
+    height: 1fr;
 }
 
 .detail-medium .panel-events {
-    height: 4;
+    height: auto;
+    max-height: 6;
 }
 
 .detail-medium .panel-last-line {
@@ -168,7 +170,12 @@
 }
 
 .detail-compact .panel-events {
-    height: 1fr;
+    height: auto;
+    max-height: 4;
+}
+
+.detail-compact .panel-events-section {
+    height: auto;
 }
 
 .detail-compact .panel-last-line {
@@ -194,7 +201,12 @@
 }
 
 .detail-minimal .panel-events {
-    height: 1fr;
+    height: auto;
+    max-height: 4;
+}
+
+.detail-minimal .panel-events-section {
+    height: auto;
 }
 
 .detail-minimal .panel-last-line {
@@ -205,6 +217,19 @@
 
 .section {
     margin-top: 1;
+}
+
+.panel-reasoning,
+.panel-events {
+    scrollbar-size: 0 0;
+}
+
+.panel-reasoning-section {
+    height: 1fr;
+}
+
+.panel-events-section {
+    height: auto;
 }
 
 /* ═══════════ MODALS ═══════════ */

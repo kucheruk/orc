@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .backend import Backend, get_backend
-from .hooks import ensure_repo_hooks, ensure_repo_hooks_config
 from .integration_manager import IntegrationManager
 from .logging import log_event
 from .quit_signal import (
@@ -355,6 +354,11 @@ class SessionManager:
         self._notify_task_body(slot.session_id, task.text)
         worktree = self._create_worktree(slot, task)
         slot.worktree = worktree
+        if worktree is None and self.max_sessions > 1:
+            log_event(self.log_path, "ERROR",
+                      "skipping task: worktree required in multi-session mode",
+                      session_id=slot.session_id, task_id=task.task_id)
+            return (False, False)
         ctx = TaskContext(slot=slot, task=task, worktree=worktree)
         effective_workdir = ctx.workdir or self.workdir
         self._ensure_hooks_for_workspace(effective_workdir)
@@ -729,8 +733,9 @@ class SessionManager:
                          if s.status == SlotStatus.CLOSED and not s.error]
         for slot in closed_ok:
             if self._distributor.has_queued_tasks(slot.session_id):
+                with self._slots_lock:
+                    slot.error = ""
                 self._launch_slot_thread(slot)
-                slot.error = ""
 
     # ── Shutdown ─────────────────────────────────────────────────
 

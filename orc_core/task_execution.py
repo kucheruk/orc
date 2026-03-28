@@ -427,7 +427,7 @@ def _read_tasks_per_hour_from_stats(workdir: str) -> Optional[float]:
     root = str(workdir or "").strip()
     if not root:
         return None
-    stats_path = Path(root) / ".orc" / "orc-stats.json"
+    stats_path = get_stats_path(root)
     if not stats_path.exists():
         return None
     try:
