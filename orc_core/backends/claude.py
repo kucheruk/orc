@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import Optional
 
 
-class ClaudeNotInstalledError(RuntimeError):
+from ..agent_preflight import AgentNotInstalledError
+
+
+class ClaudeNotInstalledError(AgentNotInstalledError):
     pass
 
 

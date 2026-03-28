@@ -48,6 +48,7 @@ def launch_agent_stream_json(
             task_id=task_id,
             progress_done=progress_done,
             progress_total=progress_total,
+            progress_in_progress=progress_in_progress,
             agent_output_log_path=agent_output_log_path,
             agent_env=agent_env,
             snapshot_publisher=snapshot_publisher,

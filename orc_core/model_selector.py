@@ -55,12 +55,12 @@ class ModelListLoader:
 
 
 def list_supported_models(backend: Optional["Backend"] = None) -> list[str]:
-    if backend is not None:
-        cmd = backend.list_models_cmd()
-        if cmd is None:
-            return [backend.default_model()]
-    else:
-        cmd = ["agent", "--list-models"]
+    if backend is None:
+        from .backend import get_backend
+        backend = get_backend()
+    cmd = backend.list_models_cmd()
+    if cmd is None:
+        return [backend.default_model()]
     cmd_str = " ".join(cmd)
     try:
         result = subprocess.run(

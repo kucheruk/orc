@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import Optional
 
 
-class CodexNotInstalledError(RuntimeError):
+from ..agent_preflight import AgentNotInstalledError
+
+
+class CodexNotInstalledError(AgentNotInstalledError):
     pass
 
 

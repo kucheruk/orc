@@ -2,14 +2,19 @@
 # -*- coding: utf-8 -*-
 """AI-powered conflict analysis and task distribution across parallel queues."""
 
+from __future__ import annotations
+
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .logging import log_event
 from .task_source import Task
+
+if TYPE_CHECKING:
+    from .backend import Backend
 
 GIT_LS_TIMEOUT_SECONDS = 10.0
 AGENT_ANALYSIS_TIMEOUT_SECONDS = 120.0
@@ -37,10 +42,11 @@ class TaskDistribution:
 class TaskAnalyzer:
     """Calls LLM to predict which tasks conflict, then distributes to queues."""
 
-    def __init__(self, *, workdir: str, model: str, log_path: Path) -> None:
+    def __init__(self, *, workdir: str, model: str, log_path: Path, backend: Optional["Backend"] = None) -> None:
         self.workdir = workdir
         self.model = model
         self.log_path = log_path
+        self._backend = backend
 
     def analyze(self, tasks: list[Task], num_queues: int) -> TaskDistribution:
         if len(tasks) <= 1 or num_queues <= 1:
@@ -71,11 +77,24 @@ class TaskAnalyzer:
             task_id_b="{task_id_b}",
         )
 
+    def _build_text_cmd(self, prompt: str) -> list[str]:
+        if self._backend is None:
+            from .backend import get_backend
+            self._backend = get_backend()
+        name = self._backend.name
+        if name == "cursor":
+            return ["agent", "-p", "--force", "--model", self.model, "--output-format", "text", prompt]
+        if name == "claude":
+            return ["claude", "-p", "--model", self.model, "--dangerously-skip-permissions", prompt]
+        if name == "codex":
+            return ["codex", "exec", "--full-auto", "--model", self.model, prompt]
+        return ["agent", "-p", "--force", "--model", self.model, "--output-format", "text", prompt]
+
     def _call_agent(self, prompt: str) -> str:
+        cmd = self._build_text_cmd(prompt)
         try:
             result = subprocess.run(
-                ["agent", "-p", "--force", "--model", self.model,
-                 "--output-format", "text", prompt],
+                cmd,
                 cwd=self.workdir, capture_output=True, text=True,
                 timeout=AGENT_ANALYSIS_TIMEOUT_SECONDS,
             )

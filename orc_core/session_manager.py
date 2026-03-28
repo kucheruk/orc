@@ -117,6 +117,7 @@ class SessionManager:
             task_source_factory=task_source_factory,
             single_mode=(mode == "single"),
             selected_task_id=str(getattr(self.args, "task_id", "") or "").strip(),
+            backend=self.backend,
         )
         backlog_relative = str(backlog_path.relative_to(Path(workdir).resolve()))
         self._integrator = IntegrationManager(

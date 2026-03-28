@@ -2,14 +2,19 @@
 # -*- coding: utf-8 -*-
 """Distributes backlog tasks across parallel session queues using AI conflict analysis."""
 
+from __future__ import annotations
+
 import threading
 from pathlib import Path
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from .logging import log_event
 from .session_types import next_session_id
 from .task_analyzer import TaskAnalyzer
 from .task_source import MarkdownTaskSource, Task
+
+if TYPE_CHECKING:
+    from .backend import Backend
 
 TaskSourceFactory = Callable[[Path], MarkdownTaskSource]
 
@@ -24,11 +29,13 @@ class TaskDistributor:
         task_source_factory: TaskSourceFactory = MarkdownTaskSource,
         single_mode: bool = False,
         selected_task_id: str = "",
+        backend: Optional["Backend"] = None,
     ) -> None:
         self._backlog_path = backlog_path
         self._task_source_factory = task_source_factory
         self._single_mode = single_mode
         self._selected_task_id = selected_task_id
+        self._backend = backend
 
         self._lock = threading.Lock()
         self._assigned_ids: set[str] = set()
@@ -49,7 +56,7 @@ class TaskDistributor:
         if len(open_tasks) <= 1:
             return
 
-        analyzer = TaskAnalyzer(workdir=workdir, model=model, log_path=log_path)
+        analyzer = TaskAnalyzer(workdir=workdir, model=model, log_path=log_path, backend=self._backend)
         distribution = analyzer.analyze(open_tasks, max_sessions)
 
         log_event(log_path, "INFO", "task distribution computed",
