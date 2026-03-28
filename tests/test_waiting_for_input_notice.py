@@ -88,6 +88,12 @@ def _request(tmpdir: str) -> TaskExecutionRequest:
 
 
 class WaitingForInputNoticeTest(unittest.TestCase):
+    def setUp(self):
+        self._tg_patcher = patch("orc_core.task_execution.send_telegram_message")
+        self._tg_mock = self._tg_patcher.start()
+
+    def tearDown(self):
+        self._tg_patcher.stop()
     @patch("orc_core.task_execution._cleanup_monitor_processes")
     @patch("orc_core.task_execution.wait_for_completion", return_value="waiting_for_input")
     @patch("orc_core.task_execution.ui_warn")

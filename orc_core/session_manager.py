@@ -42,7 +42,7 @@ from .state_paths import (
     run_root as state_run_root,
     stats_path,
 )
-from .stream_monitor_state import MonitorSnapshot
+from .stream_monitor_state import MonitorSnapshot, make_terminal_snapshot
 from .task_distributor import TaskDistributor
 from .task_execution import (
     SafeDict,
@@ -123,6 +123,7 @@ class SessionManager:
 
         self.snapshot_publisher: Optional[SnapshotPublisher] = None
         self.task_body_publisher: Optional[Callable[[str, str], None]] = None
+        self.session_removed_publisher: Optional[Callable[[str], None]] = None
         self.last_failure_reason = ""
         self._started_at = 0.0
         self._completed_tasks: list[str] = []
@@ -313,6 +314,23 @@ class SessionManager:
             log_event(self.log_path, "ERROR", "session crashed",
                       session_id=session_id, error=str(exc),
                       traceback=traceback.format_exc()[:TRACEBACK_TRUNCATE])
+            task_id = slot.task.task_id if slot.task else session_id
+            self._publish_terminal_snapshot(
+                session_id, task_id,
+                phase="failed", status=slot.error,
+                base=slot.last_snapshot,
+            )
+        else:
+            # Normal exit: no more tasks or stop requested
+            if not slot.error:
+                task_id = slot.task.task_id if slot.task else session_id
+                self._publish_terminal_snapshot(
+                    session_id, task_id,
+                    phase="completed", status="all tasks done",
+                    base=slot.last_snapshot,
+                )
+                self.sleep_fn(10.0)
+                self._publish_session_removed(session_id)
         finally:
             with self._slots_lock:
                 slot.status = SlotStatus.CLOSED
@@ -352,6 +370,7 @@ class SessionManager:
         if result.status == "completed":
             if not self._finalize_completed_task(ctx, effective_workdir):
                 return (False, False)
+            self._broadcast_progress_update()
 
         return (True, False)
 
@@ -379,6 +398,10 @@ class SessionManager:
         self._failed_tasks.append(ctx.task_id)
         log_event(self.log_path, "ERROR", "task failed",
                   session_id=ctx.session_id, task_id=ctx.task_id, reason=reason)
+        self._publish_terminal_snapshot(
+            ctx.session_id, ctx.task_id, phase="failed", status=reason,
+            base=ctx.slot.last_snapshot,
+        )
         if self.max_sessions == 1:
             self.last_failure_reason = reason
             save_active_session(self.workdir, {
@@ -387,6 +410,52 @@ class SessionManager:
                 "worktree_path": ctx.workdir,
                 "status": "failed", "reason": reason,
             })
+
+    def _publish_terminal_snapshot(
+        self,
+        session_id: str,
+        task_id: str,
+        *,
+        phase: str,
+        status: str,
+        base: Optional[MonitorSnapshot] = None,
+    ) -> None:
+        snapshot = make_terminal_snapshot(task_id, phase, status, base=base)
+        slot = self._slots.get(session_id)
+        if slot is not None:
+            slot.last_snapshot = snapshot
+        if self.snapshot_publisher:
+            try:
+                self.snapshot_publisher(session_id, snapshot)
+            except Exception:
+                pass
+
+    def _broadcast_progress_update(self) -> None:
+        """Push updated done/in_progress/total to all active session snapshots."""
+        from dataclasses import replace
+        done, in_progress, total = self._distributor.get_progress()
+        with self._slots_lock:
+            for sid, slot in self._slots.items():
+                if slot.last_snapshot is not None and slot.status == SlotStatus.RUNNING:
+                    updated = replace(
+                        slot.last_snapshot,
+                        progress_done=done,
+                        progress_total=total,
+                        progress_in_progress=in_progress,
+                    )
+                    slot.last_snapshot = updated
+                    if self.snapshot_publisher:
+                        try:
+                            self.snapshot_publisher(sid, updated)
+                        except Exception:
+                            pass
+
+    def _publish_session_removed(self, session_id: str) -> None:
+        if self.session_removed_publisher:
+            try:
+                self.session_removed_publisher(session_id)
+            except Exception:
+                pass
 
     def _finalize_completed_task(self, ctx: TaskContext, effective_workdir: str) -> bool:
         if self.integrate_to_main:
@@ -399,17 +468,34 @@ class SessionManager:
             if ok:
                 _status(f"INTEGRATED {ctx.task_id} into {self.main_branch}")
             else:
-                _status(f"INTEGRATION FAILED for {ctx.task_id}")
-                ctx.slot.error = "integration_failed"
+                _status(f"INTEGRATION FAILED for {ctx.task_id} — work preserved on branch, continuing")
+                log_event(
+                    self.log_path, "WARN",
+                    "integration failed, skipping task and continuing session",
+                    session_id=ctx.session_id, task_id=ctx.task_id,
+                )
+                self._publish_terminal_snapshot(
+                    ctx.session_id, ctx.task_id, phase="failed",
+                    status="integration_failed (branch preserved)", base=ctx.slot.last_snapshot,
+                )
+                # Don't kill the session — clean up worktree with force and move on.
+                # Keep task in _assigned_ids so no other session re-does the work.
+                self._cleanup_worktree_silent(ctx.worktree)
+                ctx.slot.worktree = None
+                self._failed_tasks.append(ctx.task_id)
                 if self.max_sessions == 1:
                     self.last_failure_reason = "main_integration_failed"
-                return False
+                    return False
+                return True
 
         if not self._cleanup_worktree_checked(ctx):
             return False
 
         clear_active_session(self.workdir)
-        self._distributor.release_task(ctx.task_id)
+        # Mark completed in distributor — keeps task in _assigned_ids AND adds
+        # to _completed_ids so progress counters are accurate even when base
+        # BACKLOG.md still shows [ ] (cherry-pick went to master, not working copy).
+        self._distributor.mark_completed(ctx.task_id)
         self._completed_tasks.append(ctx.task_id)
         return True
 
@@ -555,8 +641,14 @@ class SessionManager:
             return
         try:
             cleanup_task_worktree(worktree, self.log_path)
-        except Exception as exc:
-            _logger.debug("worktree cleanup (silent) failed: %s", exc)
+        except Exception:
+            # Force-remove if normal cleanup fails (e.g. worktree has uncommitted changes)
+            try:
+                from .worktree_flow import run_git
+                run_git(worktree.base_workdir, ["git", "worktree", "remove", "--force", worktree.worktree_path])
+                run_git(worktree.base_workdir, ["git", "worktree", "prune"])
+            except Exception as exc2:
+                _logger.debug("worktree force cleanup failed: %s", exc2)
 
     # ── Analysis ─────────────────────────────────────────────────
 
@@ -570,11 +662,19 @@ class SessionManager:
 
     # ── Hooks ────────────────────────────────────────────────────
 
+    @property
+    def _hooks_enabled(self) -> bool:
+        return bool(getattr(self.args, "hooks", False))
+
     def _ensure_hooks(self) -> None:
+        if not self._hooks_enabled:
+            return
         before_path, stop_path = ensure_repo_hooks(self.workdir)
         ensure_repo_hooks_config(self.workdir, before_path, stop_path, self.log_path)
 
     def _ensure_hooks_for_workspace(self, workdir: str) -> None:
+        if not self._hooks_enabled:
+            return
         if not workdir or workdir == self.workdir:
             return
         before_path, stop_path = ensure_repo_hooks(workdir)

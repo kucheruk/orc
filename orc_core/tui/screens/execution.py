@@ -34,10 +34,10 @@ class ExecutionScreen(Screen[None]):
         grid.mount(panel)
         self._recalc_layout()
 
-    def remove_session(self, session_id: str) -> None:
+    async def remove_session(self, session_id: str) -> None:
         panel = self._find_panel(session_id)
         if panel:
-            panel.remove()
+            await panel.remove()
             self._recalc_layout()
 
     def update_session(self, session_id: str, snapshot: MonitorSnapshot) -> None:

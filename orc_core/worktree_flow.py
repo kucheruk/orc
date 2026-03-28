@@ -286,6 +286,19 @@ def cleanup_task_worktree(session: WorktreeSession, log_path: Path) -> None:
         if not ok_force:
             raise RuntimeError(f"failed to force remove worktree: {stderr_force.strip()}")
     run_git(session.base_workdir, ["git", "worktree", "prune"])
+    # Delete the task branch after worktree removal (it's been cherry-picked to main)
+    if session.branch_name:
+        branch_ok, _, branch_err, _ = run_git(
+            session.base_workdir,
+            ["git", "branch", "-D", session.branch_name],
+        )
+        if branch_ok:
+            log_event(log_path, "INFO", "task branch deleted",
+                      task_id=session.task_id, branch=session.branch_name)
+        else:
+            log_event(log_path, "WARN", "failed to delete task branch",
+                      task_id=session.task_id, branch=session.branch_name,
+                      error=branch_err.strip()[:200])
     log_event(
         log_path,
         "INFO",

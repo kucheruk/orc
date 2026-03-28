@@ -110,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--telegram-test", nargs="?", const="orc telegram test", default=None, help="Test Telegram and exit")
     ap.add_argument("--reinit-hooks", action="store_true", help="Recreate hooks on startup")
     ap.add_argument("--drop", action="store_true", help="Drop active task state and restart from scratch")
+    ap.add_argument("--hooks", action="store_true", help="Install agent hooks (default: off, conversation_id captured from stream)")
     ap.add_argument("--max-sessions", type=int, default=1, help="Max parallel agent sessions (1-4, default: 1)")
     ap.add_argument("--mode", choices=["backlog", "single", "prompt"], default="", help="Execution mode")
     ap.add_argument("--task-id", default="", help="Run exactly one backlog task by ID")

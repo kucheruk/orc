@@ -336,12 +336,14 @@ def _format_task_label(*, task_id, done, in_progress, total, delta, heading, det
     delta_str = f" (+{delta})" if delta > 0 else ""
     progress = f"{done}+{in_progress}/{total}" if in_progress > 0 else f"{done}/{total}"
     pct = int(100 * done / max(1, total))
+    # Escape Rich markup brackets in task_id (e.g. "[implementation]")
+    safe_id = str(task_id).replace("[", r"\[")
     if detail == "full":
         heading_part = f" | {heading}" if heading else ""
-        return f"Task: {task_id} | Progress: {progress}{delta_str}{heading_part}"
+        return f"Task: {safe_id} | Progress: {progress}{delta_str}{heading_part}"
     max_len = _HEADING_TRUNCATE.get(detail, HEADING_TRUNCATE_COMPACT)
     short = (heading[:max_len] + "...") if len(heading) > max_len else heading
-    return f"{task_id} {progress} {pct}%{f' {short}' if short else ''}"
+    return f"{safe_id} {progress} {pct}%{f' {short}' if short else ''}"
 
 
 def _format_stats(*, elapsed, detail, done, remaining, total, delta,
@@ -367,6 +369,10 @@ def _format_activity(*, phase, status, since, tool_count, is_subagent, detail) -
     age_text = _format_duration(age)
     role = "SUBAGENT" if is_subagent else "AGENT"
 
+    if phase == "failed":
+        return f"[bold red]{role} FAILED {status}[/bold red]"
+    if phase == "completed":
+        return f"[bold green]{role} DONE {status}[/bold green]"
     if phase == "starting":
         return f"[blue]{role} BOOT {status}[/blue]"
     if phase == "thinking":

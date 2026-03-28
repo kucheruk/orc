@@ -54,6 +54,64 @@ class MonitorSnapshot:
     is_subagent_activity: bool = False
 
 
+def make_terminal_snapshot(
+    task_id: str,
+    phase: str,
+    status: str,
+    *,
+    base: Optional[MonitorSnapshot] = None,
+) -> MonitorSnapshot:
+    """Create a snapshot that represents a terminal state (failed/completed).
+
+    If *base* is given, metrics and progress are carried over so the panel
+    keeps showing accumulated stats.  Otherwise a minimal empty snapshot is
+    returned.
+    """
+    now = time.time()
+    if base is not None:
+        return MonitorSnapshot(
+            task_id=task_id or base.task_id,
+            started_at=base.started_at,
+            progress_done=base.progress_done,
+            progress_total=base.progress_total,
+            metrics=base.metrics,
+            last_event_type=base.last_event_type,
+            last_event_note=base.last_event_note,
+            recent_commands=base.recent_commands,
+            recent_files=base.recent_files,
+            recent_events=base.recent_events,
+            reasoning_lines=base.reasoning_lines,
+            spinner_idx=base.spinner_idx,
+            last_event_at=now,
+            progress_remaining=base.progress_remaining,
+            progress_in_progress=base.progress_in_progress,
+            progress_added_delta=base.progress_added_delta,
+            live_phase=phase,
+            live_status=status,
+            live_since=now,
+            active_tool_call_count=0,
+            is_subagent_activity=False,
+        )
+    return MonitorSnapshot(
+        task_id=task_id,
+        started_at=now,
+        progress_done=0,
+        progress_total=1,
+        metrics=MetricsStore(),
+        last_event_type="",
+        last_event_note="",
+        recent_commands=[],
+        recent_files=[],
+        recent_events=[],
+        reasoning_lines=[],
+        spinner_idx=0,
+        last_event_at=now,
+        live_phase=phase,
+        live_status=status,
+        live_since=now,
+    )
+
+
 class StreamMonitorState:
     _TOTAL_TOKEN_KEYS = {
         "tokens",
@@ -106,6 +164,11 @@ class StreamMonitorState:
         self._live_status = "starting, no messages yet"
         self._live_since = started_at
         self._is_subagent_activity = False
+        self._session_id: Optional[str] = None
+
+    @property
+    def session_id(self) -> Optional[str]:
+        return self._session_id
 
     def set_progress(self, done: int, total: int, in_progress: int = 0) -> None:
         self._progress_done = max(0, int(done))
@@ -880,6 +943,10 @@ class StreamMonitorState:
 
         event_type = str(event.get("type") or "")
         subtype = str(event.get("subtype") or "")
+        if self._session_id is None:
+            raw_sid = str(event.get("session_id") or "").strip()
+            if raw_sid:
+                self._session_id = raw_sid
         raw_bytes = len(raw.encode("utf-8"))
         if event_type in ("user", "tool_result", "system"):
             self.metrics.input_bytes += raw_bytes
@@ -939,9 +1006,7 @@ class StreamMonitorState:
             status = f"thinking {preview}" if preview else "thinking"
             self._set_live_status("thinking", status, is_subagent=False)
         elif event_type == "assistant":
-            preview = self._trim_fragment(" ".join(text.split()).strip()) if text else ""
-            status = f"responding {preview}" if preview else "responding"
-            self._set_live_status("assistant", status, is_subagent=False)
+            self._set_live_status("assistant", "responding", is_subagent=False)
         elif event_type == "result":
             status = str(event.get("status") or subtype or "result").strip().lower() or "result"
             self._set_live_status("waiting", f"result {status}", is_subagent=False)

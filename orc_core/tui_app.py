@@ -98,6 +98,7 @@ class OrcApp(App[int]):
     def _run_in_background_worker(self) -> None:
         if self._session_manager:
             self._session_manager.task_body_publisher = self._publish_task_body_from_worker
+            self._session_manager.session_removed_publisher = self._publish_session_removed_from_worker
         code = 1
         try:
             code = int(self._run_orchestrator(self._publish_snapshot_from_worker))
@@ -110,13 +111,25 @@ class OrcApp(App[int]):
         self.call_from_thread(self.post_message, OrchestratorFinished(code))
 
     def _publish_task_body_from_worker(self, session_id: str, body: str) -> None:
-        self.call_from_thread(self.post_message, TaskBodyUpdated(session_id, body))
+        try:
+            self.call_from_thread(self.post_message, TaskBodyUpdated(session_id, body))
+        except RuntimeError:
+            pass
+
+    def _publish_session_removed_from_worker(self, session_id: str) -> None:
+        try:
+            self.call_from_thread(self.post_message, SessionRemoved(session_id))
+        except RuntimeError:
+            pass
 
     def _publish_snapshot_from_worker(self, session_id: str, snapshot: MonitorSnapshot | None) -> None:
-        if snapshot is None:
-            self.call_from_thread(self.post_message, SessionAdded(session_id))
-        else:
-            self.call_from_thread(self.post_message, SnapshotUpdated(session_id, snapshot))
+        try:
+            if snapshot is None:
+                self.call_from_thread(self.post_message, SessionAdded(session_id))
+            else:
+                self.call_from_thread(self.post_message, SnapshotUpdated(session_id, snapshot))
+        except RuntimeError:
+            pass  # App already shut down
 
     def on_snapshot_updated(self, message: SnapshotUpdated) -> None:
         self._execution_screen.update_session(message.session_id, message.snapshot)
@@ -124,8 +137,8 @@ class OrcApp(App[int]):
     def on_session_added(self, message: SessionAdded) -> None:
         self._execution_screen.add_session(message.session_id)
 
-    def on_session_removed(self, message: SessionRemoved) -> None:
-        self._execution_screen.remove_session(message.session_id)
+    async def on_session_removed(self, message: SessionRemoved) -> None:
+        await self._execution_screen.remove_session(message.session_id)
 
     def on_session_failed(self, message: SessionFailed) -> None:
         self._execution_screen.mark_session_failed(message.session_id)

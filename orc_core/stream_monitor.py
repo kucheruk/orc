@@ -110,6 +110,10 @@ class StreamJsonMonitor:
         if self._spawn_error is not None:
             raise self._spawn_error
 
+    @property
+    def session_id(self) -> str | None:
+        return self._state.session_id
+
     def set_progress(self, done: int, total: int, in_progress: int = 0) -> None:
         self._state.set_progress(done, total, in_progress)
         self._publish_snapshot()
@@ -140,7 +144,10 @@ class StreamJsonMonitor:
                 result="received",
                 data={"latency_ms": max(now_ms() - int(self.started_at * 1000), 0)},
             )
+        had_session_id = self._state.session_id is not None
         event_type, subtype, raw = self._state.record_event(event)
+        if not had_session_id and self._state.session_id is not None:
+            self._persist_conversation_id(self._state.session_id)
         if event_type == "result":
             status = subtype or str(event.get("status") or "")
             self.result_status = status.lower() if status else "success"
@@ -165,6 +172,28 @@ class StreamJsonMonitor:
             "waiting for your input",
         )
         return any(marker in normalized for marker in markers)
+
+    def _persist_conversation_id(self, session_id: str) -> None:
+        """Write session_id from stream-json as conversation_id to task file.
+
+        This fires on the very first stream event (within ms of agent start),
+        eliminating the dependency on hooks for conversation_id capture.
+        """
+        try:
+            if not self._task_state_path.exists():
+                return
+            payload = json.loads(self._task_state_path.read_text(encoding="utf-8"))
+            existing = str(payload.get("conversation_id") or "").strip()
+            if existing:
+                return
+            payload["conversation_id"] = session_id
+            from .atomic_io import write_json_atomic
+            write_json_atomic(self._task_state_path, payload, ensure_ascii=False, indent=2)
+            log_event(self.log_path, "INFO", "conversation_id captured from stream",
+                      session_id=session_id, task_id=self.task_id)
+        except Exception as exc:
+            log_event(self.log_path, "WARN", "failed to persist conversation_id from stream",
+                      error=str(exc), session_id=session_id)
 
     def _run_event_loop(self) -> None:
         self._loop = asyncio.new_event_loop()
@@ -384,7 +413,7 @@ class StreamJsonMonitor:
             return
         total = len(tasks)
         done = sum(1 for task in tasks if task.done)
-        self._state.set_progress(done, total)
+        self._state.set_progress(done, total, self._state._progress_in_progress)
 
     def _update_eta_forecast(self) -> None:
         try:

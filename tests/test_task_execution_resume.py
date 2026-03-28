@@ -52,6 +52,12 @@ class _FakeWorker:
 
 
 class TaskExecutionResumeStateTest(unittest.TestCase):
+    def setUp(self):
+        self._tg_patcher = patch("orc_core.task_execution.send_telegram_message")
+        self._tg_mock = self._tg_patcher.start()
+
+    def tearDown(self):
+        self._tg_patcher.stop()
     def _request(self, tmpdir: str) -> TaskExecutionRequest:
         root = Path(tmpdir)
         backlog_path = root / "BACKLOG.md"
@@ -95,7 +101,9 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
     @patch("orc_core.task_execution.write_task_file")
-    def test_blank_resume_id_fails_fast(self, write_task_file, *_mocks) -> None:
+    def test_blank_resume_id_auto_drops_and_starts_fresh(self, write_task_file, *_mocks) -> None:
+        """Blank conversation_id + restart_count=0 means the task never ran.
+        Auto-drop stale state and start fresh instead of failing."""
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
@@ -109,10 +117,31 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
             )
             result = engine.execute(request)
 
-        self.assertEqual(result.status, "failed")
-        self.assertEqual(result.reason, "missing_conversation_id")
-        self.assertEqual(worker.launch_calls, 0)
-        write_task_file.assert_not_called()
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 1)
+
+    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution.update_task_restart_count")
+    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
+    @patch("orc_core.task_execution.write_task_file")
+    def test_blank_resume_id_with_restarts_auto_drops(self, write_task_file, *_mocks) -> None:
+        """Blank conversation_id + restart_count>0: agent was killed before hook
+        could write conversation_id. Auto-drop and start fresh."""
+        worker = _FakeWorker()
+        engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            request = self._request(tmpdir)
+            request.task_path.parent.mkdir(parents=True, exist_ok=True)
+            request.task_path.write_text(
+                '{"task_id":"TASK-001","task_text":"test task","backlog_path":"%s","conversation_id":"   ","restart_count":1}'
+                % str(request.backlog_path),
+                encoding="utf-8",
+            )
+            result = engine.execute(request)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(worker.launch_calls, 1)
 
 
 if __name__ == "__main__":

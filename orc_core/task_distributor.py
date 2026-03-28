@@ -32,6 +32,7 @@ class TaskDistributor:
 
         self._lock = threading.Lock()
         self._assigned_ids: set[str] = set()
+        self._completed_ids: set[str] = set()
         self._queues: dict[str, list[str]] = {}
 
     def run_analysis(
@@ -73,6 +74,10 @@ class TaskDistributor:
         with self._lock:
             self._assigned_ids.discard(task_id)
 
+    def mark_completed(self, task_id: str) -> None:
+        with self._lock:
+            self._completed_ids.add(task_id)
+
     def has_remaining_tasks(self) -> bool:
         with self._lock:
             return bool(self._unassigned_open_tasks())
@@ -90,13 +95,19 @@ class TaskDistributor:
             return bool(self._queues.get(session_id))
 
     def get_progress(self) -> tuple[int, int, int]:
-        """Returns (done, in_progress, total)."""
+        """Returns (done, in_progress, total).
+
+        done includes tasks marked [x] in the backlog PLUS tasks completed
+        during this run that may not yet be reflected in the base backlog
+        (because cherry-pick goes to master, not the working copy).
+        """
         with self._lock:
             source = self._task_source_factory(self._backlog_path)
             tasks = source.list_tasks()
             total = len(tasks)
-            done = sum(1 for t in tasks if t.done)
-            in_progress = len(self._assigned_ids)
+            backlog_done = {t.task_id for t in tasks if t.done}
+            done = len(backlog_done | self._completed_ids)
+            in_progress = len(self._assigned_ids - self._completed_ids)
             return done, in_progress, total
 
     # ── Private ──────────────────────────────────────────────────
