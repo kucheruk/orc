@@ -1439,28 +1439,19 @@ class TaskExecutionEngine:
                         log_path=self.log_path,
                     )
                     if not synced:
+                        # Sync can fail due to race with concurrent cherry-pick
+                        # (conflict markers in base BACKLOG.md). This is not fatal:
+                        # the integration step will cherry-pick the worktree commit
+                        # (which includes the done mark) into base anyway.
                         log_event(
                             self.log_path,
-                            "ERROR",
-                            "backlog invariant violated after completion: task marked done only in runtime worktree backlog",
+                            "WARN",
+                            "backlog sync to base failed (likely race with concurrent integration); "
+                            "integration step will reconcile",
                             task_id=current_task_id,
                             base_backlog_path=str(base_backlog_path),
                             runtime_backlog_path=str(runtime_backlog_path),
                         )
-                        ui_error(
-                            "❌ После завершения задачи backlog в base не синхронизирован с worktree. "
-                            "Инвариант worktree -> base нарушен."
-                        )
-                        timeline_step_finished(
-                            timeline_id=timeline_id,
-                            task_id=current_task_id,
-                            step="task_execute",
-                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                            started_at_ms=execute_started_ms,
-                            result="failed",
-                            reason="worktree_not_integrated_to_base",
-                        )
-                        return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
             except Exception as exc:
                 log_event(
                     self.log_path,

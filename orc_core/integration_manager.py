@@ -247,6 +247,10 @@ class IntegrationManager:
         ctx.step("conflict_detected", error=initial_attempt.error[:CONFLICT_ERROR_TRUNCATE])
         self._log_conflict_files(ctx)
 
+        # Try auto-resolving trivial conflicts before invoking merge expert
+        if self._try_auto_resolve_conflicts(ctx):
+            return True
+
         if not self._invoke_merge_expert(ctx, merge_expert_fn):
             return False
 
@@ -284,6 +288,66 @@ class IntegrationManager:
         ctx.step("cherry_pick_ok_after_merge_expert", head=stdout.strip()[:80])
         ctx.save_report("completed", "cherry_pick_ok_after_merge_expert")
         return True
+
+    def _try_auto_resolve_conflicts(self, ctx: IntegrationContext) -> bool:
+        """Auto-resolve trivial conflicts by keeping both sides (ours + theirs).
+
+        Works for append-only files like changelog.md where both sides added
+        entries and there's no semantic conflict — just positional overlap.
+        """
+        ok, stdout, _, _ = run_git(self.workdir, ["git", "diff", "--name-only", "--diff-filter=U"])
+        if not ok:
+            return False
+        conflict_files = [f for f in stdout.strip().splitlines() if f.strip()]
+        if not conflict_files:
+            return False
+
+        import re
+        CONFLICT_RE = re.compile(
+            r"<<<<<<<[^\n]*\n(.*?)=======\n(.*?)>>>>>>>[^\n]*\n",
+            re.DOTALL,
+        )
+
+        for fpath in conflict_files:
+            full = Path(self.workdir) / fpath
+            if not full.exists():
+                ctx.step("auto_resolve_skip", file=fpath, reason="file_not_found")
+                return False
+            try:
+                text = full.read_text(encoding="utf-8")
+            except OSError:
+                return False
+            if "<<<<<<< " not in text:
+                continue
+            resolved = CONFLICT_RE.sub(r"\1\2", text)
+            if "<<<<<<< " in resolved:
+                # Nested or malformed markers — bail out
+                ctx.step("auto_resolve_skip", file=fpath, reason="complex_conflict")
+                return False
+            try:
+                full.write_text(resolved, encoding="utf-8")
+            except OSError:
+                return False
+
+        # Stage all resolved files and continue cherry-pick
+        for fpath in conflict_files:
+            run_git(self.workdir, ["git", "add", fpath])
+
+        ok_commit, _, stderr, _ = run_git(self.workdir, ["git", "cherry-pick", "--continue"])
+        if not ok_commit:
+            # --continue can fail if there are still unresolved conflicts
+            ok_commit, _, stderr, _ = run_git(
+                self.workdir,
+                ["git", "-c", "core.editor=true", "cherry-pick", "--continue"],
+            )
+        if ok_commit:
+            ctx.step("auto_resolve_ok", files=conflict_files)
+            ctx.save_report("completed", "cherry_pick_ok_after_auto_resolve")
+            return True
+
+        ctx.step("auto_resolve_failed", stderr=stderr[:ERROR_TRUNCATE])
+        self._abort_cherry_pick(ctx)
+        return False
 
     def _log_conflict_files(self, ctx: IntegrationContext) -> None:
         ok, stdout, _, _ = run_git(self.workdir, ["git", "diff", "--name-only", "--diff-filter=U"])
