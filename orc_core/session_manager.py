@@ -140,8 +140,9 @@ class SessionManager:
     def request_remove_session(self, session_id: str = "") -> None:
         with self._slots_lock:
             slot = self._find_slot_to_close(session_id)
+            if slot:
+                slot.status = SlotStatus.CLOSING
         if slot:
-            slot.status = SlotStatus.CLOSING
             request_session_stop(slot.session_id)
             log_event(self.log_path, "INFO", "session closing", session_id=slot.session_id)
 
@@ -429,9 +430,10 @@ class SessionManager:
         base: Optional[MonitorSnapshot] = None,
     ) -> None:
         snapshot = make_terminal_snapshot(task_id, phase, status, base=base)
-        slot = self._slots.get(session_id)
-        if slot is not None:
-            slot.last_snapshot = snapshot
+        with self._slots_lock:
+            slot = self._slots.get(session_id)
+            if slot is not None:
+                slot.last_snapshot = snapshot
         if self.snapshot_publisher:
             try:
                 self.snapshot_publisher(session_id, snapshot)
@@ -442,6 +444,8 @@ class SessionManager:
         """Push updated done/in_progress/total to all active session snapshots."""
         from dataclasses import replace
         done, in_progress, total = self._distributor.get_progress()
+        # Collect updates under lock, publish outside to avoid deadlock
+        pending: list[tuple[str, MonitorSnapshot]] = []
         with self._slots_lock:
             for sid, slot in self._slots.items():
                 if slot.last_snapshot is not None and slot.status == SlotStatus.RUNNING:
@@ -452,11 +456,13 @@ class SessionManager:
                         progress_in_progress=in_progress,
                     )
                     slot.last_snapshot = updated
-                    if self.snapshot_publisher:
-                        try:
-                            self.snapshot_publisher(sid, updated)
-                        except Exception:
-                            pass
+                    pending.append((sid, updated))
+        if self.snapshot_publisher:
+            for sid, snapshot in pending:
+                try:
+                    self.snapshot_publisher(sid, snapshot)
+                except Exception:
+                    pass
 
     def _publish_session_removed(self, session_id: str) -> None:
         if self.session_removed_publisher:
@@ -471,8 +477,14 @@ class SessionManager:
                 self._notify_task_body(ctx.session_id, f"[bold]{msg}[/bold]")
 
             merge_fn = self._make_merge_fn(ctx)
-            ok = self._integrator.integrate(
-                ctx.slot, ctx.task, effective_workdir, merge_fn, status_fn=_status)
+            try:
+                ok = self._integrator.integrate(
+                    ctx.slot, ctx.task, effective_workdir, merge_fn, status_fn=_status)
+            except Exception as exc:
+                # Integration crashed — ensure worktree is cleaned up
+                log_event(self.log_path, "ERROR", "integration crashed",
+                          session_id=ctx.session_id, task_id=ctx.task_id, error=str(exc))
+                ok = False
             if ok:
                 _status(f"INTEGRATED {ctx.task_id} into {self.main_branch}")
             else:

@@ -754,7 +754,10 @@ def _run_commit_phase(
             escape_requested=is_stop_requested,
         )
     finally:
-        monitor.stop()
+        try:
+            monitor.stop()
+        except Exception:
+            pass
         _cleanup_monitor_processes(monitor, log_path, label="commit-phase")
 
     if result != "completed":
@@ -1007,7 +1010,10 @@ def run_merge_expert_phase(
             escape_requested=is_stop_requested,
         )
     finally:
-        monitor.stop()
+        try:
+            monitor.stop()
+        except Exception:
+            pass
         _cleanup_monitor_processes(monitor, log_path, label="merge-expert-phase")
 
     if result != "completed":
@@ -2016,7 +2022,10 @@ class TaskExecutionEngine:
                         )
                         raise
                 finally:
-                    active_monitor.stop()
+                    try:
+                        active_monitor.stop()
+                    except Exception:
+                        pass
                     _cleanup_monitor_processes(active_monitor, self.log_path, label="agent")
                 timeline_step_finished(
                     timeline_id=timeline_id,

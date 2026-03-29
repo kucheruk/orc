@@ -48,14 +48,14 @@ def request_session_stop(session_id: str) -> None:
 def is_session_stop_requested(session_id: str) -> bool:
     with _SESSION_LOCK:
         ev = _SESSION_STOP_EVENTS.get(session_id)
-    return ev.is_set() if ev else False
+        return ev.is_set() if ev else False
 
 
 def clear_session_stop(session_id: str) -> None:
     with _SESSION_LOCK:
         ev = _SESSION_STOP_EVENTS.get(session_id)
-    if ev:
-        ev.clear()
+        if ev:
+            ev.clear()
 
 
 def clear_all_session_stops() -> None:
