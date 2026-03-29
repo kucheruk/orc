@@ -106,8 +106,10 @@ class StreamJsonMonitor:
         self._runner_thread = threading.Thread(target=self._run_event_loop, daemon=True)
         self._runner_thread.start()
         if not self._spawned.wait(timeout=20.0):
+            self._close_agent_output_file()
             raise RuntimeError("Failed to start async monitor process")
         if self._spawn_error is not None:
+            self._close_agent_output_file()
             raise self._spawn_error
 
     @property
@@ -289,19 +291,29 @@ class StreamJsonMonitor:
             raise
 
     async def _read_stderr(self, stream: asyncio.StreamReader) -> None:
-        while not self._stop.is_set():
-            line = await stream.readline()
-            if not line:
-                return
-            decoded = line.decode("utf-8", errors="replace")
-            await self._append_agent_output_async("stderr", decoded)
-            raw = decoded.strip()
-            if not raw:
-                continue
-            self.last_output_time = time.time()
-            self.last_stderr_line = raw[:500]
-            self.stderr_count += 1
-            log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)
+        try:
+            while not self._stop.is_set():
+                line = await stream.readline()
+                if not line:
+                    return
+                decoded = line.decode("utf-8", errors="replace")
+                await self._append_agent_output_async("stderr", decoded)
+                raw = decoded.strip()
+                if not raw:
+                    continue
+                self.last_output_time = time.time()
+                self.last_stderr_line = raw[:500]
+                self.stderr_count += 1
+                log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)
+        except Exception as exc:
+            log_event(
+                self.log_path,
+                "ERROR",
+                "fatal error reading stderr stream",
+                error=str(exc),
+                exception_type=type(exc).__name__,
+            )
+            raise
 
     def _update_git_stats(self) -> None:
         started_ms = now_ms()
@@ -593,9 +605,16 @@ class StreamJsonMonitor:
                 pass
         if self._runner_thread.is_alive():
             self._runner_thread.join(timeout=2.0)
-        if self._agent_output_file is not None:
-            self._agent_output_file.close()
+        self._close_agent_output_file()
+
+    def _close_agent_output_file(self) -> None:
+        f = self._agent_output_file
+        if f is not None:
             self._agent_output_file = None
+            try:
+                f.close()
+            except Exception:
+                pass
 
     def _publish_snapshot(self) -> None:
         if self._snapshot_publisher is not None:

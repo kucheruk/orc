@@ -632,31 +632,34 @@ class SessionManager:
     def _cleanup_worktree_checked(self, ctx: TaskContext) -> bool:
         if not ctx.worktree:
             return True
-        try:
-            cleanup_task_worktree(ctx.worktree, self.log_path)
-            ctx.slot.worktree = None
-            return True
-        except Exception as exc:
-            ctx.slot.error = f"worktree_cleanup_failed:{type(exc).__name__}"
-            log_event(self.log_path, "ERROR", "worktree cleanup failed",
-                      session_id=ctx.session_id, task_id=ctx.task_id, error=str(exc))
-            if self.max_sessions == 1:
-                self.last_failure_reason = ctx.slot.error
-            return False
+        with self._worktree_lock:
+            try:
+                cleanup_task_worktree(ctx.worktree, self.log_path)
+                ctx.slot.worktree = None
+                return True
+            except Exception as exc:
+                ctx.slot.error = f"worktree_cleanup_failed:{type(exc).__name__}"
+                log_event(self.log_path, "ERROR", "worktree cleanup failed",
+                          session_id=ctx.session_id, task_id=ctx.task_id, error=str(exc))
+                if self.max_sessions == 1:
+                    self.last_failure_reason = ctx.slot.error
+                return False
 
     def _cleanup_worktree_silent(self, worktree: Optional[WorktreeSession]) -> None:
         if not worktree:
             return
-        try:
-            cleanup_task_worktree(worktree, self.log_path)
-        except Exception:
-            # Force-remove if normal cleanup fails (e.g. worktree has uncommitted changes)
+        # Serialize worktree operations to avoid races with concurrent integration
+        with self._worktree_lock:
             try:
-                from .worktree_flow import run_git
-                run_git(worktree.base_workdir, ["git", "worktree", "remove", "--force", worktree.worktree_path])
-                run_git(worktree.base_workdir, ["git", "worktree", "prune"])
-            except Exception as exc2:
-                _logger.debug("worktree force cleanup failed: %s", exc2)
+                cleanup_task_worktree(worktree, self.log_path)
+            except Exception:
+                # Force-remove if normal cleanup fails (e.g. worktree has uncommitted changes)
+                try:
+                    from .worktree_flow import run_git
+                    run_git(worktree.base_workdir, ["git", "worktree", "remove", "--force", worktree.worktree_path])
+                    run_git(worktree.base_workdir, ["git", "worktree", "prune"])
+                except Exception as exc2:
+                    _logger.debug("worktree force cleanup failed: %s", exc2)
 
     # ── Analysis ─────────────────────────────────────────────────
 

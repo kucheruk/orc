@@ -344,19 +344,21 @@ def integrate_commit_into_main(
     task_id: str,
     log_path: Path,
     main_branch: str = "main",
+    skip_preflight: bool = False,
 ) -> IntegrationResult:
-    preflight = preflight_main_integration(base_workdir=base_workdir, main_branch=main_branch)
-    if not preflight.ok:
-        return IntegrationResult(ok=False, conflict=False, error=preflight.error)
-    if preflight.safe_tracked or preflight.safe_untracked:
-        log_event(
-            log_path,
-            "WARN",
-            "ignoring runtime artifacts before integration",
-            task_id=task_id,
-            tracked_runtime=list(preflight.safe_tracked[:20]),
-            untracked_runtime=list(preflight.safe_untracked[:20]),
-        )
+    if not skip_preflight:
+        preflight = preflight_main_integration(base_workdir=base_workdir, main_branch=main_branch)
+        if not preflight.ok:
+            return IntegrationResult(ok=False, conflict=False, error=preflight.error)
+        if preflight.safe_tracked or preflight.safe_untracked:
+            log_event(
+                log_path,
+                "WARN",
+                "ignoring runtime artifacts before integration",
+                task_id=task_id,
+                tracked_runtime=list(preflight.safe_tracked[:20]),
+                untracked_runtime=list(preflight.safe_untracked[:20]),
+            )
 
     ok_checkout, _, stderr_checkout, _ = run_git(base_workdir, ["git", "checkout", main_branch])
     if not ok_checkout:
