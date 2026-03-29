@@ -373,7 +373,7 @@ class CliAppTuiMouseReportingTest(unittest.TestCase):
         )
         build_parser_mock.return_value = SimpleNamespace(parse_args=lambda: args)
         resolve_backlog_mock.return_value = (Path("BACKLOG.md"), None)
-        orchestrator_cls_mock.return_value = SimpleNamespace(last_failure_reason="", run_async=lambda: None)
+        orchestrator_cls_mock.return_value = SimpleNamespace(last_failure_reason="", run_async=lambda: None, get_summary=lambda: "")
         orc_app_instance = orc_app_cls_mock.return_value
         orc_app_instance.run.return_value = 0
         orc_app_instance.last_error = None
@@ -450,7 +450,7 @@ class CliAppTuiMouseReportingTest(unittest.TestCase):
         )
         build_parser_mock.return_value = SimpleNamespace(parse_args=lambda: args)
         resolve_backlog_mock.return_value = (Path("BACKLOG.md"), None)
-        orchestrator_cls_mock.return_value = SimpleNamespace(last_failure_reason="", run_async=lambda: None)
+        orchestrator_cls_mock.return_value = SimpleNamespace(last_failure_reason="", run_async=lambda: None, get_summary=lambda: "")
         model_loader_mock.return_value = SimpleNamespace(result=lambda timeout=30.0: ["gpt-5.3-codex"])
         call_index = {"value": 0}
 
@@ -551,7 +551,7 @@ class CliAppCrashStdoutDiagnosticsTest(unittest.TestCase):
         )
         build_parser_mock.return_value = SimpleNamespace(parse_args=lambda: args)
         resolve_backlog_mock.return_value = (Path("BACKLOG.md"), None)
-        orchestrator_cls_mock.return_value = SimpleNamespace(last_failure_reason="", run_async=lambda: None)
+        orchestrator_cls_mock.return_value = SimpleNamespace(last_failure_reason="", run_async=lambda: None, get_summary=lambda: "")
         orc_app_instance = orc_app_cls_mock.return_value
         orc_app_instance.run.return_value = 1
         orc_app_instance.last_error = "Traceback worker crash"

@@ -11,49 +11,52 @@ from unittest.mock import patch
 from textual.app import App
 
 from orc_core.tui.screens.execution import ExecutionScreen
+from orc_core.tui.screens.session_panel import SessionPanel, _format_activity
 from orc_core.stream_monitor_state import MetricsStore, MonitorSnapshot
 
 
 class ExecutionScreenRenderTest(unittest.TestCase):
     def test_activity_markup_shows_starting_before_first_event(self) -> None:
-        screen = ExecutionScreen()
-        starting = screen._activity_markup()
-        self.assertIn("BOOT", starting)
-        self.assertIn("no messages yet", starting)
+        markup = _format_activity(
+            phase="starting", status="no messages yet",
+            since=0.0, tool_count=0, is_subagent=False, detail="full",
+        )
+        self.assertIn("BOOT", markup)
+        self.assertIn("no messages yet", markup)
 
     def test_activity_markup_uses_expected_thresholds(self) -> None:
-        screen = ExecutionScreen()
-        screen.live_phase = "thinking"
-        screen.live_status = "planning"
-        screen.live_since = time.time() - 1.0
-        self.assertIn("THINK", screen._activity_markup())
+        markup = _format_activity(
+            phase="thinking", status="planning",
+            since=time.time() - 1.0, tool_count=0, is_subagent=False, detail="full",
+        )
+        self.assertIn("THINK", markup)
 
-        screen.live_phase = "waiting"
-        screen.live_status = "waiting"
-        screen.live_since = time.time() - 20.0
-        self.assertIn("WAIT", screen._activity_markup())
+        markup = _format_activity(
+            phase="waiting", status="waiting",
+            since=time.time() - 20.0, tool_count=0, is_subagent=False, detail="full",
+        )
+        self.assertIn("WAIT", markup)
 
-        screen.live_since = time.time() - 75.0
-        self.assertIn("STALL?", screen._activity_markup())
+        markup = _format_activity(
+            phase="waiting", status="waiting",
+            since=time.time() - 75.0, tool_count=0, is_subagent=False, detail="full",
+        )
+        self.assertIn("STALL?", markup)
 
     def test_activity_markup_shows_network_problem_as_red_status(self) -> None:
-        screen = ExecutionScreen()
-        screen.live_phase = "network_problem"
-        screen.live_status = "Network problems: reconnecting"
-        screen.live_since = time.time() - 5.0
-
-        markup = screen._activity_markup()
+        markup = _format_activity(
+            phase="network_problem", status="Network problems: reconnecting",
+            since=time.time() - 5.0, tool_count=0, is_subagent=False, detail="full",
+        )
         self.assertIn("NETWORK", markup)
         self.assertIn("[red]", markup)
         self.assertIn("Network problems", markup)
 
     def test_activity_markup_escapes_live_status_markup_tokens(self) -> None:
-        screen = ExecutionScreen()
-        screen.live_phase = "assistant"
-        screen.live_status = "responding [/"
-        screen.live_since = time.time() - 1.0
-
-        markup = screen._activity_markup()
+        markup = _format_activity(
+            phase="assistant", status="responding [/",
+            since=time.time() - 1.0, tool_count=0, is_subagent=False, detail="full",
+        )
         self.assertIn(r"\[/", markup)
 
     def test_render_text_contains_key_sections(self) -> None:
@@ -82,75 +85,34 @@ class ExecutionScreenRenderTest(unittest.TestCase):
             last_event_at=time.time() - 3,
             progress_remaining=3,
             progress_added_delta=2,
-            eta_seconds=180.0,
         )
-        screen = ExecutionScreen()
+        panel = SessionPanel(session_id="s1", id="panel_s1")
 
         class _TestApp(App[None]):
             def compose(self):
-                yield screen
+                yield panel
 
         async def _run() -> None:
             async with _TestApp().run_test() as pilot:
                 _ = pilot
-                screen.update_from_snapshot(snapshot)
-                self.assertEqual(screen.task_title, "Task: TASK-1")
-                self.assertEqual(screen.progress_done, 1)
-                self.assertEqual(screen.progress_total, 4)
-                self.assertEqual(screen.total_lines, 10)
-                self.assertEqual(screen.progress_remaining, 3)
-                self.assertEqual(screen.progress_added_delta, 2)
-                activity = screen.query_one("#activity_label")
+                panel.update_from_snapshot(snapshot)
+                self.assertEqual(panel.task_title, "TASK-1")
+                self.assertEqual(panel.progress_done, 1)
+                self.assertEqual(panel.progress_total, 4)
+                self.assertEqual(panel.total_lines, 10)
+                self.assertEqual(panel.progress_remaining, 3)
+                self.assertEqual(panel.progress_added_delta, 2)
+                activity = panel.query_one("#activity_label_s1")
                 self.assertIn("AGENT", str(activity.render()))
-                task_label = screen.query_one("#task_label")
+                task_label = panel.query_one("#task_label_s1")
                 self.assertIn("Progress: 1/4", str(task_label.render()))
                 self.assertIn("(+2)", str(task_label.render()))
-                stats = screen.query_one("#stats_label")
+                stats = panel.query_one("#stats_label_s1")
                 self.assertIn("Done: 1", str(stats.render()))
                 self.assertIn("Ahead: 3", str(stats.render()))
                 self.assertIn("Total: 4", str(stats.render()))
                 self.assertIn("+7", str(stats.render()))
                 self.assertIn("-2", str(stats.render()))
-
-        import asyncio
-
-        asyncio.run(_run())
-
-    def test_debug_log_label_shows_file_name_when_available(self) -> None:
-        metrics = MetricsStore(tokens_total=42, files_edited=3, command_count=5, total_lines=10, total_output_chars=999)
-        snapshot = MonitorSnapshot(
-            task_id="TASK-1",
-            started_at=time.time() - 5,
-            progress_done=1,
-            progress_total=4,
-            metrics=metrics,
-            last_event_type="tool_call",
-            last_event_note="ReadFile started",
-            recent_commands=["ReadFile", "Shell"],
-            recent_files=["/tmp/a.py"],
-            recent_events=["tool_call:started ReadFile"],
-            reasoning_lines=["planning step one"],
-            spinner_idx=1,
-            last_event_at=time.time() - 3,
-        )
-        screen = ExecutionScreen()
-
-        class _TestApp(App[None]):
-            def compose(self):
-                yield screen
-
-        async def _run() -> None:
-            with patch(
-                "orc_core.tui.screens.execution.get_debug_log_path",
-                return_value=Path("/tmp/orc/orc-debug-20260301-120000-123.jsonl"),
-            ):
-                async with _TestApp().run_test() as pilot:
-                    _ = pilot
-                    screen.update_from_snapshot(snapshot)
-                    stats = screen.query_one("#stats_label")
-                    self.assertNotIn("/tmp/orc/orc-debug-20260301-120000-123.jsonl", str(stats.render()))
-                    debug_log_label = screen.query_one("#debug_log_label")
-                    self.assertIn("Debug log: orc-debug-20260301-120000-123.jsonl", str(debug_log_label.render()))
 
         import asyncio
 
@@ -176,17 +138,17 @@ class ExecutionScreenRenderTest(unittest.TestCase):
             progress_added_delta=0,
             eta_seconds=None,
         )
-        screen = ExecutionScreen()
+        panel = SessionPanel(session_id="s1", id="panel_s1")
 
         class _TestApp(App[None]):
             def compose(self):
-                yield screen
+                yield panel
 
         async def _run() -> None:
             async with _TestApp().run_test() as pilot:
                 _ = pilot
-                screen.update_from_snapshot(snapshot)
-                task_label = screen.query_one("#task_label")
+                panel.update_from_snapshot(snapshot)
+                task_label = panel.query_one("#task_label_s1")
                 self.assertNotIn("(+", str(task_label.render()))
 
         import asyncio
@@ -194,20 +156,19 @@ class ExecutionScreenRenderTest(unittest.TestCase):
         asyncio.run(_run())
 
     def test_mode_label_shows_quit_after_task_mode(self) -> None:
-        screen = ExecutionScreen()
+        panel = SessionPanel(session_id="s1", id="panel_s1")
 
         class _TestApp(App[None]):
             def compose(self):
-                yield screen
+                yield panel
 
         async def _run() -> None:
             async with _TestApp().run_test() as pilot:
                 _ = pilot
-                screen.set_quit_after_task_requested(True)
-                mode = screen.query_one("#mode_label")
+                panel.set_quit_after_task_requested(True)
+                mode = panel.query_one("#mode_label_s1")
                 self.assertIn("QUIT AFTER TASK", str(mode.render()))
-                self.assertIn("commit phase will run", str(mode.render()))
-                screen.set_quit_after_task_requested(False)
+                panel.set_quit_after_task_requested(False)
                 self.assertIn("Mode: normal", str(mode.render()))
 
         import asyncio
@@ -234,11 +195,11 @@ class ExecutionScreenRenderTest(unittest.TestCase):
             progress_added_delta=0,
             eta_seconds=None,
         )
-        screen = ExecutionScreen()
+        panel = SessionPanel(session_id="s1", id="panel_s1")
 
         class _TestApp(App[None]):
             def compose(self):
-                yield screen
+                yield panel
 
         async def _run() -> None:
             with tempfile.TemporaryDirectory() as tmp_dir:
@@ -253,8 +214,8 @@ class ExecutionScreenRenderTest(unittest.TestCase):
                     os.chdir(tmp_dir)
                     async with _TestApp().run_test() as pilot:
                         _ = pilot
-                        screen.update_from_snapshot(snapshot)
-                        task_label = screen.query_one("#task_label")
+                        panel.update_from_snapshot(snapshot)
+                        task_label = panel.query_one("#task_label_s1")
                         rendered = str(task_label.render())
                         self.assertIn("Progress: 164/184", rendered)
                         self.assertIn("Сделать вывод title в статусной строке", rendered)

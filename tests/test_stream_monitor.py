@@ -805,7 +805,9 @@ class StreamMonitorFormattingTest(unittest.TestCase):
             monitor._state = MagicMock()
             monitor._refresh_backlog_progress()
 
-        monitor._state.set_progress.assert_called_once_with(1, 3)
+        args = monitor._state.set_progress.call_args[0]
+        self.assertEqual(args[0], 1)
+        self.assertEqual(args[1], 3)
 
     def test_append_agent_output_writes_to_log_file(self) -> None:
         monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)

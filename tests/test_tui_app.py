@@ -32,11 +32,11 @@ class OrcAppMessageHandlingTest(unittest.TestCase):
 
     def test_snapshot_message_updates_execution_screen(self) -> None:
         app = OrcApp(lambda _publish: 0)
-        app._execution_screen.update_from_snapshot = MagicMock()
+        app._execution_screen.update_session = MagicMock()
 
-        app.on_snapshot_updated(SnapshotUpdated(self._make_snapshot()))
+        app.on_snapshot_updated(SnapshotUpdated("session-1", self._make_snapshot()))
 
-        app._execution_screen.update_from_snapshot.assert_called_once()
+        app._execution_screen.update_session.assert_called_once()
 
     def test_orchestrator_finished_stores_error_and_exits(self) -> None:
         app = OrcApp(lambda _publish: 0)

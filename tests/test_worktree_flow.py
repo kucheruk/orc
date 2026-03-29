@@ -191,6 +191,7 @@ class WorktreeFlowTest(unittest.TestCase):
             (True, " M .orc/backlog-run/raw-stream/task.log\n", "", 0),  # status in worktree
             (True, "", "", 0),  # force remove succeeded
             (True, "", "", 0),  # prune
+            (True, "", "", 0),  # branch -D
         ]
 
         worktree_flow.cleanup_task_worktree(session, Path("/tmp/orc.log"))
@@ -213,6 +214,7 @@ class WorktreeFlowTest(unittest.TestCase):
             (True, "?? .cursor/orc-task.json\n?? .cursor/orc-task-runtime.json\n", "", 0),  # status in worktree
             (True, "", "", 0),  # force remove succeeded
             (True, "", "", 0),  # prune
+            (True, "", "", 0),  # branch -D
         ]
 
         worktree_flow.cleanup_task_worktree(session, Path("/tmp/orc.log"))

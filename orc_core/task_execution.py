@@ -424,6 +424,8 @@ def _build_completion_stats_slice(*, monitor, fallback_done: int, fallback_total
 
 
 def _read_tasks_per_hour_from_stats(workdir: str) -> Optional[float]:
+    from .state_paths import stats_path as get_stats_path
+
     root = str(workdir or "").strip()
     if not root:
         return None

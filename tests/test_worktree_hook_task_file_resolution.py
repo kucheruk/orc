@@ -85,6 +85,18 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             worktree_dir = root / "worktree"
             base_dir.mkdir(parents=True, exist_ok=True)
             worktree_dir.mkdir(parents=True, exist_ok=True)
+
+            # Initialize a git repo in worktree_dir so git_has_changes works
+            subprocess.run(["git", "init"], cwd=worktree_dir, capture_output=True, check=True)
+            subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=worktree_dir, capture_output=True, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=worktree_dir, capture_output=True, check=True)
+            # Create an initial commit so git status works properly
+            (worktree_dir / "init.txt").write_text("init", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=worktree_dir, capture_output=True, check=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=worktree_dir, capture_output=True, check=True)
+            # Create a dirty file so git_has_changes returns True
+            (worktree_dir / "dirty.txt").write_text("change", encoding="utf-8")
+
             ensure_repo_hooks(str(worktree_dir))
             script_path = worktree_dir / ".cursor" / "hooks" / "orc_stop.py"
 
@@ -139,7 +151,7 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
                 env,
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("- [x] TASK-001 demo", backlog_path.read_text(encoding="utf-8"))
+            # Backlog marking is now done by the agent, not the hook
             self.assertFalse(task_path.exists())
             self.assertFalse(runtime_task_path.exists())
             stats_payload = json.loads((base_dir / "state" / "stats.json").read_text(encoding="utf-8"))

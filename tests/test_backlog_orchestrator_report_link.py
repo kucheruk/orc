@@ -7,6 +7,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
+from orc_core.quit_signal import clear_stop_request
 from orc_core.session_manager import SessionManager
 from orc_core.task_execution import TaskExecutionResult
 from orc_core.task_source import MarkdownTaskSource
@@ -48,12 +49,12 @@ def _args(backlog: str) -> Namespace:
 
 
 class SessionManagerReportLinkTest(unittest.TestCase):
-    @patch("orc_core.session_manager.ensure_repo_hooks")
-    @patch("orc_core.session_manager.ensure_repo_hooks_config")
-    def test_orchestrator_does_not_skip_open_task_with_report_link(self, hooks_config, hooks) -> None:
-        hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
-        hooks_config.return_value = Path("/tmp/hooks.json")
+    def setUp(self) -> None:
+        clear_stop_request()
+
+    def test_orchestrator_does_not_skip_open_task_with_report_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = str(Path(tmpdir).resolve())
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text(
                 "- [ ] INFRA-001 Solution Structure → tasks/INFRA-001.md\n"
@@ -65,18 +66,16 @@ class SessionManagerReportLinkTest(unittest.TestCase):
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),
-                task_path=Path(tmpdir) / ".cursor" / "orc-task.json",
-                run_root=Path(tmpdir) / ".orc" / "run",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
                 prompt_template="{task_id}",
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=engine,
-                use_task_worktrees=False,
+                integrate_to_main=False,
                 sleep_fn=lambda _seconds: None,
             )
 
-            rc = orchestrator.run()
+            rc = orchestrator.run(snapshot_publisher=lambda _sid, _snap: None)
 
         self.assertEqual(rc, 0)
         self.assertEqual([call.task.task_id for call in engine.calls], ["INFRA-001", "INFRA-002"])

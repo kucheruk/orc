@@ -53,12 +53,12 @@ class _FakeMonitor:
 
 class SupervisorLifecycleTest(unittest.TestCase):
     @patch("orc_core.supervisor_lifecycle.send_telegram_message")
-    @patch("orc_core.supervisor_lifecycle._session_debug_log")
+    @patch("orc_core.supervisor_lifecycle.debug_log")
     @patch("orc_core.supervisor_lifecycle.time.sleep")
     def test_wait_for_completion_sends_stuck_notice_after_15m_without_token_changes(
         self,
         _sleep_mock,
-        _session_debug_mock,
+        _debug_log_mock,
         send_telegram_message_mock,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

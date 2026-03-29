@@ -58,7 +58,7 @@ class RunnerLaunchTest(unittest.TestCase):
             monitor_cls_mock.call_args.kwargs["agent_output_log_path"],
             "/tmp/orc-agent-output.log",
         )
-        monitor_instance.set_progress.assert_called_once_with(1, 2)
+        monitor_instance.set_progress.assert_called_once_with(1, 2, 0)
 
     @patch("orc_core.runner.StreamJsonMonitor")
     def test_resume_id_keeps_resume_flag(self, monitor_cls_mock) -> None:

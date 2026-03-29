@@ -5,8 +5,6 @@ import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path
-from unittest.mock import patch
-
 from orc_core.session_manager import SessionManager
 from orc_core.quit_signal import (
     clear_stop_request,
@@ -72,12 +70,9 @@ class QuitAfterTaskTest(unittest.TestCase):
         self.assertFalse(is_quit_after_task_requested())
         self.assertFalse(is_stop_requested())
 
-    @patch("orc_core.session_manager.ensure_repo_hooks")
-    @patch("orc_core.session_manager.ensure_repo_hooks_config")
-    def test_orchestrator_stops_after_current_completed_task(self, hooks_config, hooks) -> None:
-        hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
-        hooks_config.return_value = Path("/tmp/hooks.json")
+    def test_orchestrator_stops_after_current_completed_task(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = str(Path(tmpdir).resolve())
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text(
                 "- [ ] TASK-001 first\n"
@@ -89,30 +84,26 @@ class QuitAfterTaskTest(unittest.TestCase):
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),
-                task_path=Path(tmpdir) / ".cursor" / "orc-task.json",
-                run_root=Path(tmpdir) / ".orc" / "run",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
                 prompt_template="{task_id}",
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=engine,
-                use_task_worktrees=False,
+                integrate_to_main=False,
                 sleep_fn=lambda _seconds: None,
             )
 
             app = OrcApp(lambda _publish: 0)
             app.action_request_quit_after_task()
-            rc = orchestrator.run()
+            rc = orchestrator.run(lambda _sid, _snap: None)
 
         self.assertEqual(rc, 0)
         self.assertEqual([call.task.task_id for call in engine.calls], ["TASK-001"])
 
-    @patch("orc_core.session_manager.ensure_repo_hooks")
-    @patch("orc_core.session_manager.ensure_repo_hooks_config")
-    def test_orchestrator_does_not_stop_without_commit(self, hooks_config, hooks) -> None:
-        hooks.return_value = (Path("/tmp/before.py"), Path("/tmp/stop.py"))
-        hooks_config.return_value = Path("/tmp/hooks.json")
+    def test_orchestrator_stops_after_uncommitted_task_too(self) -> None:
+        """quit-after-task stops after one task even when the task has no commit."""
         with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = str(Path(tmpdir).resolve())
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text(
                 "- [ ] TASK-001 first\n"
@@ -124,23 +115,21 @@ class QuitAfterTaskTest(unittest.TestCase):
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args("BACKLOG.md"),
-                task_path=Path(tmpdir) / ".cursor" / "orc-task.json",
-                run_root=Path(tmpdir) / ".orc" / "run",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
                 prompt_template="{task_id}",
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=engine,
-                use_task_worktrees=False,
+                integrate_to_main=False,
                 sleep_fn=lambda _seconds: None,
             )
 
             app = OrcApp(lambda _publish: 0)
             app.action_request_quit_after_task()
-            rc = orchestrator.run()
+            rc = orchestrator.run(lambda _sid, _snap: None)
 
         self.assertEqual(rc, 0)
-        self.assertEqual([call.task.task_id for call in engine.calls], ["TASK-001", "TASK-002"])
+        self.assertEqual([call.task.task_id for call in engine.calls], ["TASK-001"])
 
 
 if __name__ == "__main__":

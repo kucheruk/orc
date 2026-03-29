@@ -48,7 +48,8 @@ def _args() -> Namespace:
 
 class BacklogModeCycleGuardTest(unittest.TestCase):
     def test_backlog_mode_ignores_task_id_and_continues_cycle(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            tmpdir = str(Path(_tmpdir).resolve())
             backlog_path = Path(tmpdir) / "BACKLOG.md"
             backlog_path.write_text("- [ ] TASK-001 a\n- [ ] TASK-002 b\n", encoding="utf-8")
             engine = _Engine(backlog_path)
@@ -56,17 +57,15 @@ class BacklogModeCycleGuardTest(unittest.TestCase):
                 workdir=tmpdir,
                 backlog_path=backlog_path,
                 args=_args(),
-                task_path=Path(tmpdir) / ".cursor" / "orc-task.json",
-                run_root=Path(tmpdir) / ".orc" / "run",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
                 prompt_template="{task_id}",
                 continue_template="{task_id}",
                 commit_template="{task_id}",
                 engine=engine,
-                use_task_worktrees=False,
+                integrate_to_main=False,
                 sleep_fn=lambda _seconds: None,
             )
-            rc = orchestrator.run()
+            rc = orchestrator.run(lambda _sid, _snap: None)
         self.assertEqual(rc, 0)
         self.assertEqual(engine.calls, ["TASK-001", "TASK-002"])
 

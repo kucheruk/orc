@@ -26,9 +26,9 @@ class CodexBuildCmdTest(unittest.TestCase):
         cmd = self.backend.build_agent_cmd(model="codex-mini", resume_latest=True)
         self.assertEqual(cmd[:4], ["codex", "exec", "resume", "--last"])
 
-    def test_resume_by_id_uses_last(self) -> None:
+    def test_resume_by_id(self) -> None:
         cmd = self.backend.build_agent_cmd(model="codex-mini", resume_id="some-id")
-        self.assertIn("--last", cmd)
+        self.assertEqual(cmd, ["codex", "exec", "resume", "some-id"])
 
     def test_resume_with_prompt(self) -> None:
         cmd = self.backend.build_agent_cmd(model="codex-mini", resume_latest=True, resume_prompt="keep going")
