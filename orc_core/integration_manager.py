@@ -163,18 +163,63 @@ class IntegrationManager:
         execution_workdir: str,
         merge_expert_fn: Optional[Callable],
     ) -> bool:
-        if not self._preflight(ctx):
-            return False
         if not self._has_commits(ctx, execution_workdir):
             return True
         if not self._resolve_commit(ctx, execution_workdir):
             return False
-        saved = self._stash_safe_files(ctx)
+        stashed = self._stash_dirty_state(ctx)
         try:
-            result = self._cherry_pick_with_retry(ctx, merge_expert_fn)
+            if not self._preflight(ctx):
+                return False
+            saved = self._stash_safe_files(ctx)
+            try:
+                result = self._cherry_pick_with_retry(ctx, merge_expert_fn)
+            finally:
+                self._restore_safe_files(ctx, saved)
+            return result
         finally:
-            self._restore_safe_files(ctx, saved)
-        return result
+            if stashed:
+                self._pop_stash(ctx)
+
+    def _stash_dirty_state(self, ctx: IntegrationContext) -> bool:
+        """Stash any dirty working-tree state so cherry-pick has a clean base.
+
+        Returns True if a stash was created. The caller MUST call _pop_stash()
+        in a finally block to restore the user's changes.
+        """
+        # Quick check: is there anything to stash?
+        ok, stdout, _, _ = run_git(self.workdir, ["git", "status", "--porcelain"])
+        if not ok or not stdout.strip():
+            return False
+        ok_stash, _, stderr, _ = run_git(
+            self.workdir,
+            ["git", "stash", "push", "--include-untracked", "-m", "orc-integration-autostash"],
+        )
+        if ok_stash:
+            ctx.step("autostash_created")
+            return True
+        ctx.step("autostash_failed", stderr=stderr[:ERROR_TRUNCATE])
+        return False
+
+    def _pop_stash(self, ctx: IntegrationContext) -> None:
+        """Restore stashed state after cherry-pick. Conflicts are left for user."""
+        ok, _, stderr, _ = run_git(self.workdir, ["git", "stash", "pop"])
+        if ok:
+            ctx.step("autostash_restored")
+        else:
+            # Pop failed (conflict with cherry-picked changes). The stash is
+            # still on the stack. Try to apply instead — git stash apply leaves
+            # the stash so nothing is lost even if working-tree conflicts remain.
+            ok_apply, _, stderr_apply, _ = run_git(self.workdir, ["git", "stash", "apply"])
+            if ok_apply:
+                ctx.step("autostash_applied_with_conflicts")
+                # Drop the stash entry since apply succeeded
+                run_git(self.workdir, ["git", "stash", "drop"])
+            else:
+                ctx.step("autostash_pop_failed", stderr=stderr_apply[:ERROR_TRUNCATE])
+                log_event(self.log_path, "WARN",
+                          "autostash pop/apply failed — stash preserved, run 'git stash pop' manually",
+                          workdir=self.workdir)
 
     def _stash_safe_files(self, ctx: IntegrationContext) -> dict[str, str]:
         saved: dict[str, str] = {}
