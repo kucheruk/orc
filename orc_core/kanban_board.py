@@ -107,6 +107,19 @@ class KanbanBoard:
                     return c
         return None
 
+    def find_card_file(self, card_id: str) -> Optional[Path]:
+        """Search all stage directories for a card file by ID.
+
+        Use when the cached ``file_path`` may be stale (e.g. another agent
+        moved the card while an agent was running).
+        """
+        filename = f"{card_id}.md"
+        for stage in STAGES:
+            candidate = self._tasks_dir / stage / filename
+            if candidate.exists():
+                return candidate
+        return None
+
     def stage_count(self, stage: str) -> int:
         with self._lock:
             return sum(1 for c in self._cards if c.stage == stage)
@@ -243,12 +256,16 @@ class KanbanBoard:
     def _detect_stuck_cards(self, cards: list["KanbanCard"], threshold_minutes: int = 45) -> str:
         """Detect cards stuck in a non-Done stage for too long."""
         from datetime import datetime, timezone
+        done_ids = {c.id for c in self._cards if c.stage == "8_Done"}
         now = datetime.now(timezone.utc)
         stuck: list[str] = []
         for c in cards:
             if c.assigned_agent:
                 continue  # currently being worked on
             if not c.updated_at:
+                continue
+            # Cards waiting for dependencies are intentionally idle — not stuck.
+            if c.dependencies and any(dep not in done_ids for dep in c.dependencies):
                 continue
             try:
                 ts = datetime.fromisoformat(c.updated_at.replace("Z", "+00:00"))

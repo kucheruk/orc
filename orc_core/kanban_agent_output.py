@@ -66,14 +66,39 @@ def process_agent_result(
 
     Returns list of validation errors (empty = success).
     """
-    if card.file_path is None or not card.file_path.exists():
-        return [f"Card file not found: {card.file_path}"]
+    file_path = card.file_path
+    if file_path is None or not file_path.exists():
+        # Card may have been moved by another agent/teamlead while this agent was running.
+        # Search by ID across all stage directories.
+        found = board.find_card_file(card.id)
+        if found is None:
+            return [f"Card file not found (checked all stages): {card.id}"]
+        _logger.info("Card %s moved during execution: %s → %s", card.id, file_path, found)
+        file_path = found
+        card.file_path = found
 
-    updated = read_card(card.file_path)
+    updated = read_card(file_path)
     errors = _validate_agent_changes(card, updated, role)
     if errors:
         _logger.warning("Agent output validation errors for %s: %s", card.id, errors)
         return errors
+
+    # Auto-default: if the agent didn't change the action, apply the most
+    # common "done" transition for that role so work keeps flowing.
+    _IDENTITY_DEFAULTS: dict[str, dict[str, str]] = {
+        "coder": {Action.CODING: Action.REVIEWING},
+        "reviewer": {Action.REVIEWING: Action.TESTING},
+        "tester": {Action.TESTING: Action.INTEGRATING},
+    }
+    if updated.action == card.action:
+        defaults = _IDENTITY_DEFAULTS.get(role, {})
+        default_next = defaults.get(card.action)
+        if default_next:
+            _logger.info(
+                "Agent %s left action unchanged (%s); auto-defaulting to %s for %s",
+                role, card.action, default_next, card.id,
+            )
+            updated.action = default_next
 
     # Apply valid changes
     new_action = updated.action
@@ -127,14 +152,15 @@ def _validate_agent_changes(
     if updated.id != original.id:
         errors.append(f"Agent changed id from {original.id} to {updated.id}")
 
-    # Validate action transition
-    role_transitions = _VALID_TRANSITIONS.get(role, {})
-    valid_actions = role_transitions.get(original.action, set())
-    if valid_actions and updated.action not in valid_actions:
-        errors.append(
-            f"Invalid transition for {role}: {original.action} → {updated.action}. "
-            f"Valid: {valid_actions}"
-        )
+    # Validate action transition (identity = agent didn't change action, allowed)
+    if updated.action != original.action:
+        role_transitions = _VALID_TRANSITIONS.get(role, {})
+        valid_actions = role_transitions.get(original.action, set())
+        if valid_actions and updated.action not in valid_actions:
+            errors.append(
+                f"Invalid transition for {role}: {original.action} → {updated.action}. "
+                f"Valid: {valid_actions}"
+            )
 
     # Stage must not be changed by agent
     if updated.stage != original.stage:

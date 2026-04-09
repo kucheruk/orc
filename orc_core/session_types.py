@@ -85,6 +85,7 @@ class SessionSlot:
     last_snapshot: Optional[MonitorSnapshot] = None
     error: str = ""
     crash_traceback: str = ""
+    role: str = ""
 
 
 @dataclass

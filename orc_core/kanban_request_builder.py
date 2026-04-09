@@ -12,7 +12,7 @@ from .backend import Backend
 from .state_paths import parallel_task_path
 from .state_paths import run_root as state_run_root
 from .stream_monitor_state import MonitorSnapshot
-from .task_execution import TaskExecutionRequest
+from .task_execution import ModelConfig, TaskExecutionRequest, TemplateConfig, TimingConfig
 from .task_source import Task
 
 
@@ -58,13 +58,30 @@ def build_kanban_request(
         workdir=workdir,
         base_workdir=base_workdir,
         run_root=state_run_root(base_workdir, f"kanban-{session_id}"),
-        model=model,
-        commit_model=commit_model,
-        merge_expert_model=merge_expert_model or commit_model,
-        prompt_template=prompt,
-        continue_template="",
-        commit_template=commit_template,
-        merge_expert_template=merge_expert_template,
+        timing=TimingConfig(
+            poll=float(getattr(args, "poll", 0.5)),
+            stall_timeout=float(getattr(args, "stall_timeout", 300.0)),
+            task_ttl=task_ttl,
+            max_restarts=int(getattr(args, "max_restarts", 1)),
+            report_interval=float(getattr(args, "report_interval", 30.0)),
+            summary_lines=int(getattr(args, "summary_lines", 5)),
+            nudge_after=int(getattr(args, "nudge_after", 0)),
+            nudge_cooldown=float(getattr(args, "nudge_cooldown", 120.0)),
+            nudge_text=str(getattr(args, "nudge_text", "")),
+            commit_stall_timeout=float(getattr(args, "commit_stall_timeout", 120.0)),
+            commit_ttl=float(getattr(args, "commit_ttl", 300.0)),
+        ),
+        models=ModelConfig(
+            model=model,
+            commit_model=commit_model,
+            merge_expert_model=merge_expert_model or commit_model,
+        ),
+        templates=TemplateConfig(
+            prompt_template=prompt,
+            continue_template="",
+            commit_template=commit_template,
+            merge_expert_template=merge_expert_template,
+        ),
         commit_phase=commit_phase,
         integrate_to_main=False,
         main_branch=main_branch,
@@ -76,16 +93,5 @@ def build_kanban_request(
         progress_in_progress=in_progress,
         agent_env={"ORC_SESSION_ID": session_id, "ORC_BASE_WORKSPACE": base_workdir},
         snapshot_publisher=snapshot_publisher,
-        poll=float(getattr(args, "poll", 0.5)),
-        stall_timeout=float(getattr(args, "stall_timeout", 300.0)),
-        task_ttl=task_ttl,
-        max_restarts=int(getattr(args, "max_restarts", 1)),
-        report_interval=float(getattr(args, "report_interval", 30.0)),
-        summary_lines=int(getattr(args, "summary_lines", 5)),
-        nudge_after=int(getattr(args, "nudge_after", 0)),
-        nudge_cooldown=float(getattr(args, "nudge_cooldown", 120.0)),
-        nudge_text=str(getattr(args, "nudge_text", "")),
-        commit_stall_timeout=float(getattr(args, "commit_stall_timeout", 120.0)),
-        commit_ttl=float(getattr(args, "commit_ttl", 300.0)),
     )
 

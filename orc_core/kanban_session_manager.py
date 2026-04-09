@@ -321,7 +321,7 @@ class KanbanSessionManager:
             sid = next_session_id()
             slot = SessionSlot(session_id=sid)
             self._slots[sid] = slot
-        slot._kanban_role = role  # type: ignore[attr-defined]
+        slot.role = role
         self._launch_slot_thread(slot)
         self.publisher._emit("system", "", f"{sid} session created (role={role})")
         if self.snapshot_publisher:
@@ -330,7 +330,7 @@ class KanbanSessionManager:
         return sid
 
     def _launch_slot_thread(self, slot: SessionSlot) -> None:
-        role = getattr(slot, "_kanban_role", "worker")
+        role = slot.role or "worker"
         target = self._run_teamlead if role == ROLE_TEAMLEAD else self._run_worker
         thread = threading.Thread(target=target, args=(slot,), daemon=True,
                                   name=f"kanban-{slot.session_id}")
@@ -1024,7 +1024,7 @@ class KanbanSessionManager:
         with self._slots_lock:
             worker_slots = [
                 s for s in self._slots.values()
-                if getattr(s, "_kanban_role", "worker") == "worker"
+                if (s.role or "worker") == "worker"
                 and s.status in (SlotStatus.IDLE, SlotStatus.RUNNING)
             ]
         original_count = len(worker_slots)
@@ -1061,7 +1061,7 @@ class KanbanSessionManager:
         with self._slots_lock:
             current_workers = sum(
                 1 for s in self._slots.values()
-                if getattr(s, "_kanban_role", "worker") == "worker"
+                if (s.role or "worker") == "worker"
                 and s.status in (SlotStatus.IDLE, SlotStatus.RUNNING)
             )
         new_ids = []

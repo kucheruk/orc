@@ -10,6 +10,7 @@ import threading
 import tempfile
 import time
 import traceback
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -446,3 +447,101 @@ def timeline_instant(
         payload["data"] = data
     _write_debug_payload(payload)
     return ts_ms
+
+
+# ── Timeline step context manager ──────────────────────────────────
+
+
+class _TimelineStepContext:
+    """Mutable context yielded by ``timeline_step``.
+
+    Callers set ``result`` and ``reason`` before exiting the ``with`` block.
+    If ``result`` is not set explicitly, it defaults to ``"completed"`` on
+    normal exit and ``"failed"`` on exception.
+    """
+
+    __slots__ = (
+        "timeline_id", "task_id", "step", "location", "attempt",
+        "hypothesis_id", "_started_ms", "result", "reason", "finish_data",
+    )
+
+    def __init__(
+        self,
+        *,
+        timeline_id: str,
+        task_id: str,
+        step: str,
+        location: str,
+        attempt: int = 0,
+        hypothesis_id: str = "TL",
+    ) -> None:
+        self.timeline_id = timeline_id
+        self.task_id = task_id
+        self.step = step
+        self.location = location
+        self.attempt = attempt
+        self.hypothesis_id = hypothesis_id
+        self._started_ms: int = 0
+        self.result: str = ""
+        self.reason: str = ""
+        self.finish_data: Optional[Dict[str, object]] = None
+
+    @property
+    def started_at_ms(self) -> int:
+        return self._started_ms
+
+
+@contextmanager
+def timeline_step(
+    *,
+    timeline_id: str,
+    task_id: str,
+    step: str,
+    location: str,
+    attempt: int = 0,
+    hypothesis_id: str = "TL",
+    data: Optional[Dict[str, object]] = None,
+):
+    """Context manager that auto-pairs timeline start/finish.
+
+    Usage::
+
+        with timeline_step(timeline_id=tid, task_id=tid, step="phase",
+                           location="module:func") as ts:
+            ...
+            ts.result = "completed"
+            ts.reason = "clean_tree"
+
+    On normal exit ``result`` defaults to ``"completed"``.
+    On exception ``result`` defaults to ``"failed"`` and the exception is re-raised.
+    """
+    ctx = _TimelineStepContext(
+        timeline_id=timeline_id, task_id=task_id, step=step,
+        location=location, attempt=attempt, hypothesis_id=hypothesis_id,
+    )
+    ctx._started_ms = timeline_step_started(
+        timeline_id=timeline_id, task_id=task_id, step=step,
+        location=location, attempt=attempt, hypothesis_id=hypothesis_id,
+        data=data,
+    )
+    try:
+        yield ctx
+    except BaseException:
+        if not ctx.result:
+            ctx.result = "failed"
+        timeline_step_finished(
+            timeline_id=timeline_id, task_id=task_id, step=step,
+            location=location, attempt=attempt, hypothesis_id=hypothesis_id,
+            started_at_ms=ctx._started_ms, result=ctx.result,
+            reason=ctx.reason, data=ctx.finish_data,
+        )
+        raise
+    else:
+        if not ctx.result:
+            ctx.result = "completed"
+        timeline_step_finished(
+            timeline_id=timeline_id, task_id=task_id, step=step,
+            location=location, attempt=attempt, hypothesis_id=hypothesis_id,
+            started_at_ms=ctx._started_ms, result=ctx.result,
+            reason=ctx.reason, data=ctx.finish_data,
+        )

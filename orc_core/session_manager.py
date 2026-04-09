@@ -45,10 +45,13 @@ from .state_paths import (
 from .stream_monitor_state import MonitorSnapshot, make_terminal_snapshot
 from .task_distributor import TaskDistributor
 from .task_execution import (
+    ModelConfig,
     SafeDict,
     TaskExecutionEngine,
     TaskExecutionRequest,
     TaskStageSpec,
+    TemplateConfig,
+    TimingConfig,
     run_merge_expert_phase,
 )
 from .task_source import MarkdownTaskSource
@@ -551,13 +554,30 @@ class SessionManager:
             workdir=effective_workdir,
             base_workdir=self.workdir,
             run_root=state_run_root(self.workdir, f"session-{session_id}"),
-            model=self.args.model,
-            commit_model=self._resolve_model(self.args.commit_model),
-            merge_expert_model=self.merge_expert_model or self._resolve_model(self.args.commit_model),
-            prompt_template=self.prompt_template,
-            continue_template=self.continue_template,
-            commit_template=self.commit_template,
-            merge_expert_template=self.merge_expert_template,
+            timing=TimingConfig(
+                poll=self.args.poll,
+                stall_timeout=self.args.stall_timeout,
+                task_ttl=self.args.task_ttl,
+                max_restarts=self.args.max_restarts,
+                report_interval=self.args.report_interval,
+                summary_lines=self.args.summary_lines,
+                nudge_after=self.args.nudge_after,
+                nudge_cooldown=self.args.nudge_cooldown,
+                nudge_text=self.args.nudge_text,
+                commit_stall_timeout=self.args.commit_stall_timeout,
+                commit_ttl=self.args.commit_ttl,
+            ),
+            models=ModelConfig(
+                model=self.args.model,
+                commit_model=self._resolve_model(self.args.commit_model),
+                merge_expert_model=self.merge_expert_model or self._resolve_model(self.args.commit_model),
+            ),
+            templates=TemplateConfig(
+                prompt_template=self.prompt_template,
+                continue_template=self.continue_template,
+                commit_template=self.commit_template,
+                merge_expert_template=self.merge_expert_template,
+            ),
             commit_phase=bool(self.args.commit_phase) and not bool(self.stage_specs),
             integrate_to_main=False,
             main_branch=self.main_branch,
@@ -570,23 +590,7 @@ class SessionManager:
             agent_env=self._build_agent_env(session_id, task_path),
             agent_output_log_path=self._agent_output_log_path(),
             snapshot_publisher=self._make_slot_publisher(session_id),
-            **self._timing_args(),
         )
-
-    def _timing_args(self) -> dict:
-        return {
-            "poll": self.args.poll,
-            "stall_timeout": self.args.stall_timeout,
-            "task_ttl": self.args.task_ttl,
-            "max_restarts": self.args.max_restarts,
-            "report_interval": self.args.report_interval,
-            "summary_lines": self.args.summary_lines,
-            "nudge_after": self.args.nudge_after,
-            "nudge_cooldown": self.args.nudge_cooldown,
-            "nudge_text": self.args.nudge_text,
-            "commit_stall_timeout": self.args.commit_stall_timeout,
-            "commit_ttl": self.args.commit_ttl,
-        }
 
     def _agent_output_log_path(self) -> Optional[str]:
         raw = str(getattr(self.args, "agent_output_log_path", "") or "").strip()

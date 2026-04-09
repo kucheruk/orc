@@ -4,12 +4,22 @@
 import json
 import tempfile
 import unittest
+from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import orc_core.task_execution
 import orc_core.task_execution as task_execution
-from orc_core.task_execution import TaskExecutionEngine, TaskExecutionRequest, TaskStageSpec
+from orc_core.task_execution import (
+    ModelConfig,
+    TaskExecutionEngine,
+    TaskExecutionRequest,
+    TaskStageSpec,
+    TemplateConfig,
+    TimingConfig,
+)
 from orc_core.stage_artifacts import build_stage_artifact_bundle
 from orc_core.task_source import Task
 
@@ -154,28 +164,34 @@ class TaskExecutionEngineTest(unittest.TestCase):
             workdir=tmpdir,
             base_workdir=tmpdir,
             run_root=root / ".orc" / "run",
-            model="gpt-5.2-codex",
-            commit_model="gpt-5.2-codex",
-            merge_expert_model="gpt-5.2-codex",
-            prompt_template="{task_id} {task_text}",
-            continue_template="continue {task_id} :: {reason}",
-            commit_template="commit {task_id}",
-            merge_expert_template="merge {task_id}",
+            timing=TimingConfig(
+                poll=0.01,
+                stall_timeout=1.0,
+                task_ttl=1.0,
+                max_restarts=max_restarts,
+                report_interval=0.1,
+                summary_lines=5,
+                nudge_after=5,
+                nudge_cooldown=60.0,
+                nudge_text="continue",
+                commit_stall_timeout=1.0,
+                commit_ttl=1.0,
+            ),
+            models=ModelConfig(
+                model="gpt-5.2-codex",
+                commit_model="gpt-5.2-codex",
+                merge_expert_model="gpt-5.2-codex",
+            ),
+            templates=TemplateConfig(
+                prompt_template="{task_id} {task_text}",
+                continue_template="continue {task_id} :: {reason}",
+                commit_template="commit {task_id}",
+                merge_expert_template="merge {task_id}",
+            ),
             commit_phase=commit_phase,
             integrate_to_main=False,
             main_branch="main",
             allow_fallback_commits=allow_fallback_commits,
-            poll=0.01,
-            stall_timeout=1.0,
-            task_ttl=1.0,
-            max_restarts=max_restarts,
-            report_interval=0.1,
-            summary_lines=5,
-            nudge_after=5,
-            nudge_cooldown=60.0,
-            nudge_text="continue",
-            commit_stall_timeout=1.0,
-            commit_ttl=1.0,
             progress_done=0,
             progress_total=1,
             enforce_stage_artifacts=bool(stage_specs),
@@ -325,8 +341,6 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 2)
         self.assertIn("Ты перестал выдавать результат", retry_prompt)
 
-    @patch("orc_core.task_execution.timeline_step_finished")
-    @patch("orc_core.task_execution.timeline_step_started")
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
@@ -337,25 +351,27 @@ class TaskExecutionEngineTest(unittest.TestCase):
         _write_task_file,
         _update_task_restart_count,
         _kill_process_tree,
-        timeline_started_mock,
-        timeline_finished_mock,
     ) -> None:
-        timeline_started_mock.return_value = 1000
+        original_timeline_step = orc_core.task_execution.timeline_step
+        recorded_steps: list[str] = []
+
+        @contextmanager
+        def _tracking_timeline_step(**kwargs):
+            recorded_steps.append(kwargs.get("step", ""))
+            with original_timeline_step(**kwargs) as ts:
+                yield ts
+
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = engine.execute(self._request(tmpdir))
+            with patch("orc_core.task_execution.timeline_step", side_effect=_tracking_timeline_step):
+                result = engine.execute(self._request(tmpdir))
 
         self.assertEqual(result.status, "completed")
-        started_steps = [kwargs.get("step") for _, kwargs in timeline_started_mock.call_args_list]
-        finished_steps = [kwargs.get("step") for _, kwargs in timeline_finished_mock.call_args_list]
-        self.assertIn("task_execute", started_steps)
-        self.assertIn("agent_attempt", started_steps)
-        self.assertIn("wait_for_completion", started_steps)
-        self.assertIn("task_execute", finished_steps)
-        self.assertIn("agent_attempt", finished_steps)
-        self.assertIn("wait_for_completion", finished_steps)
+        self.assertIn("task_execute", recorded_steps)
+        self.assertIn("agent_attempt", recorded_steps)
+        self.assertIn("wait_for_completion", recorded_steps)
 
     @patch("orc_core.task_execution.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
@@ -644,7 +660,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            request = TaskExecutionRequest(**{**request.__dict__, "nudge_cooldown": 7.0})
+            request = replace(request, timing=replace(request.timing, nudge_cooldown=7.0))
             result = engine.execute(request)
 
         self.assertEqual(result.status, "continue")
@@ -781,7 +797,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=False)
-            request = TaskExecutionRequest(**{**request.__dict__, "progress_done": 3, "progress_total": 9})
+            request = replace(request, progress_done=3, progress_total=9)
             ok = task_execution._run_commit_phase(
                 worker=worker,
                 request=request,
@@ -877,9 +893,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            request = TaskExecutionRequest(
-                **{**request.__dict__, "integrate_to_main": True, "main_branch": "main"}
-            )
+            request = replace(request, integrate_to_main=True, main_branch="main")
             result = engine.execute(request)
 
         self.assertEqual(result.status, "completed")
@@ -908,7 +922,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            request = TaskExecutionRequest(**{**request.__dict__, "integrate_to_main": True})
+            request = replace(request, integrate_to_main=True)
             result = engine.execute(request)
 
         self.assertEqual(result.status, "completed")
@@ -929,7 +943,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            request = TaskExecutionRequest(**{**request.__dict__, "integrate_to_main": True})
+            request = replace(request, integrate_to_main=True)
             result = engine.execute(request)
 
         self.assertEqual(result.status, "failed")
@@ -939,7 +953,6 @@ class TaskExecutionEngineTest(unittest.TestCase):
         )
         self.assertEqual(worker.launch_calls, 0)
 
-    @patch("orc_core.task_execution.timeline_step_finished")
     @patch("orc_core.task_execution.integrate_commit_into_main")
     @patch("orc_core.task_execution.preflight_main_integration")
     @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=True)
@@ -958,20 +971,31 @@ class TaskExecutionEngineTest(unittest.TestCase):
             conflict=False,
             error="checkout main failed: branch is locked",
         )
+
+        original_timeline_step = orc_core.task_execution.timeline_step
+        finished_records: list[dict] = []
+
+        @contextmanager
+        def _tracking_timeline_step(**kwargs):
+            with original_timeline_step(**kwargs) as ts:
+                yield ts
+            finished_records.append({"step": kwargs.get("step"), "result": ts.result, "reason": ts.reason})
+
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            request = TaskExecutionRequest(**{**request.__dict__, "integrate_to_main": True})
-            result = engine.execute(request)
+            request = replace(request, integrate_to_main=True)
+            with patch("orc_core.task_execution.timeline_step", side_effect=_tracking_timeline_step):
+                result = engine.execute(request)
 
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.reason, "main_integration_failed")
         reasons = [
-            kwargs.get("reason")
-            for _args, kwargs in task_execution.timeline_step_finished.call_args_list
-            if kwargs.get("step") == "main_integration"
+            rec["reason"]
+            for rec in finished_records
+            if rec["step"] == "main_integration"
         ]
         self.assertIn("main_integration_failed:checkout_failed", reasons)
 

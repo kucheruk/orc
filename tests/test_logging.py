@@ -19,6 +19,7 @@ from orc_core.logging import (
     report_fatal_exception,
     set_log_context,
     timeline_instant,
+    timeline_step,
     timeline_step_finished,
     timeline_step_started,
 )
@@ -249,6 +250,104 @@ class TimelineDebugLogTest(unittest.TestCase):
         self.assertGreaterEqual(int(finish_row.get("duration_ms", -1)), 0)
         self.assertEqual(finish_row.get("result"), "restart")
         self.assertEqual(finish_row.get("reason"), "stalled")
+
+
+class TimelineStepContextManagerTest(unittest.TestCase):
+    """Tests for the ``timeline_step`` context manager."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp()
+        self._log_path = Path(self._tmpdir) / "debug.jsonl"
+        self._orig_debug_enabled = logging_module._DEBUG_ENABLED
+        self._orig_debug_log_path = logging_module._DEBUG_LOG_PATH
+        logging_module._DEBUG_ENABLED = False
+        logging_module._DEBUG_LOG_PATH = self._log_path
+        init_debug_logging(enabled=True, workdir=self._tmpdir)
+
+    def tearDown(self) -> None:
+        logging_module._DEBUG_ENABLED = self._orig_debug_enabled
+        logging_module._DEBUG_LOG_PATH = self._orig_debug_log_path
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _timeline_rows(self) -> list[dict]:
+        if not self._log_path.exists():
+            return []
+        return [
+            json.loads(line)
+            for line in self._log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and json.loads(line).get("type") == "debug_timeline"
+        ]
+
+    def test_normal_exit_defaults_to_completed(self) -> None:
+        with timeline_step(
+            timeline_id="t1", task_id="T-1", step="test_step",
+            location="tests/test_logging.py:test_normal_exit",
+        ) as ts:
+            pass  # no explicit result
+
+        rows = self._timeline_rows()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["event"], "start")
+        self.assertEqual(rows[1]["event"], "finish")
+        self.assertEqual(rows[1]["result"], "completed")
+        self.assertGreaterEqual(rows[1]["duration_ms"], 0)
+
+    def test_exception_defaults_to_failed_and_reraises(self) -> None:
+        with self.assertRaises(ValueError):
+            with timeline_step(
+                timeline_id="t2", task_id="T-2", step="failing_step",
+                location="tests/test_logging.py:test_exception",
+            ) as ts:
+                raise ValueError("boom")
+
+        rows = self._timeline_rows()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1]["result"], "failed")
+
+    def test_explicit_result_preserved_on_normal_exit(self) -> None:
+        with timeline_step(
+            timeline_id="t3", task_id="T-3", step="skip_step",
+            location="tests/test_logging.py:test_explicit_result",
+        ) as ts:
+            ts.result = "skipped"
+            ts.reason = "already_done"
+
+        rows = self._timeline_rows()
+        self.assertEqual(rows[1]["result"], "skipped")
+        self.assertEqual(rows[1]["reason"], "already_done")
+
+    def test_explicit_failed_result_on_normal_exit(self) -> None:
+        with timeline_step(
+            timeline_id="t4", task_id="T-4", step="fail_step",
+            location="tests/test_logging.py:test_explicit_failed",
+        ) as ts:
+            ts.result = "failed"
+            ts.reason = "launch_failed"
+
+        rows = self._timeline_rows()
+        self.assertEqual(rows[1]["result"], "failed")
+        self.assertEqual(rows[1]["reason"], "launch_failed")
+
+    def test_finish_data_passed_through(self) -> None:
+        with timeline_step(
+            timeline_id="t5", task_id="T-5", step="data_step",
+            location="tests/test_logging.py:test_finish_data",
+            data={"model": "gpt-4"},
+        ) as ts:
+            ts.finish_data = {"error": "timeout"}
+
+        rows = self._timeline_rows()
+        self.assertEqual(rows[0]["data"], {"model": "gpt-4"})
+        self.assertEqual(rows[1]["data"], {"error": "timeout"})
+
+    def test_started_at_ms_accessible(self) -> None:
+        with timeline_step(
+            timeline_id="t6", task_id="T-6", step="ts_step",
+            location="tests/test_logging.py:test_started_at_ms",
+        ) as ts:
+            self.assertIsInstance(ts.started_at_ms, int)
+            self.assertGreater(ts.started_at_ms, 0)
 
 
 if __name__ == "__main__":

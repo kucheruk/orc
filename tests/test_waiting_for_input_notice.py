@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.task_execution import TaskExecutionEngine, TaskExecutionRequest
+from orc_core.task_execution import (
+    ModelConfig,
+    TaskExecutionEngine,
+    TaskExecutionRequest,
+    TemplateConfig,
+    TimingConfig,
+)
 from orc_core.task_source import Task
 
 
@@ -59,28 +65,34 @@ def _request(tmpdir: str) -> TaskExecutionRequest:
         workdir=tmpdir,
         base_workdir=tmpdir,
         run_root=root / ".orc" / "run",
-        model="gpt-5.2-codex",
-        commit_model="gpt-5.2-codex",
-        merge_expert_model="gpt-5.2-codex",
-        prompt_template="{task_id} {task_text}",
-        continue_template="continue {task_id} :: {reason}",
-        commit_template="commit {task_id}",
-        merge_expert_template="merge {task_id}",
+        timing=TimingConfig(
+            poll=0.01,
+            stall_timeout=1.0,
+            task_ttl=1.0,
+            max_restarts=1,
+            report_interval=0.1,
+            summary_lines=5,
+            nudge_after=5,
+            nudge_cooldown=7.0,
+            nudge_text="continue",
+            commit_stall_timeout=1.0,
+            commit_ttl=1.0,
+        ),
+        models=ModelConfig(
+            model="gpt-5.2-codex",
+            commit_model="gpt-5.2-codex",
+            merge_expert_model="gpt-5.2-codex",
+        ),
+        templates=TemplateConfig(
+            prompt_template="{task_id} {task_text}",
+            continue_template="continue {task_id} :: {reason}",
+            commit_template="commit {task_id}",
+            merge_expert_template="merge {task_id}",
+        ),
         commit_phase=False,
         integrate_to_main=False,
         main_branch="main",
         allow_fallback_commits=False,
-        poll=0.01,
-        stall_timeout=1.0,
-        task_ttl=1.0,
-        max_restarts=1,
-        report_interval=0.1,
-        summary_lines=5,
-        nudge_after=5,
-        nudge_cooldown=7.0,
-        nudge_text="continue",
-        commit_stall_timeout=1.0,
-        commit_ttl=1.0,
         progress_done=0,
         progress_total=1,
         agent_output_log_path=None,

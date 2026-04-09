@@ -4,10 +4,17 @@
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.task_execution import TaskExecutionEngine, TaskExecutionRequest
+from orc_core.task_execution import (
+    ModelConfig,
+    TaskExecutionEngine,
+    TaskExecutionRequest,
+    TemplateConfig,
+    TimingConfig,
+)
 from orc_core.task_source import Task
 
 
@@ -63,28 +70,34 @@ def _request(base_dir: Path, worktree_dir: Path) -> TaskExecutionRequest:
         workdir=str(worktree_dir),
         base_workdir=str(base_dir),
         run_root=worktree_dir / ".orc" / "run",
-        model="gpt-5.2-codex",
-        commit_model="gpt-5.2-codex",
-        merge_expert_model="gpt-5.2-codex",
-        prompt_template="{task_id} {task_text}",
-        continue_template="continue {task_id} :: {reason}",
-        commit_template="commit {task_id}",
-        merge_expert_template="merge {task_id}",
+        timing=TimingConfig(
+            poll=0.01,
+            stall_timeout=1.0,
+            task_ttl=1.0,
+            max_restarts=1,
+            report_interval=0.1,
+            summary_lines=5,
+            nudge_after=5,
+            nudge_cooldown=1.0,
+            nudge_text="continue",
+            commit_stall_timeout=1.0,
+            commit_ttl=1.0,
+        ),
+        models=ModelConfig(
+            model="gpt-5.2-codex",
+            commit_model="gpt-5.2-codex",
+            merge_expert_model="gpt-5.2-codex",
+        ),
+        templates=TemplateConfig(
+            prompt_template="{task_id} {task_text}",
+            continue_template="continue {task_id} :: {reason}",
+            commit_template="commit {task_id}",
+            merge_expert_template="merge {task_id}",
+        ),
         commit_phase=False,
         integrate_to_main=False,
         main_branch="main",
         allow_fallback_commits=False,
-        poll=0.01,
-        stall_timeout=1.0,
-        task_ttl=1.0,
-        max_restarts=1,
-        report_interval=0.1,
-        summary_lines=5,
-        nudge_after=5,
-        nudge_cooldown=1.0,
-        nudge_text="continue",
-        commit_stall_timeout=1.0,
-        commit_ttl=1.0,
         progress_done=0,
         progress_total=1,
         agent_output_log_path=None,
@@ -178,7 +191,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
             base_dir.mkdir(parents=True, exist_ok=True)
             worktree_dir.mkdir(parents=True, exist_ok=True)
             request = _request(base_dir, worktree_dir)
-            request = TaskExecutionRequest(**{**request.__dict__, "integrate_to_main": True, "main_branch": "main"})
+            request = replace(request, integrate_to_main=True, main_branch="main")
             (worktree_dir / "BACKLOG.md").write_text("- [x] TASK-001 test task\n", encoding="utf-8")
 
             result = engine.execute(request)
@@ -216,7 +229,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
             base_dir.mkdir(parents=True, exist_ok=True)
             worktree_dir.mkdir(parents=True, exist_ok=True)
             request = _request(base_dir, worktree_dir)
-            request = TaskExecutionRequest(**{**request.__dict__, "integrate_to_main": True, "main_branch": "main"})
+            request = replace(request, integrate_to_main=True, main_branch="main")
             (worktree_dir / "BACKLOG.md").write_text("- [x] TASK-001 test task\n", encoding="utf-8")
 
             result = engine.execute(request)

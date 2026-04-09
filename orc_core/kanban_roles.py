@@ -42,10 +42,17 @@ _PROMPT_FILES: dict[str, str] = {
 _template_cache: dict[str, str] = {}
 
 
+def _escape_braces(text: str) -> str:
+    """Escape ``{`` / ``}`` so they survive ``str.format_map`` without being
+    interpreted as format specifiers.  Required for any user-authored content
+    (card bodies, directive text) that may contain literal braces."""
+    return text.replace("{", "{{").replace("}", "}}")
+
+
 def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard") -> str:
     """Build a complete prompt for the given role, card, and board state."""
     template = _load_template(role)
-    card_content = card.to_markdown()
+    card_content = _escape_braces(card.to_markdown())
     card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
     board_summary = format_board_summary(board)
 
@@ -183,12 +190,12 @@ def build_teamlead_prompt(
     Modes: 'arbitration', 'directive', 'health'.
     """
     template = _load_template(ROLE_TEAMLEAD)
-    board_detail = format_board_detail(board, token_stats=token_stats)
+    board_detail = _escape_braces(format_board_detail(board, token_stats=token_stats))
     board_summary = format_board_summary(board)
 
     # Build mode-specific context
     if mode == "arbitration" and card:
-        card_content = card.to_markdown()
+        card_content = _escape_braces(card.to_markdown())
         card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
         log_hint = ""
         if agent_log_path:
@@ -214,7 +221,7 @@ def build_teamlead_prompt(
         mode_context = (
             f"## User Directive\n"
             f"The user sent this command:\n"
-            f"> {directive_text}\n\n"
+            f"> {_escape_braces(directive_text)}\n\n"
             f"Interpret this directive. It could be:\n"
             f"- A new task to create (→ create_card action)\n"
             f"- An instruction about existing cards (→ move/set_action/modify_deps/etc.)\n"
@@ -243,7 +250,7 @@ def build_teamlead_prompt(
         board_detail=board_detail,
         mode_context=mode_context,
         card_path=card_path,
-        card_content=card.to_markdown() if card else "",
+        card_content=_escape_braces(card.to_markdown()) if card else "",
         card_id=card.id if card else "",
         card_stage=card.stage if card else "",
         card_action=card.action if card else "",
