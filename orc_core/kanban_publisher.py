@@ -61,6 +61,9 @@ class KanbanPublisher:
         extra = f": {directive}" if directive else ""
         self._emit("approval", card_id, f"{card_id} unblocked by human{extra}")
 
+    def log_incident(self, incident_id: str, message: str) -> None:
+        self._emit("incident", "", f"[{incident_id}] {message}")
+
     def log_action_change(self, card_id: str, old_action: str, new_action: str, role: str) -> None:
         self._emit("action", card_id, f"{card_id} {old_action} -> {new_action} (by {role})")
 

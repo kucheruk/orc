@@ -236,6 +236,35 @@ class KanbanBoard:
             self._cards.append(card)
         return card
 
+    def create_expedite_card(
+        self,
+        card_id: str,
+        title: str,
+        body: str,
+        *,
+        stage: str = "4_Coding",
+        action: str = "Coding",
+        cos_justification: str = "",
+    ) -> KanbanCard:
+        """Create an expedite card directly at the given stage, bypassing inbox."""
+        from .kanban_card import KanbanCard as KC, write_card
+        from datetime import datetime, timezone
+        card = KC(
+            id=card_id, title=title, stage=stage, action=action,
+            class_of_service="expedite",
+            cos_justification=cos_justification,
+            value_score=100, effort_score=20,
+            created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            body=body,
+        )
+        stage_dir = self._tasks_dir / stage
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        path = stage_dir / f"{card_id}.md"
+        write_card(card, path)
+        with self._lock:
+            self._cards.append(card)
+        return card
+
     def next_card_id(self) -> str:
         with self._lock:
             nums = []

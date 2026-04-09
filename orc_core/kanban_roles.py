@@ -25,6 +25,7 @@ _BASE_DIR = Path(__file__).resolve().parents[1]
 _PROMPTS_DIR = _BASE_DIR / "prompts"
 
 ROLE_TEAMLEAD = "teamlead"
+ROLE_TEAMLEAD_TRIAGE = "teamlead_triage"
 
 _PROMPT_FILES: dict[str, str] = {
     ROLE_PRODUCT: "kanban_product.txt",
@@ -34,6 +35,7 @@ _PROMPT_FILES: dict[str, str] = {
     ROLE_TESTER: "kanban_tester.txt",
     ROLE_INTEGRATOR: "kanban_integrator.txt",
     ROLE_TEAMLEAD: "kanban_teamlead.txt",
+    ROLE_TEAMLEAD_TRIAGE: "kanban_teamlead_triage.txt",
 }
 
 # Cache loaded templates

@@ -84,6 +84,7 @@ class SessionSlot:
     thread: Optional[threading.Thread] = None
     last_snapshot: Optional[MonitorSnapshot] = None
     error: str = ""
+    crash_traceback: str = ""
 
 
 @dataclass

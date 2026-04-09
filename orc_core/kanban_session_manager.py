@@ -24,6 +24,17 @@ from .kanban_publisher import KanbanPublisher
 from .kanban_request_builder import build_kanban_request
 from .notify import send_telegram_message
 from .kanban_roles import ROLE_TEAMLEAD, build_prompt
+from .teamlead_incident import (
+    DECISION_FILENAME,
+    FIX_CARD_PREFIX,
+    INCIDENT_FIX_TIMEOUT,
+    SCALE_DOWN_WAIT_TIMEOUT,
+    Incident,
+    IncidentPhase,
+    build_incident_prompt,
+    fallback_decision,
+    parse_incident_decision,
+)
 from .logging import log_event
 from .quit_signal import is_quit_after_task_requested, is_session_stop_requested, is_stop_requested
 from .session_types import (
@@ -96,6 +107,8 @@ class KanbanSessionManager:
         self._started_at = 0.0
         self._completed_tasks: list[str] = []
         self._failed_tasks: list[str] = []
+        self._handled_crash_slots: set[str] = set()
+        self._incident_counter: int = 0
 
     # ── Public API ──────────────────────────────────────────────
 
@@ -340,6 +353,7 @@ class KanbanSessionManager:
         except KeyboardInterrupt:
             raise
         except Exception as exc:
+            slot.crash_traceback = traceback.format_exc()[:2000]
             slot.error = f"worker_crashed:{type(exc).__name__}"
             self.publisher._emit("escalate", "", f"{sid} CRASHED: {type(exc).__name__}: {exc}")
             log_event(self.log_path, "ERROR", "worker crashed",
@@ -412,53 +426,436 @@ class KanbanSessionManager:
     def _run_teamlead(self, slot: SessionSlot) -> None:
         sid = slot.session_id
         self.publisher._emit("system", "", f"{sid} teamlead started, monitoring board...")
+        incident: Optional[Incident] = None
         try:
             while self._should_continue(slot):
                 self._distributor.refresh()
-                card = self._distributor.pick_teamlead_task(sid)
-                if card is None:
-                    self.sleep_fn(5.0)
+                if incident is None:
+                    # ── Normal mode: detect anomalies, then do card arbitration ──
+                    anomaly = self._detect_anomaly()
+                    if anomaly is not None:
+                        incident = anomaly
+                        self.publisher.log_incident(
+                            incident.id,
+                            f"{incident.error_type} on {incident.source_task_id or incident.source_slot_id}: "
+                            f"{incident.error_message[:200]}",
+                        )
+                        log_event(self.log_path, "WARN", "incident detected",
+                                  incident_id=incident.id, error_type=incident.error_type,
+                                  source_task=incident.source_task_id, source_slot=incident.source_slot_id)
+                        continue
+                    self._teamlead_arbitrate(slot, sid)
                     if not self._distributor.has_remaining_work():
                         self.publisher._emit("system", "", f"{sid} teamlead: no remaining work")
                         break
-                    continue
-                needs_esc = self._distributor.needs_escalation(card)
-                if needs_esc:
-                    self.publisher._emit("escalate", card.id,
-                                         f"{card.id} loop_count={card.loop_count}, teamlead arbitrating before escalation")
-                log_event(self.log_path, "INFO", "teamlead arbitration",
-                          session_id=sid, task_id=card.id, loop_count=card.loop_count,
-                          escalation_candidate=needs_esc)
-                card.action = Action.ARBITRATION
-                self._distributor.board.save_card(card)
-                prompt = build_prompt(ROLE_TEAMLEAD, card, self._distributor.board)
-                task = Task(task_id=card.id, text=f"[TL] {card.title}", done=False)
-                slot.task = task
-                result = self.engine.execute(self._make_request(task, prompt, self.workdir,
-                                                                sid, False, 600.0))
-                if result and result.status == "completed":
-                    process_agent_result(self._distributor.board, card, ROLE_TEAMLEAD)
-                    if card.action == Action.BLOCKED:
-                        # Teamlead decided to escalate — notify human
-                        self._escalate(card)
-                    else:
-                        card.loop_count = 0
-                        self._distributor.board.save_card(card)
-                        self.publisher._emit("arbitration", card.id,
-                                             f"{card.id} teamlead resolved → {card.action}, loop_count reset")
-                self._distributor.release_card(card.id)
+                    self.sleep_fn(5.0)
+                else:
+                    # ── Incident mode: process state machine ──
+                    incident = self._process_incident(slot, incident)
+                    if incident is None:
+                        self.publisher._emit("incident", "",
+                                             "Incident resolved, resuming normal operations")
+                    self.sleep_fn(2.0)
                 if is_quit_after_task_requested():
                     self.publisher._emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
                     break
-                self.sleep_fn(3.0)
         except KeyboardInterrupt:
             raise
         except Exception as exc:
             slot.error = f"teamlead_crashed:{type(exc).__name__}"
-            log_event(self.log_path, "ERROR", "teamlead crashed", session_id=sid, error=str(exc))
+            log_event(self.log_path, "ERROR", "teamlead crashed",
+                      session_id=sid, error=str(exc),
+                      traceback=traceback.format_exc()[:2000])
         finally:
             with self._slots_lock:
                 slot.status = SlotStatus.CLOSED
+
+    # ── Teamlead: card-level arbitration (existing logic) ────────
+
+    def _teamlead_arbitrate(self, slot: SessionSlot, sid: str) -> None:
+        """Handle looping/blocked cards — unchanged original teamlead behavior."""
+        card = self._distributor.pick_teamlead_task(sid)
+        if card is None:
+            return
+        needs_esc = self._distributor.needs_escalation(card)
+        if needs_esc:
+            self.publisher._emit("escalate", card.id,
+                                 f"{card.id} loop_count={card.loop_count}, "
+                                 f"teamlead arbitrating before escalation")
+        log_event(self.log_path, "INFO", "teamlead arbitration",
+                  session_id=sid, task_id=card.id, loop_count=card.loop_count,
+                  escalation_candidate=needs_esc)
+        card.action = Action.ARBITRATION
+        self._distributor.board.save_card(card)
+        prompt = build_prompt(ROLE_TEAMLEAD, card, self._distributor.board)
+        task = Task(task_id=card.id, text=f"[TL] {card.title}", done=False)
+        slot.task = task
+        result = self.engine.execute(self._make_request(task, prompt, self.workdir,
+                                                        sid, False, 600.0))
+        if result and result.status == "completed":
+            process_agent_result(self._distributor.board, card, ROLE_TEAMLEAD)
+            if card.action == Action.BLOCKED:
+                self._escalate(card)
+            else:
+                card.loop_count = 0
+                self._distributor.board.save_card(card)
+                self.publisher._emit("arbitration", card.id,
+                                     f"{card.id} teamlead resolved → {card.action}, loop_count reset")
+        self._distributor.release_card(card.id)
+        self.sleep_fn(3.0)
+
+    # ── Teamlead: anomaly detection ──────────────────────────────
+
+    def _detect_anomaly(self) -> Optional[Incident]:
+        """Check for crashed workers. Returns Incident or None.
+
+        Only worker CRASHES (Python exceptions escaping ``_run_worker``) trigger
+        incidents. Normal agent failures (validation errors, timeouts, stalls)
+        are handled by the board's retry mechanism and loop-arbitration — they
+        are expected operational events, not incidents.
+        """
+        with self._slots_lock:
+            for slot in self._slots.values():
+                if (slot.error
+                        and slot.status == SlotStatus.CLOSED
+                        and slot.session_id not in self._handled_crash_slots):
+                    self._handled_crash_slots.add(slot.session_id)
+                    self._incident_counter += 1
+                    # Find the task and worktree that were being processed
+                    task_id = slot.task.task_id if slot.task else ""
+                    wt_path = slot.worktree.worktree_path if slot.worktree else ""
+                    return Incident(
+                        id=f"INC-{self._incident_counter:03d}",
+                        phase=IncidentPhase.SCALE_DOWN,
+                        error_type="worker_crash",
+                        source_task_id=task_id,
+                        source_slot_id=slot.session_id,
+                        error_message=slot.error,
+                        traceback=slot.crash_traceback,
+                        worktree_path=wt_path,
+                    )
+
+        return None
+
+    # ── Teamlead: incident state machine ─────────────────────────
+
+    def _process_incident(self, slot: SessionSlot, incident: Incident) -> Optional[Incident]:
+        """Process one step of the incident state machine. Returns updated incident or None if resolved."""
+        phase = incident.phase
+
+        if phase == IncidentPhase.SCALE_DOWN:
+            return self._incident_scale_down(incident)
+
+        if phase == IncidentPhase.TRIAGE:
+            return self._incident_triage(slot, incident)
+
+        if phase == IncidentPhase.INJECT_FIX:
+            return self._incident_inject_fix(incident)
+
+        if phase == IncidentPhase.WAIT_FOR_FIX:
+            return self._incident_wait_for_fix(incident)
+
+        if phase == IncidentPhase.SCALE_UP:
+            return self._incident_scale_up(incident)
+
+        if phase == IncidentPhase.NOTIFY_HUMAN:
+            return self._incident_notify_human(incident)
+
+        # Unknown phase — should not happen
+        log_event(self.log_path, "ERROR", "unknown incident phase",
+                  incident_id=incident.id, phase=str(phase))
+        return None
+
+    def _incident_scale_down(self, incident: Incident) -> Incident:
+        """Scale down workers to 1, then move to TRIAGE."""
+        original_count, removed_ids = self._scale_down_workers(keep=1)
+        # Use intended worker count (max_sessions - 1 for teamlead) if all workers
+        # already crashed, so scale_up restores the correct number.
+        intended_count = self.max_sessions - 1
+        incident.original_worker_count = max(original_count, intended_count)
+        incident.removed_session_ids = removed_ids
+        self.publisher.log_incident(
+            incident.id,
+            f"Scaling down: {original_count} → 1 worker (removed {len(removed_ids)})",
+        )
+        log_event(self.log_path, "INFO", "incident scale_down",
+                  incident_id=incident.id, original=original_count, removed=len(removed_ids))
+        if removed_ids:
+            self._wait_slots_closed(removed_ids, timeout=SCALE_DOWN_WAIT_TIMEOUT)
+        incident.phase = IncidentPhase.TRIAGE
+        return incident
+
+    def _incident_triage(self, slot: SessionSlot, incident: Incident) -> Incident:
+        """Run AI agent for triage analysis."""
+        sid = slot.session_id
+        board = self._distributor.board
+        source_card = board.card_by_id(incident.source_task_id) if incident.source_task_id else None
+
+        orc_root = Path(self.workdir) / ".orc"
+        orc_root.mkdir(parents=True, exist_ok=True)
+        decision_path = orc_root / DECISION_FILENAME
+
+        prompt = build_incident_prompt(incident, board, source_card, str(decision_path), orc_root)
+        task = Task(task_id=f"triage-{incident.id}", text=f"[TL] Triage {incident.id}", done=False)
+        slot.task = task
+
+        self.publisher.log_incident(incident.id, "Running AI triage agent...")
+        result = self.engine.execute(self._make_request(task, prompt, self.workdir,
+                                                        sid, False, 600.0))
+
+        # Parse the decision
+        try:
+            if result and result.status == "completed" and decision_path.exists():
+                decision = parse_incident_decision(decision_path)
+            else:
+                self.publisher.log_incident(incident.id, "AI triage failed, using fallback")
+                log_event(self.log_path, "WARN", "triage agent failed, using fallback",
+                          incident_id=incident.id)
+                decision = fallback_decision(incident)
+        except Exception as exc:
+            self.publisher.log_incident(incident.id, f"Decision parse failed: {exc}, using fallback")
+            log_event(self.log_path, "WARN", "decision parse failed",
+                      incident_id=incident.id, error=str(exc),
+                      error_type=type(exc).__name__)
+            decision = fallback_decision(incident)
+        finally:
+            # Cleanup decision and traceback files
+            for cleanup_path in (decision_path, orc_root / "incident-traceback.txt"):
+                if cleanup_path.exists():
+                    try:
+                        cleanup_path.unlink()
+                    except OSError:
+                        pass
+
+        incident.error_class = decision.classification
+        incident.target_role = decision.target_role
+        incident.fix_title = decision.fix_title
+        incident.fix_body = decision.body
+
+        self.publisher.log_incident(
+            incident.id,
+            f"Triage result: {decision.classification}, role={decision.target_role}, "
+            f"title={decision.fix_title[:80]}",
+        )
+        log_event(self.log_path, "INFO", "triage complete",
+                  incident_id=incident.id, classification=decision.classification,
+                  target_role=decision.target_role)
+
+        if decision.classification == "orc":
+            incident.phase = IncidentPhase.NOTIFY_HUMAN
+        else:
+            incident.phase = IncidentPhase.INJECT_FIX
+        return incident
+
+    def _incident_inject_fix(self, incident: Incident) -> Incident:
+        """Create an expedite fix card and place it on the board."""
+        board = self._distributor.board
+        # Include incident ID to avoid duplicate card IDs if the same task
+        # triggers multiple incidents across time.
+        base = incident.source_task_id or "unknown"
+        fix_card_id = f"{FIX_CARD_PREFIX}{base}-{incident.id}"
+
+        # Map target_role to the correct stage+action so the pull system
+        # assigns the card to the right role.
+        _ROLE_PLACEMENT: dict[str, tuple[str, str]] = {
+            "coder":      ("4_Coding",  Action.CODING),
+            "architect":  ("2_Estimate", Action.ARCHITECT),
+            "reviewer":   ("5_Review",  Action.REVIEWING),
+            "integrator": ("7_Handoff", Action.INTEGRATING),
+        }
+        stage, action = _ROLE_PLACEMENT.get(incident.target_role, ("4_Coding", Action.CODING))
+
+        card = board.create_expedite_card(
+            card_id=fix_card_id,
+            title=incident.fix_title,
+            body=incident.fix_body,
+            stage=stage,
+            action=action,
+            cos_justification=f"Incident {incident.id}: {incident.error_type}",
+        )
+        incident.fix_card_id = fix_card_id
+        incident.fix_started_at = time.time()
+
+        self.publisher.log_incident(
+            incident.id,
+            f"Fix card {fix_card_id} created in {stage} (role={incident.target_role})",
+        )
+        log_event(self.log_path, "INFO", "fix card injected",
+                  incident_id=incident.id, fix_card_id=fix_card_id,
+                  stage=stage, target_role=incident.target_role)
+
+        incident.phase = IncidentPhase.WAIT_FOR_FIX
+        return incident
+
+    def _incident_wait_for_fix(self, incident: Incident) -> Optional[Incident]:
+        """Poll the fix card until done, failed, or timed out."""
+        board = self._distributor.board
+        fix_card = board.card_by_id(incident.fix_card_id)
+
+        if fix_card and fix_card.stage == "8_Done":
+            self.publisher.log_incident(incident.id, f"Fix {incident.fix_card_id} completed!")
+            log_event(self.log_path, "INFO", "fix completed",
+                      incident_id=incident.id, fix_card_id=incident.fix_card_id)
+            incident.phase = IncidentPhase.SCALE_UP
+            return incident
+
+        # Check if fix card itself failed
+        if incident.fix_card_id in self._failed_tasks:
+            self.publisher.log_incident(
+                incident.id,
+                f"Fix card {incident.fix_card_id} itself failed — escalating to human",
+            )
+            self._block_fix_card(incident)
+            self._send_incident_telegram(
+                incident,
+                f"Fix card {incident.fix_card_id} failed while trying to resolve "
+                f"incident {incident.id}.\n"
+                f"Original error: {incident.error_message[:500]}",
+            )
+            # Scale back up before returning — don't leave workers down
+            self._scale_up_workers(incident.original_worker_count)
+            return None
+
+        # Check timeout
+        elapsed = time.time() - incident.fix_started_at
+        if elapsed > INCIDENT_FIX_TIMEOUT:
+            self.publisher.log_incident(
+                incident.id,
+                f"Fix timeout ({INCIDENT_FIX_TIMEOUT:.0f}s) — escalating to human",
+            )
+            self._block_fix_card(incident)
+            self._send_incident_telegram(
+                incident,
+                f"Fix card {incident.fix_card_id} timed out after {elapsed:.0f}s.\n"
+                f"Incident {incident.id}: {incident.error_message[:500]}",
+            )
+            # Scale back up
+            self._scale_up_workers(incident.original_worker_count)
+            return None
+
+        return incident  # Keep waiting
+
+    def _incident_scale_up(self, incident: Incident) -> None:
+        """Restore workers to original count."""
+        new_ids = self._scale_up_workers(incident.original_worker_count)
+        self.publisher.log_incident(
+            incident.id,
+            f"Scaling up: restored to {incident.original_worker_count} workers "
+            f"(added {len(new_ids)})",
+        )
+        log_event(self.log_path, "INFO", "incident scale_up",
+                  incident_id=incident.id, target=incident.original_worker_count,
+                  added=len(new_ids))
+        return None  # Incident resolved
+
+    def _incident_notify_human(self, incident: Incident) -> None:
+        """Send ORC error details to Telegram and block the source card.
+
+        Workers stay scaled down — if the ORC bug is in a common code path,
+        scaling up would cause a crash loop. The human must fix ORC and restart.
+        """
+        self.publisher.log_incident(incident.id, "ORC error — notifying human via Telegram")
+
+        # Send the AI-written message (or a fallback)
+        message = incident.fix_body or (
+            f"ORC BUG in incident {incident.id}\n"
+            f"Error: {incident.error_message}\n"
+            f"Traceback:\n{incident.traceback[:1500]}"
+        )
+        self._send_incident_telegram(incident, message)
+
+        # Block the source card if it exists
+        if incident.source_task_id:
+            board = self._distributor.board
+            card = board.card_by_id(incident.source_task_id)
+            if card and card.action != Action.BLOCKED:
+                card.action = Action.BLOCKED
+                board.save_card(card)
+                self._distributor.release_card(card.id)
+
+        # Do NOT scale workers back up for ORC errors — the bug is in ORC's
+        # own code path and workers would hit the same crash on every task.
+        # The human must fix ORC and restart the orchestrator.
+
+        log_event(self.log_path, "WARN", "orc error notified, workers remain scaled down",
+                  incident_id=incident.id, source_task=incident.source_task_id)
+        return None  # Incident handled (human will fix ORC)
+
+    def _block_fix_card(self, incident: Incident) -> None:
+        """Block the fix card so workers don't retry it after scale-up."""
+        board = self._distributor.board
+        fix_card = board.card_by_id(incident.fix_card_id)
+        if fix_card and fix_card.action != Action.BLOCKED:
+            fix_card.action = Action.BLOCKED
+            board.save_card(fix_card)
+            self._distributor.release_card(fix_card.id)
+
+    def _send_incident_telegram(self, incident: Incident, message: str) -> None:
+        """Send an incident-related Telegram notification."""
+        header = f"INCIDENT {incident.id} ({incident.error_type})\n"
+        send_telegram_message(
+            header + message,
+            self.log_path,
+            orc_root=Path(self.workdir),
+        )
+
+    # ── Teamlead: worker scaling ─────────────────────────────────
+
+    def _scale_down_workers(self, keep: int = 1) -> tuple[int, list[str]]:
+        """Scale down to `keep` workers. Returns (original_count, removed_session_ids)."""
+        with self._slots_lock:
+            worker_slots = [
+                s for s in self._slots.values()
+                if getattr(s, "_kanban_role", "worker") == "worker"
+                and s.status in (SlotStatus.IDLE, SlotStatus.RUNNING)
+            ]
+        original_count = len(worker_slots)
+        if original_count <= keep:
+            return original_count, []
+
+        # Keep RUNNING slots first (they're mid-task), remove IDLE slots first
+        worker_slots.sort(key=lambda s: (0 if s.status == SlotStatus.RUNNING else 1))
+        to_remove = worker_slots[keep:]
+
+        removed_ids = []
+        for s in to_remove:
+            self.request_remove_session(s.session_id)
+            removed_ids.append(s.session_id)
+        return original_count, removed_ids
+
+    def _wait_slots_closed(self, session_ids: list[str], timeout: float = 60.0) -> bool:
+        """Wait for specific slots to reach CLOSED status."""
+        deadline = time.time() + timeout
+        remaining = set(session_ids)
+        while remaining and time.time() < deadline:
+            with self._slots_lock:
+                still_open = {
+                    sid for sid in remaining
+                    if sid in self._slots and self._slots[sid].status not in (SlotStatus.CLOSED,)
+                }
+            remaining = still_open
+            if remaining:
+                self.sleep_fn(1.0)
+        return len(remaining) == 0
+
+    def _scale_up_workers(self, target_count: int) -> list[str]:
+        """Add workers until we reach target_count active workers."""
+        with self._slots_lock:
+            current_workers = sum(
+                1 for s in self._slots.values()
+                if getattr(s, "_kanban_role", "worker") == "worker"
+                and s.status in (SlotStatus.IDLE, SlotStatus.RUNNING)
+            )
+        new_ids = []
+        to_add = max(0, target_count - current_workers)
+        for _ in range(to_add):
+            if is_stop_requested():
+                break
+            sid = self.request_add_session()
+            if sid:
+                new_ids.append(sid)
+            self.sleep_fn(STAGGER_DELAY_SECONDS)
+        return new_ids
 
     def _escalate(self, card: KanbanCard) -> None:
         card.action = "Blocked"
