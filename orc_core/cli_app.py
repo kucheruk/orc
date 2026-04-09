@@ -112,8 +112,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--reinit-hooks", action="store_true", help="Recreate hooks on startup")
     ap.add_argument("--drop", action="store_true", help="Drop active task state and restart from scratch")
     ap.add_argument("--hooks", action="store_true", help="Install agent hooks (default: off, conversation_id captured from stream)")
-    ap.add_argument("--max-sessions", type=int, default=1, help="Max parallel agent sessions (1-4, default: 1)")
-    ap.add_argument("--mode", choices=["backlog", "single", "prompt"], default="", help="Execution mode")
+    ap.add_argument("--max-sessions", type=int, default=0, help="Max parallel agent sessions (1-4, default: 1 for orc, 4 for kanban)")
+    ap.add_argument("--mode", choices=["backlog", "single", "prompt", "kanban"], default="", help="Execution mode")
+    ap.add_argument("--init-kanban", action="store_true", help="Initialize kanban board folder structure and exit")
     ap.add_argument("--task-id", default="", help="Run exactly one backlog task by ID")
     ap.add_argument("--prompt", default="", help="Run one arbitrary prompt without requiring backlog")
     ap.add_argument(
@@ -351,6 +352,12 @@ def main() -> int:
             send_telegram_message(args.telegram_test, log_path)
             return 0
 
+        if getattr(args, "init_kanban", False):
+            from .kanban_init import init_kanban_board
+            tasks_dir = init_kanban_board(Path(workdir))
+            ui_info(f"[orc] Kanban board initialized at {tasks_dir}")
+            return 0
+
         try:
             ensure_agent_installed(backend)
         except AgentNotInstalledError as exc:
@@ -488,28 +495,48 @@ def main() -> int:
                     return 2
 
                 engine = TaskExecutionEngine(log_path=log_path, backend=backend)
-                manager = SessionManager(
-                    workdir=workdir,
-                    backlog_path=backlog_path,
-                    args=args,
-                    log_path=log_path,
-                    engine=engine,
-                    prompt_template=template,
-                    continue_template=continue_template,
-                    commit_template=commit_template,
-                    merge_expert_template=merge_expert_template,
-                    merge_expert_model=merge_expert_model,
-                    integrate_to_main=True,
-                    main_branch=base_branch,
-                    stage_specs=stage_specs,
-                    max_sessions=max(1, min(int(getattr(args, "max_sessions", 1) or 1), 4)),
-                    backend=backend,
-                )
+                mode = str(getattr(args, "mode", "") or "").strip().lower()
+
+                if mode == "kanban":
+                    from .kanban_init import init_kanban_board
+                    from .kanban_session_manager import KanbanSessionManager
+                    tasks_dir = init_kanban_board(Path(workdir))
+                    manager = KanbanSessionManager(
+                        workdir=workdir,
+                        tasks_dir=tasks_dir,
+                        args=args,
+                        log_path=log_path,
+                        engine=engine,
+                        commit_template=commit_template,
+                        merge_expert_template=merge_expert_template,
+                        merge_expert_model=merge_expert_model,
+                        main_branch=base_branch,
+                        max_sessions=max(2, min(int(getattr(args, "max_sessions", 0) or 4), 4)),
+                        backend=backend,
+                    )
+                else:
+                    manager = SessionManager(
+                        workdir=workdir,
+                        backlog_path=backlog_path,
+                        args=args,
+                        log_path=log_path,
+                        engine=engine,
+                        prompt_template=template,
+                        continue_template=continue_template,
+                        commit_template=commit_template,
+                        merge_expert_template=merge_expert_template,
+                        merge_expert_model=merge_expert_model,
+                        integrate_to_main=True,
+                        main_branch=base_branch,
+                        stage_specs=stage_specs,
+                        max_sessions=max(1, min(int(getattr(args, "max_sessions", 0) or 1), 4)),
+                        backend=backend,
+                    )
 
                 def _run_orchestrator(snapshot_publisher: Callable[[str, MonitorSnapshot | None], None]) -> int:
                     return asyncio.run(manager.run_async(snapshot_publisher))
 
-                app = OrcApp(_run_orchestrator, session_manager=manager)
+                app = OrcApp(_run_orchestrator, session_manager=manager, mode=mode)
                 result = app.run(mouse=False)
                 exit_code = int(result if result is not None else 1)
                 if app.last_error:
@@ -524,9 +551,9 @@ def main() -> int:
                     log_event(log_path, "ERROR", "orchestrator crashed", **crash_payload)
                     ui_error("❌ ORC завершился из-за необработанной ошибки. Traceback:")
                     print(app.last_error, file=sys.stderr, flush=True)
-                elif exit_code != 0:
+                elif exit_code not in (0, 130):
                     ui_error(f"❌ {_failure_message(manager.last_failure_reason)}")
-                if exit_code == 0:
+                if exit_code in (0, 130):
                     print(f"\n{manager.get_summary()}", flush=True)
                 if interactive_requested and exit_code == 0 and str(args.mode).strip() == "single":
                     completed_task_id = str(args.task_id).strip()

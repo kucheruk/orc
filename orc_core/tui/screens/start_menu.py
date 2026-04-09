@@ -51,6 +51,7 @@ class StartMenuScreen(Screen[StartMenuChoice]):
             ("backlog", "Выполнять задачи из backlog в цикле"),
             ("single", "Выполнить одну задачу из backlog"),
             ("prompt", "Выполнить произвольную задачу"),
+            ("kanban", "Kanban-доска: виртуальная команда с ролями"),
         ]
         self._sync_model_from_coder_role()
         if self._resume_task_id:

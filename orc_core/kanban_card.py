@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Kanban card: YAML frontmatter + markdown body, parse/serialize/validate."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .kanban_constants import Action, ClassOfService
+
+_FRONT_RE = re.compile(r"\A---\n(.*?\n?)---\n?(.*)", re.DOTALL)
+
+# Fields agents are NOT allowed to change (Python-only)
+PROTECTED_FIELDS: frozenset[str] = frozenset({
+    "id", "stage", "roi", "assigned_agent", "created_at",
+})
+
+
+@dataclass
+class KanbanCard:
+    id: str
+    title: str = ""
+    stage: str = "1_Inbox"
+    action: str = Action.PRODUCT
+    class_of_service: str = ClassOfService.STANDARD
+    cos_justification: str = ""
+    deadline: str = ""
+    value_score: int = 0
+    effort_score: int = 0
+    roi: float = 0.0
+    dependencies: list[str] = field(default_factory=list)
+    loop_count: int = 0
+    assigned_agent: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+    body: str = ""
+    # runtime — not serialized
+    file_path: Path | None = field(default=None, repr=False)
+
+    def compute_roi(self) -> float:
+        if self.effort_score <= 0:
+            return 0.0
+        return round(self.value_score / self.effort_score, 2)
+
+    def refresh_roi(self) -> None:
+        self.roi = self.compute_roi()
+
+    def touch(self) -> None:
+        self.updated_at = _now_iso()
+
+    # ── Serialization ───────────────────────────────────────────
+
+    def to_markdown(self) -> str:
+        fm = _build_frontmatter(self)
+        return f"---\n{fm}---\n\n{self.body}"
+
+    def frontmatter_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "stage": str(self.stage),
+            "action": str(self.action),
+            "class_of_service": str(self.class_of_service),
+            "cos_justification": self.cos_justification,
+            "deadline": self.deadline,
+            "value_score": self.value_score,
+            "effort_score": self.effort_score,
+            "roi": self.roi,
+            "dependencies": [str(d) for d in self.dependencies],
+            "loop_count": self.loop_count,
+            "assigned_agent": self.assigned_agent,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+# ── Parsing ─────────────────────────────────────────────────────
+
+
+def parse_card(text: str, file_path: Path | None = None) -> KanbanCard:
+    m = _FRONT_RE.match(text)
+    if not m:
+        raise ValueError(f"No YAML frontmatter found in {file_path or '<string>'}")
+    raw_yaml, body = m.group(1), m.group(2).strip()
+    loaded = yaml.safe_load(raw_yaml)
+    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
+    card = KanbanCard(
+        id=str(data.get("id", "")),
+        title=str(data.get("title", "")),
+        stage=str(data.get("stage", "1_Inbox")),
+        action=str(data.get("action", Action.PRODUCT)),
+        class_of_service=str(data.get("class_of_service", ClassOfService.STANDARD)),
+        cos_justification=str(data.get("cos_justification", "")),
+        deadline=str(data.get("deadline", "") or ""),
+        value_score=int(data.get("value_score", 0)),
+        effort_score=int(data.get("effort_score", 0)),
+        roi=float(data.get("roi", 0.0)),
+        dependencies=_parse_list(data.get("dependencies")),
+        loop_count=int(data.get("loop_count", 0)),
+        assigned_agent=str(data.get("assigned_agent", "") or ""),
+        created_at=str(data.get("created_at", "") or ""),
+        updated_at=str(data.get("updated_at", "") or ""),
+        body=body,
+        file_path=file_path,
+    )
+    return card
+
+
+def read_card(path: Path) -> KanbanCard:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return parse_card(text, file_path=path)
+
+
+def write_card(card: KanbanCard, path: Path | None = None) -> None:
+    from .atomic_io import write_text_atomic
+
+    target = path or card.file_path
+    if target is None:
+        raise ValueError("No path specified for card write")
+    write_text_atomic(target, card.to_markdown())
+    card.file_path = target
+
+
+def validate_card(card: KanbanCard) -> list[str]:
+    errors: list[str] = []
+    if not card.id:
+        errors.append("Card must have an id")
+    if card.class_of_service == ClassOfService.EXPEDITE and not card.cos_justification:
+        errors.append("Expedite cards require cos_justification")
+    if card.class_of_service == ClassOfService.FIXED_DATE and not card.deadline:
+        errors.append("Fixed-date cards require a deadline")
+    if not (0 <= card.value_score <= 100):
+        errors.append(f"value_score {card.value_score} out of 0-100 range")
+    if not (0 <= card.effort_score <= 100):
+        errors.append(f"effort_score {card.effort_score} out of 0-100 range")
+    try:
+        Action(card.action)
+    except ValueError:
+        errors.append(f"Invalid action: {card.action}")
+    try:
+        ClassOfService(card.class_of_service)
+    except ValueError:
+        errors.append(f"Invalid class_of_service: {card.class_of_service}")
+    return errors
+
+
+def new_card_body() -> str:
+    return (
+        "# 1. Product Requirements\n\n\n"
+        "# 2. Technical Design & DoD\n\n\n"
+        "# 3. Implementation Notes\n\n\n"
+        "# 4. Feedback & Checklist\n"
+    )
+
+
+# ── Helpers ─────────────────────────────────────────────────────
+
+
+def _build_frontmatter(card: KanbanCard) -> str:
+    return yaml.dump(
+        card.frontmatter_dict(),
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+        width=120,
+    )
+
+
+def _parse_list(val: Any) -> list[str]:
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return [str(v) for v in val]
+    return [str(val)]
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")

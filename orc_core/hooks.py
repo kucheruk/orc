@@ -106,6 +106,7 @@ def write_task_file(
     log_path: Path,
     restart_count: int = 0,
     task_path_override: Optional[Path] = None,
+    write_cursor_shim: bool = True,
 ) -> Path:
     task_path = task_path_override or active_task_path(workdir)
     task_path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,7 +132,7 @@ def write_task_file(
     }
     write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
     write_task_runtime_state(task_path, task.task_id)
-    if task_path != cursor_task_shim_path(workdir):
+    if write_cursor_shim and task_path != cursor_task_shim_path(workdir):
         write_cursor_task_shim(workdir, task_path)
     log_event(log_path, "INFO", "task file written", path=str(task_path), task_id=task.task_id)
     return task_path

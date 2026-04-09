@@ -11,6 +11,12 @@ from .backlog_status import BacklogStatus
 from .quit_signal import clear_stop_request, request_stop, toggle_quit_after_task
 from .start_menu import StartMenuChoice
 from .stream_monitor_state import MonitorSnapshot
+from .tui.kanban_messages import (
+    BoardUpdated,
+    InboxCardRequested,
+    JournalEntryAdded,
+    UnblockCardRequested,
+)
 from .tui.messages import (
     OrchestratorFinished,
     SessionAdded,
@@ -22,6 +28,7 @@ from .tui.messages import (
 )
 from .tui.screens.confirm_quit import ConfirmQuitModal
 from .tui.screens.execution import ExecutionScreen
+from .tui.screens.kanban_screen import KanbanScreen
 from .tui.screens.start_menu import StartMenuScreen
 
 
@@ -78,15 +85,21 @@ class OrcApp(App[int]):
         ("escape", "request_quit", "Stop ORC"),
         ("q", "request_quit_after_task", "Quit After Task"),
         ("t", "toggle_dark", "Theme"),
-        ("+", "add_session", "Add Session"),
-        ("-", "remove_session", "Remove Session"),
+        ("f2", "add_session", "+Agent"),
+        ("f3", "remove_session", "-Agent"),
     ]
 
-    def __init__(self, run_orchestrator: Callable[[Callable[[str, MonitorSnapshot], None]], int], *, session_manager=None) -> None:
+    def __init__(self, run_orchestrator: Callable[[Callable[[str, MonitorSnapshot | None], None]], int], *, session_manager=None, mode: str = "") -> None:
         super().__init__()
         self._run_orchestrator = run_orchestrator
         self._session_manager = session_manager
-        self._execution_screen = ExecutionScreen()
+        self._mode = mode
+        self._kanban_screen: KanbanScreen | None = None
+        if mode == "kanban":
+            self._kanban_screen = KanbanScreen()
+            self._execution_screen = self._kanban_screen  # type: ignore[assignment]
+        else:
+            self._execution_screen = ExecutionScreen()
         self._last_error: str | None = None
 
     def on_mount(self) -> None:
@@ -99,6 +112,11 @@ class OrcApp(App[int]):
         if self._session_manager:
             self._session_manager.task_body_publisher = self._publish_task_body_from_worker
             self._session_manager.session_removed_publisher = self._publish_session_removed_from_worker
+        if self._mode == "kanban" and self._session_manager:
+            publisher = getattr(self._session_manager, "publisher", None)
+            if publisher:
+                publisher.board_callback = self._publish_board_from_worker
+                publisher.journal_callback = self._publish_journal_from_worker
         code = 1
         try:
             code = int(self._run_orchestrator(self._publish_snapshot_from_worker))
@@ -131,8 +149,43 @@ class OrcApp(App[int]):
         except RuntimeError:
             pass  # App already shut down
 
+    def _publish_board_from_worker(self, snapshot) -> None:
+        try:
+            self.call_from_thread(self.post_message, BoardUpdated(snapshot))
+        except RuntimeError:
+            pass
+
+    def _publish_journal_from_worker(self, entry) -> None:
+        try:
+            self.call_from_thread(self.post_message, JournalEntryAdded(entry))
+        except RuntimeError:
+            pass
+
+    def on_board_updated(self, message: BoardUpdated) -> None:
+        if self._kanban_screen:
+            self._kanban_screen.update_board(message.snapshot)
+
+    def on_journal_entry_added(self, message: JournalEntryAdded) -> None:
+        if self._kanban_screen:
+            self._kanban_screen.add_journal_entry(message.entry)
+
+    def on_inbox_card_requested(self, message: InboxCardRequested) -> None:
+        if self._session_manager and hasattr(self._session_manager, "add_inbox_card"):
+            self._session_manager.add_inbox_card(message.text)
+
+    def on_unblock_card_requested(self, message: UnblockCardRequested) -> None:
+        if self._session_manager and hasattr(self._session_manager, "unblock_card"):
+            self._session_manager.unblock_card(message.card_id, message.directive)
+
     def on_snapshot_updated(self, message: SnapshotUpdated) -> None:
         self._execution_screen.update_session(message.session_id, message.snapshot)
+        # Forward to card detail screen if it's active on top
+        try:
+            top = self.screen
+        except Exception:
+            return
+        if top is not self._execution_screen and hasattr(top, "update_session"):
+            top.update_session(message.session_id, message.snapshot)
 
     def on_session_added(self, message: SessionAdded) -> None:
         self._execution_screen.add_session(message.session_id)
@@ -171,11 +224,16 @@ class OrcApp(App[int]):
         if not confirmed:
             return
         request_stop()
-        self.exit(130)
+        if self._kanban_screen:
+            self._journal_user("Stop requested, waiting for agents to finish...")
 
     def action_request_quit_after_task(self) -> None:
         requested = toggle_quit_after_task()
         self._execution_screen.set_quit_after_task_requested(requested)
+        if requested:
+            self._journal_user("Quit-after-task ON: agents will finish current tasks then exit")
+        else:
+            self._journal_user("Quit-after-task OFF: normal operation resumed")
 
     def action_add_session(self) -> None:
         if not self._session_manager:
@@ -183,10 +241,21 @@ class OrcApp(App[int]):
         sid = self._session_manager.request_add_session()
         if sid:
             self._execution_screen.add_session(sid)
+            self._journal_user(f"Added agent {sid}")
+        else:
+            self._journal_user("Cannot add agent: max sessions reached")
 
     def action_remove_session(self) -> None:
         if self._session_manager:
             self._session_manager.request_remove_session()
+            self._journal_user("Removing agent...")
+
+    def _journal_user(self, text: str) -> None:
+        if self._kanban_screen:
+            import time as _time
+            from .kanban_snapshot import JournalEntry
+            entry = JournalEntry(timestamp=_time.time(), category="user", card_id="", message=text)
+            self._kanban_screen.add_journal_entry(entry)
 
 
 def run_start_menu(

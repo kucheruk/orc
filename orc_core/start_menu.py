@@ -6,7 +6,7 @@ from typing import Literal
 
 from .backlog_status import BacklogStatus
 
-Mode = Literal["resume", "backlog", "single", "prompt"]
+Mode = Literal["resume", "backlog", "single", "prompt", "kanban"]
 
 
 @dataclass(frozen=True)

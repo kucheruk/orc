@@ -300,3 +300,130 @@
     height: auto;
     margin-top: 1;
 }
+
+/* ═══════════ KANBAN SCREEN ═══════════ */
+
+#kanban_root {
+    padding: 0;
+}
+
+#kanban_metrics {
+    height: 1;
+    background: $accent;
+    color: $text;
+    padding: 0 1;
+}
+
+#kanban_board {
+    height: 2fr;
+    min-height: 10;
+}
+
+.kanban-column {
+    width: 1fr;
+    border: tall $primary-darken-2;
+    overflow-y: auto;
+}
+
+.kanban-column-header {
+    height: 1;
+    background: $surface;
+    color: $text-muted;
+    padding: 0 1;
+    text-style: bold;
+}
+
+.kanban-column-header.wip-ok {
+    color: green;
+}
+
+.kanban-column-header.wip-warn {
+    color: yellow;
+}
+
+.kanban-column-header.wip-full {
+    color: red;
+    text-style: bold;
+}
+
+.kanban-column-body {
+    height: 1fr;
+    scrollbar-size: 0 0;
+}
+
+/* ── KANBAN CARDS ── */
+
+.kanban-card {
+    height: auto;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    border: round $primary-lighten-2;
+}
+
+.kanban-card.card-active {
+    border: round cyan;
+}
+
+.kanban-card.card-idle {
+    border: round $primary-darken-2;
+    color: $text-muted;
+}
+
+.kanban-card.card-expedite {
+    border: round red;
+    color: $text;
+}
+
+.kanban-card.card-blocked {
+    border: round red;
+    background: $error 15%;
+}
+
+/* ── JOURNAL ── */
+
+#kanban_journal_area {
+    height: 1fr;
+    max-height: 12;
+    padding: 0 1;
+}
+
+#kanban_journal {
+    height: 1fr;
+    scrollbar-size: 0 0;
+}
+
+/* ── INPUT ── */
+
+#kanban_input_area {
+    height: 3;
+    padding: 0 1;
+}
+
+#kanban_input {
+    width: 1fr;
+}
+
+#kanban_add_btn {
+    width: 5;
+}
+
+/* ── SELECTION ── */
+
+.kanban-card.card-selected {
+    border: heavy $accent;
+}
+
+.kanban-column-header.col-selected {
+    background: $accent;
+    color: $text;
+}
+
+/* ── CARD DETAIL INFO ── */
+
+#card_info {
+    padding: 2 4;
+}
+
+#card_info Label {
+    margin-bottom: 1;
+}
