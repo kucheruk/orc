@@ -26,6 +26,12 @@ _SHORT_NAMES: dict[str, str] = {
 }
 
 
+class _NoFocusScroll(VerticalScroll):
+    """VerticalScroll that cannot receive focus — prevents arrow key interception."""
+
+    can_focus = False
+
+
 class KanbanColumnWidget(Widget):
     DEFAULT_CLASSES = "kanban-column"
 
@@ -36,7 +42,7 @@ class KanbanColumnWidget(Widget):
 
     def compose(self) -> ComposeResult:
         yield Label(self._short, id=f"col_hdr_{self.stage_name}", classes="kanban-column-header")
-        yield VerticalScroll(id=f"col_body_{self.stage_name}", classes="kanban-column-body")
+        yield _NoFocusScroll(id=f"col_body_{self.stage_name}", classes="kanban-column-body")
 
     def update_from_snapshot(self, stage: StageSnapshot) -> None:
         self._update_header(stage)
@@ -44,7 +50,7 @@ class KanbanColumnWidget(Widget):
 
     def tick_spinners(self) -> None:
         try:
-            body = self.query_one(f"#col_body_{self.stage_name}", VerticalScroll)
+            body = self.query_one(f"#col_body_{self.stage_name}", _NoFocusScroll)
             for card_w in body.query(KanbanCardWidget):
                 card_w.tick_spinner()
         except Exception:
@@ -76,7 +82,7 @@ class KanbanColumnWidget(Widget):
 
     def _reconcile_cards(self, stage: StageSnapshot) -> None:
         try:
-            body = self.query_one(f"#col_body_{self.stage_name}", VerticalScroll)
+            body = self.query_one(f"#col_body_{self.stage_name}", _NoFocusScroll)
         except Exception:
             return
 

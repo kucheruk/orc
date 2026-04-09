@@ -13,6 +13,7 @@ from __future__ import annotations
 import time as _time
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.events import Key
 from textual.screen import Screen
@@ -29,6 +30,11 @@ class KanbanScreen(Screen[None]):
 
     BINDINGS = [
         ("escape", "handle_escape", "Navigate/Quit"),
+        Binding("up", "nav_arrow('up')", "Up", show=False, priority=True),
+        Binding("down", "nav_arrow('down')", "Down", show=False, priority=True),
+        Binding("left", "nav_arrow('left')", "Left", show=False, priority=True),
+        Binding("right", "nav_arrow('right')", "Right", show=False, priority=True),
+        Binding("enter", "nav_arrow('enter')", "Open", show=False, priority=True),
         ("t", "app.toggle_dark", "Theme"),
     ]
 
@@ -66,12 +72,11 @@ class KanbanScreen(Screen[None]):
         else:
             self.app.action_request_quit()
 
-    def on_key(self, event: Key) -> None:
+    def action_nav_arrow(self, direction: str) -> None:
+        """Priority binding for arrow keys — only act in nav mode."""
         if not self._nav_mode:
             return
-
-        handled = True
-        match event.key:
+        match direction:
             case "left":
                 self._nav_left()
             case "right":
@@ -82,12 +87,13 @@ class KanbanScreen(Screen[None]):
                 self._nav_down()
             case "enter":
                 self._open_card()
-            case "i" | "slash":
-                self._exit_nav_mode()
-            case _:
-                handled = False
 
-        if handled:
+    def on_key(self, event: Key) -> None:
+        """Handle non-arrow nav keys (i/slash to exit nav mode)."""
+        if not self._nav_mode:
+            return
+        if event.key in ("i", "slash"):
+            self._exit_nav_mode()
             event.stop()
             event.prevent_default()
 
