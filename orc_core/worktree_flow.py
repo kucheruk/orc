@@ -266,7 +266,10 @@ def create_task_worktree(
         )
         if ok2:
             # Reset to main to be in sync
-            run_git(str(worktree_path), ["git", "reset", "--hard", main_branch])
+            ok_reset, _, stderr_r, _ = run_git(str(worktree_path), ["git", "reset", "--hard", main_branch])
+            if not ok_reset:
+                log_event(log_path, "WARN", "worktree reset to main failed",
+                          task_id=task_id, error=stderr_r.strip()[:200])
         else:
             raise RuntimeError(f"failed to create worktree: {stderr.strip()} / {stderr2.strip()}")
     log_event(

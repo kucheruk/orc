@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 from argparse import Namespace
 from pathlib import Path
 from typing import Callable, Optional
@@ -13,6 +14,7 @@ from .state_paths import parallel_task_path
 from .state_paths import run_root as state_run_root
 from .stream_monitor_state import MonitorSnapshot
 from .task_execution import TaskExecutionRequest
+from .task_source import Task
 
 
 def _ensure_board_sentinel(tasks_dir: Path) -> Path:
@@ -22,7 +24,6 @@ def _ensure_board_sentinel(tasks_dir: Path) -> Path:
         sentinel.parent.mkdir(parents=True, exist_ok=True)
         sentinel.write_text("# Kanban board sentinel — not a real backlog\n", encoding="utf-8")
     return sentinel
-from .task_source import Task
 
 
 def build_kanban_request(
@@ -104,5 +105,5 @@ def send_kanban_telegram(
         )
         if token and chat_id:
             post_telegram_message(token=token, chat_id=chat_id, message=message)
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Failed to send kanban telegram: %s", exc)

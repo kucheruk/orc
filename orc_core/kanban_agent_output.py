@@ -48,9 +48,10 @@ _LOOP_BACK_ACTIONS: frozenset[str] = frozenset({Action.CODING})
 _FORWARD_MOVES: dict[tuple[str, str], str] = {
     # (current_stage, new_action) → new_stage
     ("1_Inbox", Action.ARCHITECT): "2_Estimate",
+    ("1_Inbox", Action.CODING): "3_Todo",           # product fast-tracks to backlog
     ("2_Estimate", Action.CODING): "3_Todo",
     ("4_Coding", Action.REVIEWING): "5_Review",
-    ("5_Review", Action.TESTING): "6_Testing",
+    ("5_Review", Action.TESTING): "6_Testing",       # reviewer approves for testing
     ("6_Testing", Action.INTEGRATING): "7_Handoff",
     ("7_Handoff", Action.DONE): "8_Done",
 }

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import threading
 from pathlib import Path
@@ -57,7 +58,7 @@ class KanbanBoard:
             return
         try:
             text = idx.read_text(encoding="utf-8")
-            m = __import__("re").match(r"\A---\n(.*?\n)---", text, __import__("re").DOTALL)
+            m = re.match(r"\A---\n(.*?\n)---", text, re.DOTALL)
             if m:
                 data = yaml.safe_load(m.group(1)) or {}
                 limit = data.get("wip_limit")

@@ -137,7 +137,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _should_use_interactive_flow(args) -> bool:
-    return not bool(args.mode or args.task_id.strip() or args.prompt.strip() or args.task.strip())
+    return not bool(
+        args.mode
+        or (getattr(args, "task_id", "") or "").strip()
+        or (getattr(args, "prompt", "") or "").strip()
+        or (getattr(args, "task", "") or "").strip()
+    )
 
 
 def _resolve_mode(
