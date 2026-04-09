@@ -1184,7 +1184,7 @@ class TaskExecutionEngine:
                 log_path=self.log_path,
                 stats_slice=stats_slice,
             )
-            send_telegram_message(completion_message, self.log_path)
+            send_telegram_message(completion_message, self.log_path, orc_root=Path(request.workdir))
             prompt_vars = SafeDict(
                 task_text=current_task_text,
                 task_id=current_task_id,
@@ -1619,7 +1619,7 @@ class TaskExecutionEngine:
                 except Exception as exc:
                     log_event(self.log_path, "WARN", "failed to enrich task state with worktree metadata", error=str(exc))
             start_header = f"{task_id} — {task_text}" if task_text else task_id
-            send_telegram_message(f"Старт задачи\n{start_header}", self.log_path)
+            send_telegram_message(f"Старт задачи\n{start_header}", self.log_path, orc_root=Path(request.workdir))
         if request.task_path.exists():
             try:
                 session_payload = json.loads(request.task_path.read_text(encoding="utf-8"))

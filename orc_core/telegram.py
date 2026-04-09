@@ -12,18 +12,29 @@ LogFn = Callable[[Path, str, str], None]
 
 
 def load_telegram_config(*, orc_root: Path, log_path: Path, log_event: LogFn) -> dict:
-    config_path = orc_root / ".orc" / "telegram.json"
-    if not config_path.exists():
-        from .state_paths import telegram_config_path
-        config_path = telegram_config_path()
-    if not config_path.exists():
-        log_event(log_path, "ERROR", "telegram config missing", path=str(config_path))
-        return {}
-    try:
-        return json.loads(config_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        log_event(log_path, "ERROR", "telegram config invalid", error=str(exc), path=str(config_path))
-        return {}
+    from .logging import ORC_ROOT
+
+    candidates = [
+        orc_root / ".orc" / "telegram.json",
+    ]
+    # Fall back to the ORC installation directory (where the config usually lives)
+    if orc_root.resolve() != ORC_ROOT.resolve():
+        candidates.append(ORC_ROOT / ".orc" / "telegram.json")
+    # Fall back to global user config
+    from .state_paths import telegram_config_path
+    candidates.append(telegram_config_path())
+
+    for config_path in candidates:
+        if config_path.exists():
+            try:
+                return json.loads(config_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                log_event(log_path, "ERROR", "telegram config invalid", error=str(exc), path=str(config_path))
+                return {}
+
+    log_event(log_path, "ERROR", "telegram config missing",
+              searched=[str(c) for c in candidates])
+    return {}
 
 
 def resolve_telegram_credentials(*, orc_root: Path, log_path: Path, log_event: LogFn) -> tuple[str, str, str]:

@@ -28,6 +28,7 @@ from .kanban_column import KanbanColumnWidget
 class KanbanScreen(Screen[None]):
 
     BINDINGS = [
+        ("escape", "handle_escape", "Navigate/Quit"),
         ("t", "app.toggle_dark", "Theme"),
     ]
 
@@ -58,12 +59,15 @@ class KanbanScreen(Screen[None]):
 
     # ── Keyboard navigation ────────────────────────────────────
 
+    def action_handle_escape(self) -> None:
+        """Escape binding: enter nav mode (from input) or quit (from nav)."""
+        if not self._nav_mode:
+            self._enter_nav_mode()
+        else:
+            self.app.action_request_quit()
+
     def on_key(self, event: Key) -> None:
         if not self._nav_mode:
-            if event.key == "escape":
-                event.stop()
-                event.prevent_default()
-                self._enter_nav_mode()
             return
 
         handled = True
@@ -80,8 +84,6 @@ class KanbanScreen(Screen[None]):
                 self._open_card()
             case "i" | "slash":
                 self._exit_nav_mode()
-            case "escape":
-                self.app.action_request_quit()
             case _:
                 handled = False
 
