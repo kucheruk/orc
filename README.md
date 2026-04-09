@@ -1,8 +1,8 @@
-# ORC / ORCS — оркестратор задач для Cursor Agent
+# ORC / ORCS — оркестратор задач для AI-агентов
 
-ORC автоматизирует последовательное выполнение задач из `BACKLOG.md` с помощью Cursor Agent CLI.
+ORC автоматизирует последовательное выполнение задач из `BACKLOG.md` с помощью AI-агентов (Cursor, Claude Code, Codex).
 **ORCS** — параллельная версия: до 4 агентов работают одновременно, AI распределяет задачи по очередям чтобы минимизировать конфликты, merge expert автоматически разрешает коллизии при интеграции в main.
-**Kanban** — режим виртуальной команды: 7 специализированных ролей (продакт, архитектор, кодер, ревьюер, тестер, интегратор, тимлид) работают на канбан-доске с pull-системой, WIP-лимитами и автоматической эскалацией.
+**Kanban** — режим виртуальной команды: 7 специализированных ролей (продакт, архитектор, кодер, ревьюер, тестер, интегратор, тимлид) работают на канбан-доске с pull-системой, WIP-лимитами, управлением зависимостями и автоматической эскалацией.
 
 ## Три режима
 
@@ -14,14 +14,26 @@ ORC автоматизирует последовательное выполне
 
 `orcs` = `orc --max-sessions 4`. Kanban = `orc --mode kanban`.
 
+## Бэкенды
+
+ORC поддерживает три агентных бэкенда:
+
+| Бэкенд | CLI | Флаг |
+|--------|-----|------|
+| **Cursor** | `agent` | `--backend cursor` (по умолчанию) |
+| **Claude Code** | `claude` | `--backend claude` |
+| **Codex** | `codex` | `--backend codex` |
+
+Бэкенд определяет, какой AI-агент выполняет задачи. Модель задаётся через `--model` (по умолчанию `gpt-5.3-codex`).
+
 ## Быстрый старт
 
 ### Требования
 
 - Python 3.12+
 - `uv` ([установка](https://docs.astral.sh/uv/))
-- Cursor CLI (`agent`) с выполненным логином
-- Репозиторий с `BACKLOG.md`
+- Один из AI-агентов: Cursor CLI (`agent`), Claude Code (`claude`), или Codex CLI (`codex`)
+- Репозиторий с `BACKLOG.md` (для backlog-режима) или `tasks/` (для kanban)
 
 ### Установка
 
@@ -115,7 +127,8 @@ SessionManager          — оркестрация 1..4 параллельных
 ├── TaskDistributor     — AI-анализ конфликтов, очереди задач
 ├── IntegrationManager  — cherry-pick в main, merge expert, recovery
 ├── TaskAnalyzer        — LLM-вызов для графа конфликтов
-└── TaskExecutionEngine — выполнение одной задачи (существующий код)
+├── Backend             — абстракция бэкенда (Cursor / Claude / Codex)
+└── TaskExecutionEngine — выполнение одной задачи через выбранный бэкенд
 ```
 
 Ключевые файлы:
@@ -123,6 +136,8 @@ SessionManager          — оркестрация 1..4 параллельных
 - `orc_core/integration_manager.py` — интеграция с отказоустойчивостью
 - `orc_core/task_distributor.py` — распределение задач
 - `orc_core/task_analyzer.py` — AI-анализ конфликтов
+- `orc_core/backend.py` — интерфейс бэкенда
+- `orc_core/backends/` — реализации (cursor, claude, codex)
 - `orc_core/session_types.py` — типы, enum, константы
 - `orc_core/tui/screens/session_panel.py` — панель одной сессии
 - `orc_core/tui/screens/execution.py` — Grid-контейнер панелей
@@ -164,7 +179,7 @@ WIP-лимиты ограничивают количество карточек 
 | **Reviewer** | Review | Ревьюит код (SOLID, DRY, KISS), возвращает кодеру или пропускает дальше |
 | **Tester** | Testing | Запускает тесты, пишет дополнительные, возвращает кодеру или пропускает |
 | **Integrator** | Handoff | Cherry-pick/merge в main, запускает тесты на main |
-| **Teamlead** | Любая | Арбитраж при зацикливании (loop_count ≥ 2) между кодером/ревьюером/тестером |
+| **Teamlead** | Любая | Арбитраж при зацикливании, инцидент-менеджмент (crash triage, scale-down/fix/scale-up) |
 
 #### Pull-система
 
@@ -172,11 +187,24 @@ WIP-лимиты ограничивают количество карточек 
 
 Карточка перемещается между стадиями автоматически при смене `action` в YAML-frontmatter. Например, кодер ставит `action: Reviewing` → карточка переезжает из `4_Coding` в `5_Review`.
 
+#### Зависимости между карточками
+
+Карточки могут указывать зависимости в поле `dependencies: [TASK-001, TASK-002]`. Карточка с неразрешёнными зависимостями остаётся в `2_Estimate` и не попадает в `3_Todo`. Когда все зависимости завершены (карточки в `8_Done`), карточка автоматически продвигается в Todo.
+
 #### Петли обратной связи и эскалация
 
 - Ревьюер/тестер возвращает карточку кодеру → `loop_count` увеличивается
-- `loop_count ≥ 2` → подключается Teamlead для арбитража
-- `loop_count ≥ 4` → карточка блокируется, уведомление в Telegram
+- `loop_count ≥ 2` → подключается Teamlead для арбитража (loop_count не сбрасывается — накапливается)
+- `loop_count ≥ 4` → принудительная блокировка карточки + уведомление в Telegram (даже если тимлид пытается "решить" — force-block)
+
+#### Инцидент-менеджмент (Teamlead)
+
+При крэше воркера тимлид запускает цикл реагирования:
+
+1. **Scale-down** — останавливает все воркеры, ждёт завершения текущих задач
+2. **Triage** — анализирует крэш-лог, определяет причину и план исправления
+3. **Fix** — создаёт FIX-карточку, запускает кодера для исправления в изолированном worktree
+4. **Scale-up** — перезапускает воркеры после успешного исправления
 
 #### Human-in-the-loop
 
@@ -218,16 +246,23 @@ assigned_agent: s2
 - **Decision Journal**: лента событий (перемещения, завершения, эскалации)
 - **Чат-ввод**: добавление карточек + команда `/unblock`
 
+#### Worktree-изоляция
+
+Каждая задача получает один git worktree (`orc/{task-id}`), который переиспользуется между стадиями (Coding → Review → Coding loop-back). Worktree создаётся при первом назначении кодеру и очищается только когда карточка достигает `8_Done`.
+
 #### Архитектура kanban
 
 ```
 KanbanSessionManager         — 1 teamlead-поток + N worker-потоков
 ├── KanbanDistributor        — потокобезопасная раздача карточек
-│   └── find_next_work()     — pull справа налево с учётом WIP
+│   └── find_next_work()     — pull справа налево с учётом WIP и зависимостей
 ├── KanbanBoard              — in-memory доска, чтение/запись с диска
 ├── KanbanCard               — модель карточки (YAML + markdown)
-├── process_agent_result()   — валидация изменений агента, перемещение карточек
+├── process_agent_result()   — валидация изменений агента, loop-count, перемещение
 ├── build_prompt()           — инъекция контекста доски в промпты ролей
+├── TeamleadIncident         — инцидент-менеджмент (triage → fix → scale-up)
+├── TeamleadActions          — исполнение решений тимлида (set_action, move, skip, notify)
+├── WorktreeFlow             — создание/reuse/cleanup worktree по задачам
 └── KanbanPublisher          — снапшоты доски и журнал для TUI
 ```
 
@@ -238,9 +273,14 @@ KanbanSessionManager         — 1 teamlead-поток + N worker-потоков
 - `orc_core/kanban_pull.py` — pull-система (правило «справа налево»)
 - `orc_core/kanban_agent_output.py` — валидация и переходы
 - `orc_core/kanban_distributor.py` — раздача работы воркерам
+- `orc_core/kanban_constants.py` — стадии, действия, классы сервиса
 - `orc_core/kanban_roles.py` — построение промптов по ролям
+- `orc_core/teamlead_incident.py` — инцидент-менеджмент тимлида
+- `orc_core/teamlead_actions.py` — исполнение решений тимлида
+- `orc_core/worktree_flow.py` — управление worktree
+- `orc_core/role_config.py` — конфигурация моделей по ролям
 - `orc_core/tui/screens/kanban_screen.py` — TUI канбан-доски
-- `prompts/kanban_*.txt` — промпты для каждой из 7 ролей
+- `prompts/kanban_*.txt` — промпты для каждой из 8 ролей (включая 2 промпта тимлида)
 
 ## Параметры командной строки
 
@@ -251,7 +291,8 @@ KanbanSessionManager         — 1 teamlead-поток + N worker-потоков
 | `--workspace PATH` | `.` | Путь к целевому репозиторию |
 | `--backlog PATH` | `BACKLOG.md` | Файл с задачами |
 | `--max-sessions N` | 1 (orc) / 4 (orcs) | Количество параллельных сессий |
-| `--model MODEL` | `gpt-5.2-codex` | Модель агента |
+| `--model MODEL` | `gpt-5.3-codex` | Модель агента |
+| `--backend cursor\|claude\|codex` | `cursor` | Агентный бэкенд |
 | `--mode backlog\|single\|prompt\|kanban` | интерактивно | Режим выполнения |
 | `--task-id ID` | — | Выполнить одну задачу (single mode) |
 | `--prompt TEXT` | — | Выполнить произвольный промпт |
