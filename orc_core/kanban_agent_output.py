@@ -97,7 +97,11 @@ def process_agent_result(
     # Move card if this transition requires a stage change
     move_key = (card.stage, new_action)
     new_stage = _FORWARD_MOVES.get(move_key)
-    if new_stage and board.has_wip_room(new_stage):
+    # Block promotion to Todo/Coding if dependencies are unmet
+    if new_stage in ("3_Todo", "4_Coding") and board.has_unmet_dependencies(updated):
+        _logger.info("Cannot move %s to %s: unmet dependencies, staying in %s",
+                      updated.id, new_stage, card.stage)
+    elif new_stage and board.has_wip_room(new_stage):
         board.move_card(updated, new_stage, reason=f"{role}: {old_action} -> {new_action}")
         # Ensure action is Done when card reaches 8_Done
         if new_stage == "8_Done" and updated.action != Action.DONE:

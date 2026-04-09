@@ -70,6 +70,16 @@ def find_next_work(board: "KanbanBoard") -> Optional[WorkAssignment]:
             board.move_card(card, "4_Coding", reason="pull: backlog ready")
             return WorkAssignment(card=card, role=ROLE_CODER, needs_worktree=True)
 
+    # 5.5. Promote Estimate cards to Todo when deps are now met
+    #   Cards stay in Estimate with action=Coding when deps were unmet at promotion time.
+    #   Once deps are satisfied, auto-promote to Todo.
+    if board.has_wip_room("3_Todo"):
+        for card in board.cards_with_action("2_Estimate", Action.CODING):
+            if not board.has_unmet_dependencies(card):
+                board.move_card(card, "3_Todo", reason="pull: deps now met")
+                _pull_logger.info("Auto-promoted %s to Todo (deps unblocked)", card.id)
+                break  # one at a time to respect WIP
+
     # 6. Estimate (deps not enforced — architect/product only evaluates)
     result = _try_stage(board, "2_Estimate", Action.ARCHITECT, ROLE_ARCHITECT, worktree=False, check_deps=False)
     if result:
