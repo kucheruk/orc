@@ -117,6 +117,7 @@ class KanbanSessionManager:
         self._handled_crash_slots: set[str] = set()
         self._incident_counter: int = 0
         self._card_fail_counts: dict[str, int] = {}  # card_id → consecutive failures
+        self._arbitrated_at_loop: dict[str, int] = {}  # card_id → loop_count at last arbitration
         self._directive_queue: list[str] = []
         self._directive_lock = threading.Lock()
         self._last_health_check: float = 0.0
@@ -387,14 +388,14 @@ class KanbanSessionManager:
         worktree: Optional[WorktreeSession] = None
         try:
             if assignment.needs_worktree:
-                self.publisher._emit("system", card.id, f"{card.id} creating worktree...")
                 with self._worktree_lock:
                     worktree = create_task_worktree(
                         base_workdir=self.workdir, task_id=card.id,
                         log_path=self.log_path, main_branch=self.main_branch,
                     )
                 wd = worktree.worktree_path
-                self.publisher._emit("system", card.id, f"{card.id} worktree ready")
+                if not worktree.reused:
+                    self.publisher._emit("system", card.id, f"{card.id} worktree ready")
             else:
                 wd = self.workdir
             task = Task(task_id=card.id, text=card.title or card.id, done=False)
@@ -564,6 +565,11 @@ class KanbanSessionManager:
         card = self._distributor.pick_teamlead_task(sid)
         if card is None:
             return
+        # Skip if loop_count hasn't increased since last arbitration
+        prev_arb = self._arbitrated_at_loop.get(card.id, -1)
+        if card.loop_count <= prev_arb and card.action != Action.BLOCKED:
+            self._distributor.release_card(card.id)
+            return
         needs_esc = self._distributor.needs_escalation(card)
         if needs_esc:
             self.publisher._emit("escalate", card.id,
@@ -601,13 +607,21 @@ class KanbanSessionManager:
                                   "teamlead left card in Arbitration, auto-blocking",
                                   task_id=card.id)
                         self._escalate(refreshed)
-                    else:
-                        # Resolved — reset loop_count so card gets a fresh start
-                        refreshed.loop_count = 0
+                    elif needs_esc:
+                        # Escalation threshold reached but teamlead still "resolved" —
+                        # force-block to stop infinite arbitration cycles
+                        refreshed.action = Action.BLOCKED.value
                         self._distributor.board.save_card(refreshed)
+                        log_event(self.log_path, "WARN",
+                                  "force-blocking after escalation threshold",
+                                  task_id=card.id, loop_count=refreshed.loop_count)
+                        self._escalate(refreshed)
+                    else:
+                        # Resolved — record arbitration point, do NOT reset loop_count
+                        self._arbitrated_at_loop[card.id] = card.loop_count
                         self.publisher._emit("arbitration", card.id,
-                                             f"{card.id} teamlead resolved → {refreshed.action}, "
-                                             f"loop_count reset")
+                                             f"{card.id} teamlead resolved → {refreshed.action} "
+                                             f"(loop_count={refreshed.loop_count})")
         finally:
             slot.task = None
             self._distributor.release_card(card.id)

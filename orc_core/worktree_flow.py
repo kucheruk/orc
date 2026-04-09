@@ -30,6 +30,7 @@ class WorktreeSession:
     worktree_path: str
     branch_name: str
     task_id: str
+    reused: bool = False
 
 
 @dataclass(frozen=True)
@@ -246,6 +247,7 @@ def create_task_worktree(
                 worktree_path=str(worktree_path),
                 branch_name=branch_name,
                 task_id=task_id,
+                reused=True,
             )
         # Reset failed — remove and recreate
         log_event(log_path, "WARN", "worktree reset failed, recreating",
