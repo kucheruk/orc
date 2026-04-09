@@ -21,7 +21,8 @@ from .kanban_distributor import KanbanDistributor
 from .kanban_constants import Action
 from .kanban_pull import ROLE_INTEGRATOR, WorkAssignment
 from .kanban_publisher import KanbanPublisher
-from .kanban_request_builder import build_kanban_request, send_kanban_telegram
+from .kanban_request_builder import build_kanban_request
+from .notify import send_telegram_message
 from .kanban_roles import ROLE_TEAMLEAD, build_prompt
 from .logging import log_event
 from .quit_signal import is_quit_after_task_requested, is_session_stop_requested, is_stop_requested
@@ -465,12 +466,13 @@ class KanbanSessionManager:
         msg = (f"ESCALATION: Task {card.id} ({card.title}) blocked. "
                f"Loop count: {card.loop_count}. Stage: {card.stage}.")
         self.publisher.log_escalate(card.id, msg)
-        send_kanban_telegram(
-            self.workdir, self.log_path,
+        send_telegram_message(
             f"🚨 {card.id} BLOCKED\n"
             f"  {card.title}\n"
             f"  Stage: {card.stage}, loops: {card.loop_count}\n"
             f"  Use /unblock {card.id} <directive> to resume",
+            self.log_path,
+            orc_root=Path(self.workdir),
         )
         log_event(self.log_path, "WARN", "escalation", task_id=card.id, message=msg)
 
@@ -515,7 +517,7 @@ class KanbanSessionManager:
         done, _ip, total = self._distributor.get_progress()
         lines.append(f"  Progress: {done}/{total}")
 
-        send_kanban_telegram(self.workdir, self.log_path, "\n".join(lines))
+        send_telegram_message("\n".join(lines), self.log_path, orc_root=Path(self.workdir))
 
     # ── Request builder ──────────────────────────────────────────
 

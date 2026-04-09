@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import logging
 from argparse import Namespace
 from pathlib import Path
 from typing import Callable, Optional
@@ -90,20 +89,3 @@ def build_kanban_request(
         commit_ttl=float(getattr(args, "commit_ttl", 300.0)),
     )
 
-
-def send_kanban_telegram(
-    workdir: str,
-    log_path: Path,
-    message: str,
-) -> None:
-    """Send a telegram message using orc's telegram config."""
-    try:
-        from .logging import log_event
-        from .telegram import resolve_telegram_credentials, post_telegram_message
-        token, chat_id, _src = resolve_telegram_credentials(
-            orc_root=Path(workdir), log_path=log_path, log_event=log_event,
-        )
-        if token and chat_id:
-            post_telegram_message(token=token, chat_id=chat_id, message=message)
-    except Exception as exc:
-        logging.getLogger(__name__).debug("Failed to send kanban telegram: %s", exc)

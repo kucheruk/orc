@@ -13,7 +13,7 @@ def _telegram_disabled() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
-def send_telegram_message(message: str, log_path: Path) -> None:
+def send_telegram_message(message: str, log_path: Path, *, orc_root: Path | None = None) -> None:
     if _telegram_disabled():
         log_event(log_path, "INFO", "telegram send skipped: disabled via env", env_var="ORC_TELEGRAM_DISABLE")
         debug_log(
@@ -23,7 +23,9 @@ def send_telegram_message(message: str, log_path: Path) -> None:
             {"env_var": "ORC_TELEGRAM_DISABLE"},
         )
         return
-    token, chat_id, source = resolve_telegram_credentials(orc_root=ORC_ROOT, log_path=log_path, log_event=log_event)
+    token, chat_id, source = resolve_telegram_credentials(
+        orc_root=orc_root or ORC_ROOT, log_path=log_path, log_event=log_event,
+    )
     if not token or not chat_id:
         log_event(log_path, "ERROR", "telegram credentials missing")
         debug_log(
