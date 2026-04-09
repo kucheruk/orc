@@ -36,8 +36,8 @@ _VALID_TRANSITIONS: dict[str, dict[str, set[str]]] = {
         "Integrating": {Action.DONE},
     },
     "teamlead": {
-        "Arbitration": {Action.CODING, Action.REVIEWING, Action.TESTING, Action.BLOCKED},
-        "Blocked": {Action.CODING, Action.REVIEWING, Action.TESTING},
+        "Arbitration": {Action.CODING, Action.REVIEWING, Action.TESTING, Action.BLOCKED, Action.PRODUCT, Action.ARCHITECT},
+        "Blocked": {Action.CODING, Action.REVIEWING, Action.TESTING, Action.PRODUCT, Action.ARCHITECT},
     },
 }
 

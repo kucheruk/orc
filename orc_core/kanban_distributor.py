@@ -36,7 +36,10 @@ class KanbanDistributor:
             self._board.refresh()
 
     def pick_worker_task(self, worker_id: str) -> Optional[WorkAssignment]:
-        """Atomically find and assign the best available work to a worker."""
+        """Atomically find and assign the best available work to a worker.
+
+        Returns None if no work is available. Use ``diagnose_no_work`` for the reason.
+        """
         with self._lock:
             assignment = find_next_work(self._board)
             if assignment is None:
@@ -49,9 +52,39 @@ class KanbanDistributor:
             )
             return assignment
 
+    def diagnose_no_work(self) -> str:
+        """Return a human-readable reason why no work can be picked.
+
+        Safe to call at any time — does not depend on prior ``pick_worker_task`` state.
+        """
+        with self._lock:
+            non_done = [c for c in self._board.cards if c.stage != "8_Done"]
+            if not non_done:
+                return "board empty — all cards Done"
+            assigned = [c for c in non_done if c.assigned_agent]
+            unassigned = [c for c in non_done if not c.assigned_agent]
+            if not unassigned:
+                agents = ", ".join(sorted({c.assigned_agent for c in assigned}))
+                return f"all {len(assigned)} active cards assigned to other agents ({agents})"
+            # There are unassigned cards but find_next_work returned None
+            deadlock = self._board.detect_wip_deadlock()
+            if deadlock:
+                return deadlock
+            # Summarize why unassigned cards can't be picked
+            reasons: list[str] = []
+            from .kanban_constants import WIP_STAGES
+            for c in unassigned:
+                if c.stage in WIP_STAGES and not self._board.has_wip_room(c.stage):
+                    reasons.append(f"{c.id}: WIP full in {c.stage}")
+                elif self._board.has_unmet_dependencies(c):
+                    reasons.append(f"{c.id}: unmet deps")
+                else:
+                    reasons.append(f"{c.id}: action={c.action} in {c.stage} — no matching role in pull order")
+            return "; ".join(reasons[:5]) if reasons else "unknown — no assignable work found"
+
     def _log_why_no_work(self, worker_id: str) -> None:
         """Log diagnostic info when no work is found."""
-        from .kanban_constants import STAGES, Action
+        from .kanban_constants import STAGES
         diag: list[str] = []
         for stage in STAGES:
             cards = self._board.cards_in_stage(stage)

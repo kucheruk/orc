@@ -418,6 +418,11 @@ class StreamJsonMonitor:
                     backlog_path = Path(candidate)
             except Exception:
                 pass
+        # Kanban mode uses a _board sentinel instead of BACKLOG.md — skip progress refresh
+        if backlog_path.name == "_board" or backlog_path.is_dir():
+            return
+        if not backlog_path.exists():
+            return
         try:
             tasks = MarkdownTaskSource(backlog_path).list_tasks()
         except Exception as exc:

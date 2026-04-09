@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .kanban_constants import STAGES
+from .kanban_constants import COS_PRIORITY, STAGES
 from .kanban_pull import (
     ROLE_ARCHITECT,
     ROLE_CODER,
@@ -72,6 +72,184 @@ def format_board_summary(board: "KanbanBoard") -> str:
         free = max(0, limit - count) if limit > 0 else "∞"
         lines.append(f"| {stage} | {count} | {limit or '∞'} | {free} |")
     return "\n".join(lines)
+
+
+def _elapsed_str(iso_ts: str) -> str:
+    """Human-readable elapsed time since an ISO timestamp."""
+    if not iso_ts:
+        return "—"
+    try:
+        from datetime import datetime, timezone
+        ts = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - ts
+        minutes = int(delta.total_seconds() / 60)
+        if minutes < 1:
+            return "<1m"
+        if minutes < 60:
+            return f"{minutes}m"
+        hours = minutes // 60
+        remaining = minutes % 60
+        return f"{hours}h{remaining:02d}m"
+    except Exception:
+        return "—"
+
+
+def format_board_detail(board: "KanbanBoard", token_stats: dict[str, int] | None = None) -> str:
+    """Format full board inventory for the teamlead prompt.
+
+    Shows every card with ID, title, action, assigned agent, deps (✓/✗),
+    loop count, CoS, elapsed time in stage, and token usage.
+    Done cards are listed as IDs only to save tokens.
+    """
+    done_ids = {c.id for c in board.cards if c.stage == "8_Done"}
+    stats = token_stats or {}
+    sections: list[str] = []
+
+    for stage in STAGES:
+        cards = sorted(board.cards_in_stage(stage), key=_card_priority_key)
+        limit = board.wip_limit(stage)
+        count = len(cards)
+
+        if stage == "8_Done":
+            if cards:
+                ids = ", ".join(c.id for c in cards)
+                sections.append(f"### 8_Done [{count} cards]\n{ids}")
+            else:
+                sections.append("### 8_Done [0 cards]")
+            continue
+
+        wip_str = f"{count}/{limit}" if limit < 999 else str(count)
+        full_mark = " FULL" if limit < 999 and count >= limit else ""
+        header = f"### {stage} [{wip_str} WIP{full_mark}]"
+
+        if not cards:
+            sections.append(f"{header}\n(empty)")
+            continue
+
+        rows = ["| ID | Title | Action | Agent | Deps | Loop | CoS | Elapsed | Tokens |",
+                "|------|-------|--------|-------|------|------|-----|---------|--------|"]
+        for c in cards:
+            title = c.title[:25] + "…" if len(c.title) > 25 else c.title
+            title = _sanitize_cell(title)
+            agent = c.assigned_agent or "—"
+            deps = _format_deps(c.dependencies, done_ids) if c.dependencies else "—"
+            elapsed = _elapsed_str(c.updated_at)
+            tokens = f"{stats[c.id]:,}" if c.id in stats else "—"
+            rows.append(
+                f"| {c.id} | {title} | {c.action} | {agent} "
+                f"| {deps} | {c.loop_count} | {c.class_of_service} | {elapsed} | {tokens} |"
+            )
+        sections.append(header + "\n" + "\n".join(rows))
+
+    return "\n\n".join(sections)
+
+
+def _format_deps(deps: list[str], done_ids: set[str]) -> str:
+    """Format dependency list with ✓/✗ markers."""
+    parts = []
+    for dep in deps:
+        mark = "✓" if dep in done_ids else "✗"
+        parts.append(f"{_sanitize_cell(dep)}{mark}")
+    return " ".join(parts)
+
+
+def _sanitize_cell(text: str) -> str:
+    """Escape characters that break markdown table cells."""
+    return text.replace("|", "∣").replace("\n", " ").replace("\r", "")
+
+
+def _card_priority_key(card) -> tuple[int, str, float]:
+    """Sort key: CoS rank → deadline → -ROI (highest priority first)."""
+    cos_rank = COS_PRIORITY.get(card.class_of_service, 9)
+    deadline = card.deadline if card.class_of_service == "fixed-date" else "9999-12-31"
+    return (cos_rank, deadline, -card.roi)
+
+
+def build_teamlead_prompt(
+    *,
+    mode: str,
+    board: "KanbanBoard",
+    card: "KanbanCard | None" = None,
+    directive_text: str = "",
+    diagnostic_info: str = "",
+    decision_path: str = "",
+    agent_log_path: str = "",
+    token_stats: dict[str, int] | None = None,
+) -> str:
+    """Build a teamlead prompt for any invocation mode.
+
+    Modes: 'arbitration', 'directive', 'health'.
+    """
+    template = _load_template(ROLE_TEAMLEAD)
+    board_detail = format_board_detail(board, token_stats=token_stats)
+    board_summary = format_board_summary(board)
+
+    # Build mode-specific context
+    if mode == "arbitration" and card:
+        card_content = card.to_markdown()
+        card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
+        log_hint = ""
+        if agent_log_path:
+            log_hint = (
+                f"\n\n### Last Agent Session Log\n"
+                f"The most recent agent session log for this card is at:\n"
+                f"`{agent_log_path}`\n"
+                f"**Read this file** to understand what the agent actually did — "
+                f"tool calls, errors, commands run. Don't trust the card's claims alone."
+            )
+        mode_context = (
+            f"## Problem Card\n"
+            f"This card has bounced **{card.loop_count}** times between roles.\n"
+            f"File: `{card_path}`\n"
+            f"````\n{card_content}\n````\n\n"
+            f"Read feedback in section \"# 4. Feedback & Checklist\", analyze the conflict.\n"
+            f"Use `set_action` + `write_feedback` in the decision file to resolve — "
+            f"do NOT edit the card file directly."
+            f"{log_hint}"
+        )
+    elif mode == "directive":
+        card_path = ""
+        mode_context = (
+            f"## User Directive\n"
+            f"The user sent this command:\n"
+            f"> {directive_text}\n\n"
+            f"Interpret this directive. It could be:\n"
+            f"- A new task to create (→ create_card action)\n"
+            f"- An instruction about existing cards (→ move/set_action/modify_deps/etc.)\n"
+            f"- A question about the board (→ respond with answer)\n"
+            f"- A problem report (→ investigate card files and act)\n\n"
+            f"Read relevant card files in `tasks/` if needed to understand context."
+        )
+    elif mode == "health":
+        card_path = ""
+        mode_context = (
+            f"## Board Health Alert\n"
+            f"The system detected a problem:\n"
+            f"{diagnostic_info}\n\n"
+            f"Diagnose the root cause and take corrective action.\n"
+            f"Common patterns:\n"
+            f"- WIP deadlock: move dep-blocked cards back, remove non-critical deps, adjust WIP limits\n"
+            f"- Starvation: promote cards from earlier stages, reduce blockers\n"
+            f"- Single-card thrashing: reset loop_count, split large cards"
+        )
+    else:
+        card_path = ""
+        mode_context = ""
+
+    return template.format_map(_SafeDict(
+        board_summary=board_summary,
+        board_detail=board_detail,
+        mode_context=mode_context,
+        card_path=card_path,
+        card_content=card.to_markdown() if card else "",
+        card_id=card.id if card else "",
+        card_stage=card.stage if card else "",
+        card_action=card.action if card else "",
+        loop_count=str(card.loop_count) if card else "0",
+        decision_path=decision_path,
+    ))
 
 
 def _load_template(role: str) -> str:

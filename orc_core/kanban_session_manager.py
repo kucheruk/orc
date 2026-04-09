@@ -23,7 +23,7 @@ from .kanban_pull import ROLE_INTEGRATOR, WorkAssignment
 from .kanban_publisher import KanbanPublisher
 from .kanban_request_builder import build_kanban_request
 from .notify import send_telegram_message
-from .kanban_roles import ROLE_TEAMLEAD, build_prompt
+from .kanban_roles import ROLE_TEAMLEAD, build_prompt, build_teamlead_prompt
 from .teamlead_incident import (
     DECISION_FILENAME,
     FIX_CARD_PREFIX,
@@ -54,6 +54,13 @@ from .worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_w
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_INTERRUPT = 130
+
+
+def _teamlead_decision_path(workdir: str) -> Path:
+    """Return the standard teamlead decision file path."""
+    p = Path(workdir) / ".orc"
+    p.mkdir(parents=True, exist_ok=True)
+    return p / "teamlead-decision.md"
 
 SnapshotPublisher = Callable[[str, Optional[MonitorSnapshot]], None]
 _logger = logging.getLogger(__name__)
@@ -109,6 +116,10 @@ class KanbanSessionManager:
         self._failed_tasks: list[str] = []
         self._handled_crash_slots: set[str] = set()
         self._incident_counter: int = 0
+        self._card_fail_counts: dict[str, int] = {}  # card_id → consecutive failures
+        self._directive_queue: list[str] = []
+        self._directive_lock = threading.Lock()
+        self._last_health_check: float = 0.0
 
     # ── Public API ──────────────────────────────────────────────
 
@@ -266,10 +277,13 @@ class KanbanSessionManager:
             running = [s for s in self._slots.values() if s.status == SlotStatus.RUNNING and s.thread and s.thread.is_alive()]
         if not running:
             return ""
+        # Show actual assignment status — only report active card if slot has a task
         parts = []
         for s in running:
-            task_name = s.task.text if s.task else "?"
-            parts.append(f"{s.session_id}({task_name})")
+            if s.task:
+                parts.append(f"{s.session_id}({s.task.text})")
+            else:
+                parts.append(f"{s.session_id}(idle)")
         return ", ".join(parts)
 
     def _publish_board_state(self) -> None:
@@ -330,21 +344,21 @@ class KanbanSessionManager:
         sid = slot.session_id
         self.publisher._emit("system", "", f"{sid} worker started, scanning board...")
         try:
-            idle_logged = False
+            idle_reason_logged: str = ""
             while self._should_continue(slot):
                 self._distributor.refresh()
                 assignment = self._distributor.pick_worker_task(sid)
                 if assignment is None:
-                    if not idle_logged:
-                        diag = self._board_diag_short()
-                        self.publisher._emit("system", "", f"{sid} idle — {diag}")
-                        idle_logged = True
+                    reason = self._distributor.diagnose_no_work()
+                    if reason != idle_reason_logged:
+                        self.publisher._emit("system", "", f"{sid} idle — {reason}")
+                        idle_reason_logged = reason
                     self.sleep_fn(2.0)
                     if not self._distributor.has_remaining_work():
                         self.publisher._emit("system", "", f"{sid} no remaining work, stopping")
                         break
                     continue
-                idle_logged = False
+                idle_reason_logged = ""
                 self._execute_assignment(slot, assignment)
                 if is_quit_after_task_requested():
                     self.publisher._emit("system", "", f"{sid} finished task, exiting (quit-after-task)")
@@ -414,7 +428,28 @@ class KanbanSessionManager:
             log_event(self.log_path, "ERROR", "assignment failed",
                       task_id=card.id, error=str(exc))
             self._failed_tasks.append(card.id)
+            # Track consecutive failures — deterministic errors will repeat forever
+            count = self._card_fail_counts.get(card.id, 0) + 1
+            self._card_fail_counts[card.id] = count
+            if count >= 2:
+                try:
+                    card.action = Action.BLOCKED.value
+                    self._distributor.board.save_card(card)
+                    self.publisher._emit("escalate", card.id,
+                                         f"{card.id} marked Blocked after {count} consecutive failures: {exc}")
+                    log_event(self.log_path, "WARN", "card blocked after repeated failures",
+                              task_id=card.id, fail_count=count, error=str(exc))
+                    send_telegram_message(
+                        f"🚫 {card.id} заблокирована после {count} подряд ошибок: {type(exc).__name__}: {exc}",
+                        log_path=self.log_path,
+                    )
+                except Exception:
+                    pass
+        else:
+            # Reset failure counter on success
+            self._card_fail_counts.pop(card.id, None)
         finally:
+            slot.task = None  # clear so _running_slots_info shows idle, not stale task
             self._distributor.release_card(card.id)
             # Only cleanup worktree when card reaches Done — reuse for loop-backs
             if worktree and card.stage == "8_Done":
@@ -423,6 +458,8 @@ class KanbanSessionManager:
 
     # ── Teamlead thread ──────────────────────────────────────────
 
+    _HEALTH_CHECK_INTERVAL = 60.0  # seconds between proactive health checks
+
     def _run_teamlead(self, slot: SessionSlot) -> None:
         sid = slot.session_id
         self.publisher._emit("system", "", f"{sid} teamlead started, monitoring board...")
@@ -430,32 +467,50 @@ class KanbanSessionManager:
         try:
             while self._should_continue(slot):
                 self._distributor.refresh()
-                if incident is None:
-                    # ── Normal mode: detect anomalies, then do card arbitration ──
-                    anomaly = self._detect_anomaly()
-                    if anomaly is not None:
-                        incident = anomaly
-                        self.publisher.log_incident(
-                            incident.id,
-                            f"{incident.error_type} on {incident.source_task_id or incident.source_slot_id}: "
-                            f"{incident.error_message[:200]}",
-                        )
-                        log_event(self.log_path, "WARN", "incident detected",
-                                  incident_id=incident.id, error_type=incident.error_type,
-                                  source_task=incident.source_task_id, source_slot=incident.source_slot_id)
-                        continue
-                    self._teamlead_arbitrate(slot, sid)
-                    if not self._distributor.has_remaining_work():
-                        self.publisher._emit("system", "", f"{sid} teamlead: no remaining work")
-                        break
-                    self.sleep_fn(5.0)
-                else:
+                if incident is not None:
                     # ── Incident mode: process state machine ──
                     incident = self._process_incident(slot, incident)
                     if incident is None:
                         self.publisher._emit("incident", "",
                                              "Incident resolved, resuming normal operations")
                     self.sleep_fn(2.0)
+                    if is_quit_after_task_requested():
+                        self.publisher._emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
+                        break
+                    continue
+
+                # ── Priority 1: user directives ──
+                directive = self._pop_directive()
+                if directive:
+                    self._teamlead_directive(slot, sid, directive)
+                    continue
+
+                # ── Priority 2: anomaly detection (worker crashes) ──
+                anomaly = self._detect_anomaly()
+                if anomaly is not None:
+                    incident = anomaly
+                    self.publisher.log_incident(
+                        incident.id,
+                        f"{incident.error_type} on {incident.source_task_id or incident.source_slot_id}: "
+                        f"{incident.error_message[:200]}",
+                    )
+                    log_event(self.log_path, "WARN", "incident detected",
+                              incident_id=incident.id, error_type=incident.error_type,
+                              source_task=incident.source_task_id, source_slot=incident.source_slot_id)
+                    continue
+
+                # ── Priority 3: board health check (periodic, only when problems found) ──
+                if time.time() - self._last_health_check >= self._HEALTH_CHECK_INTERVAL:
+                    if self._teamlead_health_check(slot, sid):
+                        continue
+
+                # ── Priority 4: card arbitration (looping / blocked cards) ──
+                self._teamlead_arbitrate(slot, sid)
+
+                if not self._distributor.has_remaining_work():
+                    self.publisher._emit("system", "", f"{sid} teamlead: no remaining work")
+                    break
+                self.sleep_fn(5.0)
                 if is_quit_after_task_requested():
                     self.publisher._emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
                     break
@@ -470,10 +525,42 @@ class KanbanSessionManager:
             with self._slots_lock:
                 slot.status = SlotStatus.CLOSED
 
-    # ── Teamlead: card-level arbitration (existing logic) ────────
+    # ── Teamlead: card-level arbitration ───────────────────────────
+
+    def _find_latest_agent_log(self, card_id: str) -> str:
+        """Find the most recent raw-stream log for a card across all kanban sessions."""
+        from .state_paths import run_root
+        runs_dir = run_root(self.workdir, "").parent / "runs"
+        if not runs_dir.exists():
+            return ""
+        best: Path | None = None
+        for session_dir in runs_dir.iterdir():
+            if not session_dir.name.startswith("kanban-"):
+                continue
+            stream_dir = session_dir / "raw-stream"
+            if not stream_dir.is_dir():
+                continue
+            for log_file in stream_dir.glob(f"*__{card_id}.log"):
+                if best is None or log_file.stat().st_mtime > best.stat().st_mtime:
+                    best = log_file
+        return str(best) if best else ""
+
+    def _load_token_stats(self) -> dict[str, int]:
+        """Load per-task token stats from analytics."""
+        import json
+        from .state_paths import stats_path
+        path = stats_path(self.workdir)
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            raw = data.get("tokens_by_task", {})
+            return {k: int(v) for k, v in raw.items() if isinstance(v, (int, float))}
+        except Exception:
+            return {}
 
     def _teamlead_arbitrate(self, slot: SessionSlot, sid: str) -> None:
-        """Handle looping/blocked cards — unchanged original teamlead behavior."""
+        """Handle looping/blocked cards. Decision-only protocol — no card file editing."""
         card = self._distributor.pick_teamlead_task(sid)
         if card is None:
             return
@@ -487,22 +574,139 @@ class KanbanSessionManager:
                   escalation_candidate=needs_esc)
         card.action = Action.ARBITRATION
         self._distributor.board.save_card(card)
-        prompt = build_prompt(ROLE_TEAMLEAD, card, self._distributor.board)
+        dec_path = _teamlead_decision_path(self.workdir)
+        agent_log = self._find_latest_agent_log(card.id)
+        prompt = build_teamlead_prompt(
+            mode="arbitration", board=self._distributor.board, card=card,
+            decision_path=str(dec_path), agent_log_path=agent_log,
+            token_stats=self._load_token_stats(),
+        )
         task = Task(task_id=card.id, text=f"[TL] {card.title}", done=False)
         slot.task = task
-        result = self.engine.execute(self._make_request(task, prompt, self.workdir,
-                                                        sid, False, 600.0))
-        if result and result.status == "completed":
-            process_agent_result(self._distributor.board, card, ROLE_TEAMLEAD)
-            if card.action == Action.BLOCKED:
-                self._escalate(card)
-            else:
-                card.loop_count = 0
-                self._distributor.board.save_card(card)
-                self.publisher._emit("arbitration", card.id,
-                                     f"{card.id} teamlead resolved → {card.action}, loop_count reset")
-        self._distributor.release_card(card.id)
+        try:
+            result = self.engine.execute(self._make_request(task, prompt, self.workdir,
+                                                            sid, False, 600.0))
+            if result and result.status == "completed":
+                self._process_teamlead_decision(dec_path)
+                self._distributor.refresh()
+                refreshed = self._distributor.board.card_by_id(card.id)
+                if refreshed:
+                    if refreshed.action == Action.BLOCKED:
+                        self._escalate(refreshed)
+                    elif refreshed.action == Action.ARBITRATION:
+                        # Teamlead didn't set_action → safety fallback to Blocked
+                        refreshed.action = Action.BLOCKED.value
+                        self._distributor.board.save_card(refreshed)
+                        log_event(self.log_path, "WARN",
+                                  "teamlead left card in Arbitration, auto-blocking",
+                                  task_id=card.id)
+                        self._escalate(refreshed)
+                    else:
+                        # Resolved — reset loop_count so card gets a fresh start
+                        refreshed.loop_count = 0
+                        self._distributor.board.save_card(refreshed)
+                        self.publisher._emit("arbitration", card.id,
+                                             f"{card.id} teamlead resolved → {refreshed.action}, "
+                                             f"loop_count reset")
+        finally:
+            slot.task = None
+            self._distributor.release_card(card.id)
         self.sleep_fn(3.0)
+
+    # ── Teamlead: user directive handling ────────────────────────
+
+    def _pop_directive(self) -> Optional[str]:
+        with self._directive_lock:
+            if self._directive_queue:
+                return self._directive_queue.pop(0)
+        return None
+
+    def _teamlead_directive(self, slot: SessionSlot, sid: str, directive_text: str) -> None:
+        """Run teamlead agent to process a user directive."""
+        self.publisher._emit("directive", "", f"Teamlead processing: {directive_text}")
+        log_event(self.log_path, "INFO", "teamlead directive start",
+                  session_id=sid, directive=directive_text[:200])
+        dec_path = _teamlead_decision_path(self.workdir)
+        prompt = build_teamlead_prompt(
+            mode="directive", board=self._distributor.board,
+            directive_text=directive_text, decision_path=str(dec_path),
+            token_stats=self._load_token_stats(),
+        )
+        task = Task(task_id="tl-directive", text=f"[TL] {directive_text[:40]}", done=False)
+        slot.task = task
+        try:
+            result = self.engine.execute(self._make_request(task, prompt, self.workdir,
+                                                            sid, False, 600.0))
+            self._process_teamlead_decision(dec_path)
+        finally:
+            slot.task = None
+        self.sleep_fn(2.0)
+
+    # ── Teamlead: proactive board health check ───────────────────
+
+    def _teamlead_health_check(self, slot: SessionSlot, sid: str) -> bool:
+        """Run health check. Returns True if problems found and agent was invoked."""
+        self._last_health_check = time.time()
+        board = self._distributor.board
+        deadlock = board.detect_wip_deadlock()
+        starvation = ""
+        if not deadlock:
+            # Check starvation: remaining work exists but no worker can pick anything
+            if self._distributor.has_remaining_work():
+                diag = self._distributor.diagnose_no_work()
+                if diag and "board empty" not in diag:
+                    starvation = diag
+        if not deadlock and not starvation:
+            return False
+        diagnostic = ""
+        if deadlock:
+            diagnostic += f"DEADLOCK: {deadlock}\n"
+        if starvation:
+            diagnostic += f"STARVATION: {starvation}\n"
+        self.publisher._emit("escalate", "", f"[TL] Health check: {diagnostic.strip()}")
+        log_event(self.log_path, "WARN", "board health issue detected",
+                  session_id=sid, diagnostic=diagnostic[:500])
+        dec_path = _teamlead_decision_path(self.workdir)
+        prompt = build_teamlead_prompt(
+            mode="health", board=self._distributor.board,
+            diagnostic_info=diagnostic, decision_path=str(dec_path),
+            token_stats=self._load_token_stats(),
+        )
+        task = Task(task_id="tl-health", text="[TL] Board health check", done=False)
+        slot.task = task
+        try:
+            result = self.engine.execute(self._make_request(task, prompt, self.workdir,
+                                                            sid, False, 600.0))
+            self._process_teamlead_decision(dec_path)
+        finally:
+            slot.task = None
+        self.sleep_fn(3.0)
+        return True
+
+    # ── Teamlead: decision file executor (shared by all modes) ───
+
+    def _process_teamlead_decision(self, dec_path: Path) -> None:
+        """Parse and execute a teamlead decision file if it exists."""
+        from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
+
+        if not dec_path.exists():
+            return
+        try:
+            decision = parse_teamlead_decision(dec_path)
+            errors = execute_teamlead_actions(
+                self._distributor.board, decision, self.publisher, self.log_path,
+            )
+            if errors:
+                for e in errors:
+                    self.publisher._emit("escalate", "", f"[TL] Action failed: {e}")
+        except Exception as exc:
+            self.publisher._emit("escalate", "", f"[TL] Decision parse failed: {exc}")
+            log_event(self.log_path, "WARN", "teamlead decision parse failed", error=str(exc))
+        finally:
+            try:
+                dec_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     # ── Teamlead: anomaly detection ──────────────────────────────
 
@@ -958,6 +1162,13 @@ class KanbanSessionManager:
         board.save_card(card)
         self.publisher.log_unblock(card_id, directive)
         log_event(self.log_path, "INFO", "card unblocked", card_id=card_id, directive=directive)
+
+    def queue_teamlead_directive(self, text: str) -> None:
+        """Queue a user directive for the teamlead to process."""
+        with self._directive_lock:
+            self._directive_queue.append(text)
+        self.publisher._emit("directive", "", f"Directive queued for teamlead: {text}")
+        log_event(self.log_path, "INFO", "teamlead directive queued", directive=text[:200])
 
     # ── Helpers ──────────────────────────────────────────────────
 

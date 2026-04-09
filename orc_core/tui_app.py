@@ -15,6 +15,7 @@ from .tui.kanban_messages import (
     BoardUpdated,
     InboxCardRequested,
     JournalEntryAdded,
+    TeamleadDirectiveRequested,
     UnblockCardRequested,
 )
 from .tui.messages import (
@@ -176,6 +177,10 @@ class OrcApp(App[int]):
     def on_unblock_card_requested(self, message: UnblockCardRequested) -> None:
         if self._session_manager and hasattr(self._session_manager, "unblock_card"):
             self._session_manager.unblock_card(message.card_id, message.directive)
+
+    def on_teamlead_directive_requested(self, message: TeamleadDirectiveRequested) -> None:
+        if self._session_manager and hasattr(self._session_manager, "queue_teamlead_directive"):
+            self._session_manager.queue_teamlead_directive(message.text)
 
     def on_snapshot_updated(self, message: SnapshotUpdated) -> None:
         self._execution_screen.update_session(message.session_id, message.snapshot)

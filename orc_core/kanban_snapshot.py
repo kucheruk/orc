@@ -85,6 +85,8 @@ _CAT_COLOR: dict[str, str] = {
     "inbox": "blue",
     "split": "magenta",
     "arbitration": "red",
+    "teamlead": "bright_magenta",
+    "directive": "bright_yellow",
 }
 
 

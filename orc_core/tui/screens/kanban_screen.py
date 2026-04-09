@@ -20,7 +20,7 @@ from textual.widgets import Button, Footer, Header, Input, Label, RichLog
 
 from ...kanban_constants import STAGES
 from ...kanban_snapshot import CardSnapshot, JournalEntry, KanbanBoardSnapshot
-from ..kanban_messages import InboxCardRequested, UnblockCardRequested
+from ..kanban_messages import InboxCardRequested, TeamleadDirectiveRequested, UnblockCardRequested
 from .kanban_card_widget import KanbanCardWidget
 from .kanban_column import KanbanColumnWidget
 
@@ -50,7 +50,7 @@ class KanbanScreen(Screen[None]):
                 yield Label("Decision Journal", classes="section")
                 yield RichLog(id="kanban_journal", wrap=True, highlight=True, markup=True)
             with Horizontal(id="kanban_input_area"):
-                yield Input(placeholder="Add to inbox... | /unblock TASK-ID  [Esc=navigate]", id="kanban_input")
+                yield Input(placeholder="Add to inbox... | /tl <msg> | /unblock TASK-ID  [Esc=nav]", id="kanban_input")
                 yield Button("+", id="kanban_add_btn", variant="primary")
         yield Footer()
 
@@ -352,7 +352,7 @@ class KanbanScreen(Screen[None]):
 
 
 def _parse_command(text: str):
-    """Parse /unblock command. Returns a Message or None."""
+    """Parse /unblock or /tl command. Returns a Message or None."""
     parts = text.split(maxsplit=2)
     cmd = parts[0].lower() if parts else ""
     card_id = parts[1].strip() if len(parts) > 1 else ""
@@ -360,4 +360,9 @@ def _parse_command(text: str):
 
     if cmd == "/unblock" and card_id:
         return UnblockCardRequested(card_id, rest)
+    if cmd == "/tl":
+        # Everything after /tl is the directive text
+        directive = text[len("/tl"):].strip()
+        if directive:
+            return TeamleadDirectiveRequested(directive)
     return None

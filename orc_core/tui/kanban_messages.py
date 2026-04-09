@@ -30,3 +30,9 @@ class UnblockCardRequested(Message):
         self.card_id = card_id
         self.directive = directive
         super().__init__()
+
+
+class TeamleadDirectiveRequested(Message):
+    def __init__(self, text: str) -> None:
+        self.text = text
+        super().__init__()

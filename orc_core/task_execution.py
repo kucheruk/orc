@@ -1392,82 +1392,84 @@ class TaskExecutionEngine:
                     started_at_ms=integration_started_ms,
                     result="completed",
                 )
-            try:
-                from .task_source import MarkdownTaskSource
+            # Kanban mode uses _board sentinel — card state is the source of truth, skip backlog invariant
+            if base_backlog_path.name != "_board" and not base_backlog_path.is_dir():
+                try:
+                    from .task_source import MarkdownTaskSource
 
-                base_done = MarkdownTaskSource(base_backlog_path).is_task_done(current_task_id)
-                runtime_done = False
-                if runtime_backlog_path != base_backlog_path:
-                    runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(current_task_id)
-                if runtime_done and not base_done:
-                    if _should_defer_base_backlog_sync_to_integration(
-                        integrate_to_main=request.integrate_to_main,
-                        base_backlog_path=base_backlog_path,
-                        runtime_backlog_path=runtime_backlog_path,
-                    ):
-                        log_event(
-                            self.log_path,
-                            "ERROR",
-                            "backlog invariant violated after main integration: task marked done only in runtime worktree backlog",
-                            task_id=current_task_id,
-                            base_backlog_path=str(base_backlog_path),
-                            runtime_backlog_path=str(runtime_backlog_path),
+                    base_done = MarkdownTaskSource(base_backlog_path).is_task_done(current_task_id)
+                    runtime_done = False
+                    if runtime_backlog_path != base_backlog_path:
+                        runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(current_task_id)
+                    if runtime_done and not base_done:
+                        if _should_defer_base_backlog_sync_to_integration(
                             integrate_to_main=request.integrate_to_main,
-                        )
-                        debug_log(
-                            "MI2",
-                            "orc_core/task_execution.py:TaskExecutionEngine.execute",
-                            "base backlog was not updated by integrated commit",
-                            {
-                                "task_id": current_task_id,
-                                "base_backlog_path": str(base_backlog_path),
-                                "runtime_backlog_path": str(runtime_backlog_path),
-                            },
-                        )
-                        ui_error(
-                            "❌ После успешной main integration backlog в base не отмечен как done. "
-                            "Значит, отметка попала не в task commit, а пыталась догнаться позже."
-                        )
-                        timeline_step_finished(
-                            timeline_id=timeline_id,
+                            base_backlog_path=base_backlog_path,
+                            runtime_backlog_path=runtime_backlog_path,
+                        ):
+                            log_event(
+                                self.log_path,
+                                "ERROR",
+                                "backlog invariant violated after main integration: task marked done only in runtime worktree backlog",
+                                task_id=current_task_id,
+                                base_backlog_path=str(base_backlog_path),
+                                runtime_backlog_path=str(runtime_backlog_path),
+                                integrate_to_main=request.integrate_to_main,
+                            )
+                            debug_log(
+                                "MI2",
+                                "orc_core/task_execution.py:TaskExecutionEngine.execute",
+                                "base backlog was not updated by integrated commit",
+                                {
+                                    "task_id": current_task_id,
+                                    "base_backlog_path": str(base_backlog_path),
+                                    "runtime_backlog_path": str(runtime_backlog_path),
+                                },
+                            )
+                            ui_error(
+                                "❌ После успешной main integration backlog в base не отмечен как done. "
+                                "Значит, отметка попала не в task commit, а пыталась догнаться позже."
+                            )
+                            timeline_step_finished(
+                                timeline_id=timeline_id,
+                                task_id=current_task_id,
+                                step="task_execute",
+                                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                                started_at_ms=execute_started_ms,
+                                result="failed",
+                                reason="worktree_not_integrated_to_base",
+                            )
+                            return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
+                        synced = _sync_done_task_from_runtime_to_base(
                             task_id=current_task_id,
-                            step="task_execute",
-                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                            started_at_ms=execute_started_ms,
-                            result="failed",
-                            reason="worktree_not_integrated_to_base",
+                            base_backlog_path=base_backlog_path,
+                            runtime_backlog_path=runtime_backlog_path,
+                            log_path=self.log_path,
                         )
-                        return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
-                    synced = _sync_done_task_from_runtime_to_base(
+                        if not synced:
+                            # Sync can fail due to race with concurrent cherry-pick
+                            # (conflict markers in base BACKLOG.md). This is not fatal:
+                            # the integration step will cherry-pick the worktree commit
+                            # (which includes the done mark) into base anyway.
+                            log_event(
+                                self.log_path,
+                                "WARN",
+                                "backlog sync to base failed (likely race with concurrent integration); "
+                                "integration step will reconcile",
+                                task_id=current_task_id,
+                                base_backlog_path=str(base_backlog_path),
+                                runtime_backlog_path=str(runtime_backlog_path),
+                            )
+                except Exception as exc:
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "failed to validate backlog invariant after completion",
                         task_id=current_task_id,
-                        base_backlog_path=base_backlog_path,
-                        runtime_backlog_path=runtime_backlog_path,
-                        log_path=self.log_path,
+                        error=str(exc),
+                        base_backlog_path=str(base_backlog_path),
+                        runtime_backlog_path=str(runtime_backlog_path),
                     )
-                    if not synced:
-                        # Sync can fail due to race with concurrent cherry-pick
-                        # (conflict markers in base BACKLOG.md). This is not fatal:
-                        # the integration step will cherry-pick the worktree commit
-                        # (which includes the done mark) into base anyway.
-                        log_event(
-                            self.log_path,
-                            "WARN",
-                            "backlog sync to base failed (likely race with concurrent integration); "
-                            "integration step will reconcile",
-                            task_id=current_task_id,
-                            base_backlog_path=str(base_backlog_path),
-                            runtime_backlog_path=str(runtime_backlog_path),
-                        )
-            except Exception as exc:
-                log_event(
-                    self.log_path,
-                    "ERROR",
-                    "failed to validate backlog invariant after completion",
-                    task_id=current_task_id,
-                    error=str(exc),
-                    base_backlog_path=str(base_backlog_path),
-                    runtime_backlog_path=str(runtime_backlog_path),
-                )
             # Clean up task state files (previously done by stop hook)
             try:
                 request.task_path.unlink(missing_ok=True)
@@ -2165,175 +2167,177 @@ class TaskExecutionEngine:
                         reason="waiting_for_input",
                     )
                     return TaskExecutionResult(status="continue", reason="waiting_for_input", delay_seconds=delay)
-                try:
-                    from .task_source import MarkdownTaskSource
+                # Kanban mode: _board sentinel is not a real backlog — skip done-detection via backlog
+                if base_backlog_path.name != "_board" and not base_backlog_path.is_dir():
+                    try:
+                        from .task_source import MarkdownTaskSource
 
-                    base_done = MarkdownTaskSource(base_backlog_path).is_task_done(task_id)
-                    runtime_done = False
-                    if runtime_backlog_path != base_backlog_path:
-                        runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(task_id)
-                    if base_done:
-                        log_event(
-                            self.log_path,
-                            "WARN",
-                            "task marked done after non-completed monitor result",
-                            task_id=task_id,
-                            monitor_result=result,
-                        )
-                        stage_failure, stage_next_index, stage_completed_final = _complete_stage(
-                            current_task_id=task_id,
-                            current_task_text=task_text,
-                            current_tag=tag,
-                            current_monitor=active_monitor,
-                            current_stage_id=stage_id,
-                            current_stage_index=stage_index,
-                            current_stage_is_final=stage_is_final,
-                            current_attempt_number=attempt_number,
-                            current_attempt_started_ms=attempt_started_ms,
-                            completion_reason="base_backlog_marked_done",
-                        )
-                        if stage_failure is not None:
-                            if _should_retry_after_missing_stage_artifact(
-                                stage_failure=stage_failure,
-                                monitor_result=result,
-                                current_stage_id=stage_id,
-                                retry_budget_left=missing_artifact_retry_budget,
-                            ):
-                                missing_artifact_retry_budget -= 1
-                                log_event(
-                                    self.log_path,
-                                    "WARN",
-                                    "task marked done but stage artifact missing after process exit; retrying",
-                                    task_id=task_id,
-                                    stage_id=stage_id,
-                                    monitor_result=result,
-                                    reason=stage_failure.reason,
-                                    retry_budget_left=missing_artifact_retry_budget,
-                                )
-                            else:
-                                return stage_failure
-                        else:
-                            if stage_completed_final and request.task_path.exists():
-                                try:
-                                    request.task_path.unlink()
-                                    delete_runtime_state_file(request.task_path, self.log_path, reason="base_backlog_marked_done")
-                                except Exception as exc:
-                                    log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
-                            if stage_completed_final:
-                                return _finalize_completed(task_id, task_text, tag, active_monitor)
-                            break
-                    if runtime_done:
-                        if _should_defer_base_backlog_sync_to_integration(
-                            integrate_to_main=request.integrate_to_main,
-                            base_backlog_path=base_backlog_path,
-                            runtime_backlog_path=runtime_backlog_path,
-                        ):
-                            log_event(
-                                self.log_path,
-                                "INFO",
-                                "runtime backlog marked done; deferring base backlog sync until main integration",
-                                task_id=task_id,
-                                monitor_result=result,
-                                base_backlog_path=str(base_backlog_path),
-                                runtime_backlog_path=str(runtime_backlog_path),
-                            )
-                            debug_log(
-                                "MI3",
-                                "orc_core/task_execution.py:TaskExecutionEngine.execute",
-                                "deferred base backlog sync because runtime backlog done will be carried by task commit",
-                                {
-                                    "task_id": task_id,
-                                    "monitor_result": result,
-                                    "base_backlog_path": str(base_backlog_path),
-                                    "runtime_backlog_path": str(runtime_backlog_path),
-                                },
-                            )
-                        else:
-                            synced = _sync_done_task_from_runtime_to_base(
-                                task_id=task_id,
-                                base_backlog_path=base_backlog_path,
-                                runtime_backlog_path=runtime_backlog_path,
-                                log_path=self.log_path,
-                            )
-                            if not synced:
-                                log_event(
-                                    self.log_path,
-                                    "ERROR",
-                                    "runtime backlog marked done but base backlog sync failed",
-                                    task_id=task_id,
-                                    base_backlog_path=str(base_backlog_path),
-                                    runtime_backlog_path=str(runtime_backlog_path),
-                                )
-                                timeline_step_finished(
-                                    timeline_id=timeline_id,
-                                    task_id=task_id,
-                                    step="task_execute",
-                                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                                    started_at_ms=execute_started_ms,
-                                    result="failed",
-                                    reason="runtime_backlog_sync_failed",
-                                )
-                                return TaskExecutionResult(status="failed", reason="runtime_backlog_sync_failed")
+                        base_done = MarkdownTaskSource(base_backlog_path).is_task_done(task_id)
+                        runtime_done = False
+                        if runtime_backlog_path != base_backlog_path:
+                            runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(task_id)
+                        if base_done:
                             log_event(
                                 self.log_path,
                                 "WARN",
-                                "task marked done in runtime worktree backlog after non-completed monitor result",
+                                "task marked done after non-completed monitor result",
                                 task_id=task_id,
                                 monitor_result=result,
-                                base_backlog_path=str(base_backlog_path),
-                                runtime_backlog_path=str(runtime_backlog_path),
                             )
-                        stage_failure, stage_next_index, stage_completed_final = _complete_stage(
-                            current_task_id=task_id,
-                            current_task_text=task_text,
-                            current_tag=tag,
-                            current_monitor=active_monitor,
-                            current_stage_id=stage_id,
-                            current_stage_index=stage_index,
-                            current_stage_is_final=stage_is_final,
-                            current_attempt_number=attempt_number,
-                            current_attempt_started_ms=attempt_started_ms,
-                            completion_reason="runtime_backlog_marked_done",
-                        )
-                        if stage_failure is not None:
-                            if _should_retry_after_missing_stage_artifact(
-                                stage_failure=stage_failure,
-                                monitor_result=result,
+                            stage_failure, stage_next_index, stage_completed_final = _complete_stage(
+                                current_task_id=task_id,
+                                current_task_text=task_text,
+                                current_tag=tag,
+                                current_monitor=active_monitor,
                                 current_stage_id=stage_id,
-                                retry_budget_left=missing_artifact_retry_budget,
+                                current_stage_index=stage_index,
+                                current_stage_is_final=stage_is_final,
+                                current_attempt_number=attempt_number,
+                                current_attempt_started_ms=attempt_started_ms,
+                                completion_reason="base_backlog_marked_done",
+                            )
+                            if stage_failure is not None:
+                                if _should_retry_after_missing_stage_artifact(
+                                    stage_failure=stage_failure,
+                                    monitor_result=result,
+                                    current_stage_id=stage_id,
+                                    retry_budget_left=missing_artifact_retry_budget,
+                                ):
+                                    missing_artifact_retry_budget -= 1
+                                    log_event(
+                                        self.log_path,
+                                        "WARN",
+                                        "task marked done but stage artifact missing after process exit; retrying",
+                                        task_id=task_id,
+                                        stage_id=stage_id,
+                                        monitor_result=result,
+                                        reason=stage_failure.reason,
+                                        retry_budget_left=missing_artifact_retry_budget,
+                                    )
+                                else:
+                                    return stage_failure
+                            else:
+                                if stage_completed_final and request.task_path.exists():
+                                    try:
+                                        request.task_path.unlink()
+                                        delete_runtime_state_file(request.task_path, self.log_path, reason="base_backlog_marked_done")
+                                    except Exception as exc:
+                                        log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
+                                if stage_completed_final:
+                                    return _finalize_completed(task_id, task_text, tag, active_monitor)
+                                break
+                        if runtime_done:
+                            if _should_defer_base_backlog_sync_to_integration(
+                                integrate_to_main=request.integrate_to_main,
+                                base_backlog_path=base_backlog_path,
+                                runtime_backlog_path=runtime_backlog_path,
                             ):
-                                missing_artifact_retry_budget -= 1
+                                log_event(
+                                    self.log_path,
+                                    "INFO",
+                                    "runtime backlog marked done; deferring base backlog sync until main integration",
+                                    task_id=task_id,
+                                    monitor_result=result,
+                                    base_backlog_path=str(base_backlog_path),
+                                    runtime_backlog_path=str(runtime_backlog_path),
+                                )
+                                debug_log(
+                                    "MI3",
+                                    "orc_core/task_execution.py:TaskExecutionEngine.execute",
+                                    "deferred base backlog sync because runtime backlog done will be carried by task commit",
+                                    {
+                                        "task_id": task_id,
+                                        "monitor_result": result,
+                                        "base_backlog_path": str(base_backlog_path),
+                                        "runtime_backlog_path": str(runtime_backlog_path),
+                                    },
+                                )
+                            else:
+                                synced = _sync_done_task_from_runtime_to_base(
+                                    task_id=task_id,
+                                    base_backlog_path=base_backlog_path,
+                                    runtime_backlog_path=runtime_backlog_path,
+                                    log_path=self.log_path,
+                                )
+                                if not synced:
+                                    log_event(
+                                        self.log_path,
+                                        "ERROR",
+                                        "runtime backlog marked done but base backlog sync failed",
+                                        task_id=task_id,
+                                        base_backlog_path=str(base_backlog_path),
+                                        runtime_backlog_path=str(runtime_backlog_path),
+                                    )
+                                    timeline_step_finished(
+                                        timeline_id=timeline_id,
+                                        task_id=task_id,
+                                        step="task_execute",
+                                        location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                                        started_at_ms=execute_started_ms,
+                                        result="failed",
+                                        reason="runtime_backlog_sync_failed",
+                                    )
+                                    return TaskExecutionResult(status="failed", reason="runtime_backlog_sync_failed")
                                 log_event(
                                     self.log_path,
                                     "WARN",
-                                    "runtime backlog marked done but stage artifact missing after process exit; retrying",
+                                    "task marked done in runtime worktree backlog after non-completed monitor result",
                                     task_id=task_id,
-                                    stage_id=stage_id,
                                     monitor_result=result,
-                                    reason=stage_failure.reason,
-                                    retry_budget_left=missing_artifact_retry_budget,
+                                    base_backlog_path=str(base_backlog_path),
+                                    runtime_backlog_path=str(runtime_backlog_path),
                                 )
+                            stage_failure, stage_next_index, stage_completed_final = _complete_stage(
+                                current_task_id=task_id,
+                                current_task_text=task_text,
+                                current_tag=tag,
+                                current_monitor=active_monitor,
+                                current_stage_id=stage_id,
+                                current_stage_index=stage_index,
+                                current_stage_is_final=stage_is_final,
+                                current_attempt_number=attempt_number,
+                                current_attempt_started_ms=attempt_started_ms,
+                                completion_reason="runtime_backlog_marked_done",
+                            )
+                            if stage_failure is not None:
+                                if _should_retry_after_missing_stage_artifact(
+                                    stage_failure=stage_failure,
+                                    monitor_result=result,
+                                    current_stage_id=stage_id,
+                                    retry_budget_left=missing_artifact_retry_budget,
+                                ):
+                                    missing_artifact_retry_budget -= 1
+                                    log_event(
+                                        self.log_path,
+                                        "WARN",
+                                        "runtime backlog marked done but stage artifact missing after process exit; retrying",
+                                        task_id=task_id,
+                                        stage_id=stage_id,
+                                        monitor_result=result,
+                                        reason=stage_failure.reason,
+                                        retry_budget_left=missing_artifact_retry_budget,
+                                    )
+                                else:
+                                    return stage_failure
                             else:
-                                return stage_failure
-                        else:
-                            if stage_completed_final and request.task_path.exists():
-                                try:
-                                    request.task_path.unlink()
-                                    delete_runtime_state_file(request.task_path, self.log_path, reason="runtime_backlog_marked_done")
-                                except Exception as exc:
-                                    log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
-                            if stage_completed_final:
-                                return _finalize_completed(task_id, task_text, tag, active_monitor)
-                            break
-                except Exception as exc:
-                    log_event(
-                        self.log_path,
-                        "ERROR",
-                        "failed to inspect backlog completion after non-completed monitor result",
-                        task_id=task_id,
-                        monitor_result=result,
-                        error=str(exc),
-                    )
+                                if stage_completed_final and request.task_path.exists():
+                                    try:
+                                        request.task_path.unlink()
+                                        delete_runtime_state_file(request.task_path, self.log_path, reason="runtime_backlog_marked_done")
+                                    except Exception as exc:
+                                        log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
+                                if stage_completed_final:
+                                    return _finalize_completed(task_id, task_text, tag, active_monitor)
+                                break
+                    except Exception as exc:
+                        log_event(
+                            self.log_path,
+                            "ERROR",
+                            "failed to inspect backlog completion after non-completed monitor result",
+                            task_id=task_id,
+                            monitor_result=result,
+                            error=str(exc),
+                        )
 
                 restart_count += 1
                 timeline_step_finished(
