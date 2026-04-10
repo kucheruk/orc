@@ -606,9 +606,9 @@ class KanbanSessionManager:
         card = self._distributor.pick_teamlead_task(sid)
         if card is None:
             return
-        # Skip if loop_count hasn't increased since last arbitration
+        # Skip if already arbitrated at this loop_count (or if Blocked and already escalated)
         prev_arb = self._arbitrated_at_loop.get(card.id, -1)
-        if card.loop_count <= prev_arb and card.action != Action.BLOCKED:
+        if card.loop_count <= prev_arb:
             self._distributor.release_card(card.id)
             return
         needs_esc = self._distributor.needs_escalation(card)
@@ -1132,6 +1132,9 @@ class KanbanSessionManager:
     def _escalate(self, card: KanbanCard) -> None:
         card.action = "Blocked"
         self._distributor.board.save_card(card)
+        # Record escalation so teamlead doesn't re-arbitrate this card endlessly
+        self._arbitrated_at_loop[card.id] = card.loop_count
+        self._mark_state_dirty()
         msg = (f"ESCALATION: Task {card.id} ({card.title}) blocked. "
                f"Loop count: {card.loop_count}. Stage: {card.stage}.")
         self.publisher.log_escalate(card.id, msg)
