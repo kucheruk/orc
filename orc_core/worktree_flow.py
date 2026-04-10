@@ -231,27 +231,16 @@ def create_task_worktree(
     worktree_path = worktree_root / safe_task
 
     if worktree_path.exists():
-        # Reuse existing worktree — reset to main to pick up cherry-picked work
-        ok_reset, _, stderr_reset, _ = run_git(
-            str(worktree_path),
-            ["git", "reset", "--hard", main_branch],
+        # Reuse existing worktree as-is so reviewer/tester can see coder's commits
+        log_event(log_path, "INFO", "task worktree reused",
+                  task_id=task_id, worktree_path=str(worktree_path))
+        return WorktreeSession(
+            base_workdir=base_workdir,
+            worktree_path=str(worktree_path),
+            branch_name=branch_name,
+            task_id=task_id,
+            reused=True,
         )
-        if ok_reset:
-            log_event(log_path, "INFO", "task worktree reused",
-                      task_id=task_id, worktree_path=str(worktree_path))
-            return WorktreeSession(
-                base_workdir=base_workdir,
-                worktree_path=str(worktree_path),
-                branch_name=branch_name,
-                task_id=task_id,
-                reused=True,
-            )
-        # Reset failed — remove and recreate
-        log_event(log_path, "WARN", "worktree reset failed, recreating",
-                  task_id=task_id, error=stderr_reset.strip()[:200])
-        run_git(base_workdir, ["git", "worktree", "remove", "--force", str(worktree_path)])
-        run_git(base_workdir, ["git", "branch", "-D", branch_name])
-        run_git(base_workdir, ["git", "worktree", "prune"])
 
     ok, _, stderr, _ = run_git(
         base_workdir,
