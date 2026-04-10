@@ -171,12 +171,14 @@ class KanbanBoard:
     def looping_cards(self, threshold: int = 2) -> list[KanbanCard]:
         with self._lock:
             return [c for c in self._cards
-                    if c.loop_count >= threshold and not c.assigned_agent]
+                    if c.loop_count >= threshold and not c.assigned_agent
+                    and c.stage != "8_Done"]
 
     def blocked_cards(self) -> list[KanbanCard]:
         with self._lock:
             return [c for c in self._cards
-                    if c.action == "Blocked" and not c.assigned_agent]
+                    if c.action == "Blocked" and not c.assigned_agent
+                    and c.stage != "8_Done"]
 
     def detect_wip_deadlock(self) -> str:
         """Detect WIP deadlock conditions. Returns diagnostic string or '' if no deadlock.
