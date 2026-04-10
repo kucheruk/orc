@@ -2,7 +2,10 @@
 # -*- coding: utf-8 -*-
 """Manages cherry-pick integration of task commits into main branch."""
 
+import logging
 import threading
+
+_logger = logging.getLogger(__name__)
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -19,7 +22,7 @@ from .session_types import (
     SessionSlot,
 )
 from .state_paths import integration_report_path
-from .task_execution import has_commits_ahead_of_branch
+from .git_helpers import has_commits_ahead_of_branch
 from .task_source import Task
 from .worktree_flow import (
     get_head_commit,
@@ -144,14 +147,14 @@ class IntegrationManager:
                 try:
                     saved[safe_path] = full.read_text(encoding="utf-8")
                 except OSError:
-                    pass
+                    _logger.debug("OSError reading/writing safe path", exc_info=True)
         run_git(self.workdir, ["git", "reset", "--hard", "HEAD"])
         for safe_path, content in saved.items():
             full = Path(self.workdir) / safe_path
             try:
                 full.write_text(content, encoding="utf-8")
             except OSError:
-                pass
+                _logger.debug("OSError on safe path I/O", exc_info=True)
         log_event(self.log_path, "WARN", "hard reset with preserved files",
                   preserved=list(saved.keys()))
 
@@ -244,7 +247,7 @@ class IntegrationManager:
             try:
                 full.write_text(content, encoding="utf-8")
             except OSError:
-                pass
+                _logger.debug("OSError on safe path I/O", exc_info=True)
         ctx.step("restored_safe_files", files=list(saved.keys()))
 
     def _preflight(self, ctx: IntegrationContext) -> bool:
@@ -451,12 +454,12 @@ class IntegrationManager:
                 try:
                     saved[safe_path] = full.read_text(encoding="utf-8")
                 except OSError:
-                    pass
+                    _logger.debug("OSError reading/writing safe path", exc_info=True)
         run_git(self.workdir, ["git", "reset", "--hard", "HEAD"])
         for safe_path, content in saved.items():
             full = Path(self.workdir) / safe_path
             try:
                 full.write_text(content, encoding="utf-8")
             except OSError:
-                pass
+                _logger.debug("OSError on safe path I/O", exc_info=True)
         ctx.step("hard_reset_with_preserved_files", preserved=list(saved.keys()))

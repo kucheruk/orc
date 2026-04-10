@@ -231,7 +231,7 @@ def create_task_worktree(
     worktree_path = worktree_root / safe_task
 
     if worktree_path.exists():
-        # Reuse existing worktree as-is so reviewer/tester can see coder's commits
+        # Reuse as-is — agent will merge main if needed (can resolve conflicts)
         log_event(log_path, "INFO", "task worktree reused",
                   task_id=task_id, worktree_path=str(worktree_path))
         return WorktreeSession(

@@ -3,8 +3,10 @@
 
 import asyncio
 import json
+import logging
 import re
-import subprocess
+
+_logger = logging.getLogger(__name__)
 import time
 import uuid
 from dataclasses import dataclass
@@ -17,9 +19,19 @@ if TYPE_CHECKING:
 
 from .atomic_io import write_json_atomic
 from .failure_reasons import build_main_integration_preflight_reason
+from .git_helpers import (
+    GIT_COMMAND_TIMEOUT_SECONDS,
+    attempt_autocommit_fallback as _attempt_autocommit_fallback,
+    classify_main_integration_error,
+    git_run as _git_run,
+    git_status_porcelain as _git_status_porcelain,
+    has_commits_ahead_of_branch,
+    parse_git_porcelain as _parse_git_porcelain,
+    runtime_artifact_paths_from_porcelain_lines as _runtime_artifact_paths_from_porcelain_lines,
+)
 from .hooks import update_task_restart_count, write_task_file
 from .logging import debug_log, log_event, timeline_instant, timeline_step
-from .notify import send_telegram_message
+from .notify import send_telegram_message  # noqa: F401 — patched by tests
 from .process import (
     ORPHAN_SWEEP_COMMAND_MARKERS,
     build_process_tree,
@@ -37,10 +49,8 @@ from .stage_artifacts import build_stage_artifact_bundle, parse_stage_artifact_s
 from .task_state import delete_runtime_state_file, read_task_active_seconds, runtime_state_path
 from .task_source import Task
 from .text_parse import clean_summary_lines
-from .ui import ui_error, ui_info, ui_warn
 from .worktree_flow import get_head_commit, integrate_commit_into_main, preflight_main_integration
 
-GIT_COMMAND_TIMEOUT_SECONDS = 20.0
 SDLC_FEEDBACK_MAX_ITERATIONS = 3
 
 
@@ -416,169 +426,8 @@ def _cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
     )
 
 
-def _git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=workdir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        log_event(log_path, "ERROR", "git status timeout", timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS)
-        return False, ""
-    except Exception as exc:
-        log_event(log_path, "ERROR", "git status failed", error=str(exc))
-        return False, ""
-    if result.returncode != 0:
-        log_event(
-            log_path,
-            "ERROR",
-            "git status non-zero",
-            returncode=result.returncode,
-            stderr=(result.stderr or "")[:500],
-        )
-        return False, ""
-    return True, result.stdout or ""
 
 
-def _parse_git_porcelain(porcelain: str) -> tuple[list[str], list[str]]:
-    lines = [ln.rstrip("\n") for ln in (porcelain or "").splitlines() if ln.strip()]
-    tracked: list[str] = []
-    untracked: list[str] = []
-    for ln in lines:
-        if ln.startswith("?? "):
-            untracked.append(ln)
-        else:
-            tracked.append(ln)
-    return tracked, untracked
-
-
-def _runtime_artifact_paths_from_porcelain_lines(lines: list[str]) -> tuple[list[str], list[str]]:
-    runtime: list[str] = []
-    non_runtime: list[str] = []
-    for ln in lines:
-        path = ln[3:].strip() if len(ln) > 3 else ""
-        if (
-            path.startswith(".orc/")
-            or path == ".cursor/orc-task-runtime.json"
-            or path == ".cursor/orc-task.json"
-            or path == ".cursor/orc-stop-request.json"
-        ):
-            runtime.append(ln)
-        else:
-            non_runtime.append(ln)
-    return runtime, non_runtime
-
-
-def _git_run(workdir: str, log_path: Path, args: list[str], label: str) -> tuple[bool, str, str, int]:
-    try:
-        result = subprocess.run(
-            args,
-            cwd=workdir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        log_event(
-            log_path,
-            "ERROR",
-            "git command timeout",
-            label=label,
-            timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS,
-            args=" ".join(args),
-        )
-        return False, "", "timeout", 124
-    except Exception as exc:
-        log_event(log_path, "ERROR", "git command failed", label=label, error=str(exc), args=" ".join(args))
-        return False, "", str(exc), 1
-    ok = result.returncode == 0
-    if not ok:
-        log_event(
-            log_path,
-            "ERROR",
-            "git command non-zero",
-            label=label,
-            returncode=result.returncode,
-            args=" ".join(args),
-            stderr=(result.stderr or "")[:500],
-        )
-    return ok, result.stdout or "", result.stderr or "", int(result.returncode)
-
-
-def _attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, task_text: str) -> bool:
-    """
-    Optional recovery step for commit phase when tracked changes remain.
-    This path is strictly opt-in.
-    """
-    ok_add, _, _, _ = _git_run(workdir, log_path, ["git", "add", "-A"], label="commit_fallback:add_all")
-    if not ok_add:
-        return False
-
-    ok_quiet, _, _, rc = _git_run(
-        workdir,
-        log_path,
-        ["git", "diff", "--cached", "--quiet"],
-        label="commit_fallback:cached_quiet",
-    )
-    if ok_quiet:
-        return True
-    if rc not in (1,):
-        return False
-
-    title = f"{task_id}: checkpoint"
-    body = "Commit phase fallback: committed remaining changes left after commit phase."
-    if task_text:
-        body = f"{body}\n\nTask: {task_text}"
-    ok_commit, _, _, _ = _git_run(
-        workdir,
-        log_path,
-        ["git", "commit", "-m", title, "-m", body],
-        label="commit_fallback:commit",
-    )
-    return ok_commit
-
-
-def has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> bool:
-    ok, stdout, stderr, _ = _git_run(
-        workdir,
-        log_path,
-        ["git", "rev-list", "--count", f"{branch}..HEAD"],
-        label="integration:ahead_count",
-    )
-    if not ok:
-        log_event(log_path, "ERROR", "failed to detect ahead commits", branch=branch, error=stderr[:200])
-        return False
-    try:
-        return int((stdout or "0").strip() or "0") > 0
-    except ValueError:
-        log_event(log_path, "ERROR", "invalid ahead count output", branch=branch, output=stdout[:100])
-        return False
-
-
-def classify_main_integration_error(error: str) -> str:
-    text = (error or "").strip().lower()
-    if not text:
-        return "unknown"
-    if "dirty before integration" in text:
-        return "dirty_base_repo"
-    if text.startswith("git status failed"):
-        return "git_status_failed"
-    if "main branch" in text and "not found" in text:
-        return "main_branch_missing"
-    if text.startswith("checkout"):
-        return "checkout_failed"
-    if "timeout" in text:
-        return "git_timeout"
-    if "cherry-pick" in text or "cherrypick" in text:
-        return "cherry_pick_failed"
-    return "unknown"
 
 
 @dataclass(frozen=True)
@@ -619,7 +468,7 @@ def _run_agent_phase(
         prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}{phase.tag_suffix}")
         log_event(log_path, "INFO", f"{phase.label} starting",
                   task_id=task_id, prompt_path=str(prompt_path), model=phase.model)
-        ui_info(f"[orc] {phase.label}: starting")
+        _logger.info(f"[orc] {phase.label}: starting")
 
         try:
             monitor = worker.launch(
@@ -640,7 +489,7 @@ def _run_agent_phase(
             )
         except Exception as exc:
             log_event(log_path, "ERROR", f"{phase.label} launch failed", task_id=task_id, error=str(exc))
-            ui_error(f"[orc] {phase.label}: launch failed ({type(exc).__name__})")
+            _logger.error(f"[orc] {phase.label}: launch failed ({type(exc).__name__})")
             ts.result = "failed"
             ts.reason = "launch_failed"
             ts.finish_data = {"error": str(exc)}
@@ -669,13 +518,13 @@ def _run_agent_phase(
 
         if result != "completed":
             log_event(log_path, "ERROR", f"{phase.label} failed", task_id=task_id, result=result)
-            ui_error(f"[orc] {phase.label}: failed ({result})")
+            _logger.error(f"[orc] {phase.label}: failed ({result})")
             ts.result = "failed"
             ts.reason = result
             return False
 
         log_event(log_path, "INFO", f"{phase.label} completed", task_id=task_id)
-        ui_info(f"[orc] {phase.label}: completed")
+        _logger.info(f"[orc] {phase.label}: completed")
         return True
 
 
@@ -753,7 +602,7 @@ def _run_commit_phase(
     ok, porcelain = _git_status_porcelain(request.workdir, log_path)
     if ok and not porcelain.strip():
         log_event(log_path, "INFO", "commit phase skipped: clean tree", task_id=task_id)
-        ui_info("[orc] commit phase: skip (clean tree)")
+        _logger.info("[orc] commit phase: skip (clean tree)")
         return True
 
     phase_ok = _run_agent_phase(
@@ -786,15 +635,15 @@ def _run_commit_phase(
             untracked=len(untracked), porcelain=porcelain2[:500],
         )
         if not tracked and untracked:
-            ui_warn("[orc] commit phase: warning (repo has untracked files)")
+            _logger.warning("[orc] commit phase: warning (repo has untracked files)")
             return True
 
         if tracked:
             task_text = str(prompt_vars.get("task_text") or "").strip()
             if request.allow_fallback_commits:
-                ui_warn("[orc] commit phase: tracked changes remain; attempting fallback commit")
+                _logger.warning("[orc] commit phase: tracked changes remain; attempting fallback commit")
                 if not _attempt_autocommit_fallback(request.workdir, log_path, task_id=task_id, task_text=task_text):
-                    ui_error("[orc] commit phase: fallback commit failed")
+                    _logger.error("[orc] commit phase: fallback commit failed")
                     return False
 
                 ok3, porcelain3 = _git_status_porcelain(request.workdir, log_path)
@@ -807,12 +656,12 @@ def _run_commit_phase(
                             task_id=task_id, tracked=len(tracked3),
                             untracked=len(untracked3), porcelain=porcelain3[:500],
                         )
-                        ui_error("[orc] commit phase: still dirty after fallback")
+                        _logger.error("[orc] commit phase: still dirty after fallback")
                         return False
-                    ui_warn("[orc] commit phase: completed (untracked leftovers remain)")
+                    _logger.warning("[orc] commit phase: completed (untracked leftovers remain)")
                     return True
                 log_event(log_path, "INFO", "commit phase completed after fallback", task_id=task_id)
-                ui_info("[orc] commit phase: completed")
+                _logger.info("[orc] commit phase: completed")
                 return True
 
             log_event(
@@ -821,9 +670,9 @@ def _run_commit_phase(
                 task_id=task_id, tracked=len(tracked),
                 untracked=len(untracked), porcelain=porcelain2[:500],
             )
-            ui_error("[orc] commit phase: completed but tracked changes remain (fallback disabled)")
+            _logger.error("[orc] commit phase: completed but tracked changes remain (fallback disabled)")
             return False
-        ui_warn("[orc] commit phase: completed (untracked leftovers remain)")
+        _logger.warning("[orc] commit phase: completed (untracked leftovers remain)")
         return True
 
     return True
@@ -926,7 +775,7 @@ class TaskExecutionEngine:
                     unsafe_tracked=list(unsafe_tracked[:20]),
                     unsafe_untracked=list(unsafe_untracked[:20]),
                 )
-                ui_error(
+                _logger.error(
                     f"❌ Невозможно подготовить интеграцию в {request.main_branch}: {preflight.error}"
                 )
                 ts_exec.result = "failed"
@@ -951,7 +800,7 @@ class TaskExecutionEngine:
                 summary_text = "\n".join(cleaned_lines[-request.timing.summary_lines :])
             tokens = monitor.metrics.tokens_total if monitor.metrics.tokens_total is not None else "-"
             files_edited = monitor.metrics.files_edited if monitor.metrics.files_edited is not None else "-"
-            ui_info(
+            _logger.info(
                 f"[orc] completed stats tokens={tokens} lines={monitor.metrics.total_lines} "
                 f"commands={monitor.metrics.command_count} files_edited={files_edited}"
             )
@@ -987,7 +836,7 @@ class TaskExecutionEngine:
                     "commit phase forced by quit-after-task request",
                     task_id=current_task_id,
                 )
-                ui_info("[orc] commit phase: forced by QUIT AFTER TASK")
+                _logger.info("[orc] commit phase: forced by QUIT AFTER TASK")
             if should_run_commit_phase and not _run_commit_phase(
                 self.worker,
                 request,
@@ -999,7 +848,7 @@ class TaskExecutionEngine:
                 timeline_id,
                 restart_count,
             ):
-                ui_error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
+                _logger.error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
                 ts_exec.result = "failed"
                 ts_exec.reason = "commit_phase_failed"
                 return TaskExecutionResult(status="failed", reason="commit_phase_failed")
@@ -1041,7 +890,7 @@ class TaskExecutionEngine:
                             task_id=current_task_id,
                             error=str(exc),
                         )
-                        ui_error("❌ Не удалось определить commit задачи для переноса в main.")
+                        _logger.error("❌ Не удалось определить commit задачи для переноса в main.")
                         ts_integ.result = "failed"
                         ts_integ.reason = "integration_commit_sha_failed"
                         ts_exec.result = "failed"
@@ -1096,7 +945,7 @@ class TaskExecutionEngine:
                             integration_failure_kind=failure_kind,
                             error=integration.error[:500],
                         )
-                        ui_error(f"❌ Не удалось перенести commit в {request.main_branch}: {integration.error}")
+                        _logger.error(f"❌ Не удалось перенести commit в {request.main_branch}: {integration.error}")
                         ts_integ.result = "failed"
                         ts_integ.reason = f"main_integration_failed:{failure_kind}"
                         ts_exec.result = "failed"
@@ -1136,7 +985,7 @@ class TaskExecutionEngine:
                                     "runtime_backlog_path": str(runtime_backlog_path),
                                 },
                             )
-                            ui_error(
+                            _logger.error(
                                 "❌ После успешной main integration backlog в base не отмечен как done. "
                                 "Значит, отметка попала не в task commit, а пыталась догнаться позже."
                             )
@@ -1206,7 +1055,7 @@ class TaskExecutionEngine:
                 elapsed_before_start = read_task_active_seconds(request.task_path, expected_task_id=str(active_task_id or ""))
             except Exception as exc:
                 log_event(self.log_path, "ERROR", "failed to read task file", error=str(exc))
-                ui_warn(
+                _logger.warning(
                     f"⚠️ Не удалось прочитать {request.task_path}. "
                     "Исправь/удали файл состояния или запусти с --drop для чистого старта."
                 )
@@ -1239,7 +1088,7 @@ class TaskExecutionEngine:
 
                 if MarkdownTaskSource(base_backlog_path).is_task_done(active_task_id):
                     log_event(self.log_path, "INFO", "task already marked done; removing task file", task_id=active_task_id)
-                    ui_info(f"✅ {active_task_id} уже отмечена [x]. Удаляю {request.task_path} и продолжаю.")
+                    _logger.info(f"✅ {active_task_id} уже отмечена [x]. Удаляю {request.task_path} и продолжаю.")
                     try:
                         request.task_path.unlink()
                         delete_runtime_state_file(request.task_path, self.log_path, reason="stale_done_task_file")
@@ -1253,7 +1102,7 @@ class TaskExecutionEngine:
                 task_id = active_task_id or task_id
                 task_text = active_task_text or task_text
                 log_event(self.log_path, "INFO", "resume existing task", task_id=task_id)
-                ui_info(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
+                _logger.info(f"↩️ Обнаружена активная задача, запускаю resume для {task_id}.")
                 if not resume_id:
                     log_event(
                         self.log_path,
@@ -1262,7 +1111,7 @@ class TaskExecutionEngine:
                         task_id=task_id,
                         restart_count=persisted_restart_count,
                     )
-                    ui_info(f"🗑️ Стейт {task_id} без conversation_id — авто-сброс для чистого старта.")
+                    _logger.info(f"🗑️ Стейт {task_id} без conversation_id — авто-сброс для чистого старта.")
                     try:
                         request.task_path.unlink()
                         delete_runtime_state_file(request.task_path, self.log_path, reason="auto_drop_no_conversation")
@@ -1365,7 +1214,7 @@ class TaskExecutionEngine:
                         artifact_path=str(artifact_path),
                         artifact_reason=artifact_reason,
                     )
-                    ui_error(
+                    _logger.error(
                         "❌ SDLC stage завершился без валидного артефакта: "
                         f"{current_stage_id} -> {artifact_path}"
                     )
@@ -1393,7 +1242,7 @@ class TaskExecutionEngine:
                         artifact_reason=stage_status_reason,
                         artifact_status=stage_status,
                     )
-                    ui_error(
+                    _logger.error(
                         "❌ SDLC stage артефакт не содержит валидный `status:` заголовок: "
                         f"{current_stage_id} -> {stage_status_path}"
                     )
@@ -1429,7 +1278,7 @@ class TaskExecutionEngine:
                             feedback_iteration_count=feedback_iteration_count,
                             max_feedback_iterations=SDLC_FEEDBACK_MAX_ITERATIONS,
                         )
-                        ui_error("❌ SDLC feedback loop превысил лимит итераций.")
+                        _logger.error("❌ SDLC feedback loop превысил лимит итераций.")
                         ts_exec.result = "failed"
                         ts_exec.reason = failure_reason
                         return TaskExecutionResult(status="failed", reason=failure_reason), None, False
@@ -1444,7 +1293,7 @@ class TaskExecutionEngine:
                             stage_index=current_stage_index + 1,
                             stage_total=len(stage_specs),
                         )
-                        ui_error("❌ SDLC feedback loop не может вернуться: отсутствует stage `implementation`.")
+                        _logger.error("❌ SDLC feedback loop не может вернуться: отсутствует stage `implementation`.")
                         ts_exec.result = "failed"
                         ts_exec.reason = failure_reason
                         return TaskExecutionResult(status="failed", reason=failure_reason), None, False
@@ -1478,7 +1327,7 @@ class TaskExecutionEngine:
                         stage_index=current_stage_index + 1,
                         stage_total=len(stage_specs),
                     )
-                    ui_error("❌ Testing stage завершился с verdict `status: fail`.")
+                    _logger.error("❌ Testing stage завершился с verdict `status: fail`.")
                     ts_exec.result = "failed"
                     ts_exec.reason = failure_reason
                     return TaskExecutionResult(status="failed", reason=failure_reason), None, False
@@ -1583,7 +1432,7 @@ class TaskExecutionEngine:
                             attempt=attempt_number,
                         )
                     except FileNotFoundError:
-                        ui_error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
+                        _logger.error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
                         ts_attempt.result = "failed"
                         ts_attempt.reason = "agent_not_found"
                         ts_exec.result = "failed"
@@ -1663,7 +1512,7 @@ class TaskExecutionEngine:
                             task_id=task_id,
                             model=stage_model,
                         )
-                        ui_error(
+                        _logger.error(
                             "❌ Выбранная модель недоступна для `agent`. "
                             "Проверьте `agent --list-models` и укажите доступную модель через `--model`."
                         )
@@ -1693,7 +1542,7 @@ class TaskExecutionEngine:
                                 restart_count=restart_count,
                                 max_restarts=request.timing.max_restarts,
                             )
-                            ui_error("❌ Агент зациклился на запросе follow-up ввода. Лимит перезапусков исчерпан.")
+                            _logger.error("❌ Агент зациклился на запросе follow-up ввода. Лимит перезапусков исчерпан.")
                             ts_exec.result = "failed"
                             ts_exec.reason = "max_restarts_exceeded"
                             return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")
@@ -1708,7 +1557,7 @@ class TaskExecutionEngine:
                             reason="waiting_for_input",
                             data={"delay_seconds": delay},
                         )
-                        ui_warn(
+                        _logger.warning(
                             f"[orc] агент запросил follow-up ввод; продолжу цикл через {delay:.1f}s "
                             "(resume сохранен, задача не потеряна)"
                         )
@@ -1891,7 +1740,7 @@ class TaskExecutionEngine:
                         "max restarts exceeded",
                         {"task_id": task_id, "restart_count": restart_count, "max_restarts": request.timing.max_restarts},
                     )
-                    ui_error("❌ Агент не завершил задачу. Проверь логи.")
+                    _logger.error("❌ Агент не завершил задачу. Проверь логи.")
                     ts_exec.result = "failed"
                     ts_exec.reason = "max_restarts_exceeded"
                     return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")

@@ -959,11 +959,22 @@ class StreamMonitorState:
         if event_type == "tool_call" and subtype == "started":
             self.metrics.command_count += 1
 
-        tokens = self.extract_tokens(event)
-        structured_entries = self._extract_structured_token_entries(event)
         text = self._extract_text(event)
         if not stream_kind:
             self._recent_events.append(self._summarize_event(event, text))
+
+        self._process_event_tokens(event, raw)
+        self._process_event_text(text)
+        self._process_event_reasoning(event, event_type, subtype, text)
+        self._update_live_status_from_event(event, event_type, subtype, text)
+
+        self._remember_command(event)
+        self._remember_paths(event)
+        return event_type, subtype, raw
+
+    def _process_event_tokens(self, event: Dict[str, object], raw: str) -> None:
+        tokens = self.extract_tokens(event)
+        structured_entries = self._extract_structured_token_entries(event)
         structured_applied = False
         if structured_entries:
             total_delta = 0
@@ -993,13 +1004,18 @@ class StreamMonitorState:
             self.metrics.tokens_status = "known"
             self.metrics.tokens_source = "heuristic"
 
+    def _process_event_text(self, text: str) -> None:
         if text:
             for line in clean_summary_lines(text.splitlines()):
                 self._line_buffer.append(line)
             preview = self._line_buffer[-1] if self._line_buffer else ""
             if preview:
                 self._last_event_note = preview[:80]
+
+    def _process_event_reasoning(self, event: Dict[str, object], event_type: str, subtype: str, text: str) -> None:
         self._remember_reasoning_from_stream(event, event_type, subtype, text)
+
+    def _update_live_status_from_event(self, event: Dict[str, object], event_type: str, subtype: str, text: str) -> None:
         if event_type in {"thinking", "analysis"}:
             fragment = self._extract_reasoning_fragment(event, text)
             preview = self._trim_fragment(" ".join(fragment.split()).strip()) if fragment else ""
@@ -1021,8 +1037,4 @@ class StreamMonitorState:
             )
         elif event_type not in {"tool_call", "thinking", "analysis", "assistant", "result"}:
             self._set_live_status("waiting", "waiting for output", is_subagent=False)
-
-        self._remember_command(event)
-        self._remember_paths(event)
-        return event_type, subtype, raw
 

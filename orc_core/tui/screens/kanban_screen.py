@@ -10,7 +10,10 @@ Keyboard navigation (vim-like):
 
 from __future__ import annotations
 
+import logging
 import time as _time
+
+_logger = logging.getLogger(__name__)
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -110,7 +113,7 @@ class KanbanScreen(Screen[None]):
         try:
             self.query_one("#kanban_input", Input).focus()
         except Exception:
-            pass
+            _logger.debug("TUI widget lookup failed", exc_info=True)
 
     def _nav_left(self) -> None:
         if self._sel_col > 0:
@@ -267,14 +270,14 @@ class KanbanScreen(Screen[None]):
         try:
             self.query_one("#kanban_metrics", Label).update(" | ".join(parts))
         except Exception:
-            pass
+            _logger.debug("TUI widget lookup failed", exc_info=True)
 
     def _update_column(self, stage_snap) -> None:
         try:
             col = self.query_one(f"#kcol_{stage_snap.name}", KanbanColumnWidget)
             col.update_from_snapshot(stage_snap)
         except Exception:
-            pass
+            _logger.debug("TUI widget lookup failed", exc_info=True)
 
     # ── Journal ─────────────────────────────────────────────────
 
@@ -283,7 +286,7 @@ class KanbanScreen(Screen[None]):
             log = self.query_one("#kanban_journal", RichLog)
             log.write(entry.format_line())
         except Exception:
-            pass
+            _logger.debug("TUI widget lookup failed", exc_info=True)
 
     # ── Input ───────────────────────────────────────────────────
 
@@ -314,7 +317,7 @@ class KanbanScreen(Screen[None]):
         try:
             self.query_one("#kanban_input", Input).value = ""
         except Exception:
-            pass
+            _logger.debug("TUI widget lookup failed", exc_info=True)
 
     def _journal_user(self, text: str) -> None:
         entry = JournalEntry(timestamp=_time.time(), category="user", card_id="", message=text)

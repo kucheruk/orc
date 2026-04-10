@@ -108,8 +108,8 @@ class WaitingForInputNoticeTest(unittest.TestCase):
         self._tg_patcher.stop()
     @patch("orc_core.task_execution._cleanup_monitor_processes")
     @patch("orc_core.task_execution.wait_for_completion", return_value="waiting_for_input")
-    @patch("orc_core.task_execution.ui_warn")
-    def test_waiting_for_input_prints_visible_status(self, ui_warn_mock, *_mocks) -> None:
+    @patch("orc_core.task_execution._logger")
+    def test_waiting_for_input_prints_visible_status(self, logger_mock, *_mocks) -> None:
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
@@ -119,8 +119,8 @@ class WaitingForInputNoticeTest(unittest.TestCase):
         self.assertEqual(result.status, "continue")
         self.assertEqual(result.reason, "waiting_for_input")
         self.assertEqual(result.delay_seconds, 7.0)
-        ui_warn_mock.assert_called_once()
-        self.assertIn("follow-up", ui_warn_mock.call_args.args[0])
+        logger_mock.warning.assert_called_once()
+        self.assertIn("follow-up", logger_mock.warning.call_args.args[0])
 
 
 if __name__ == "__main__":

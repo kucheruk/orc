@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from .stream_monitor_state import MonitorSnapshot
 from .task_source import Task
-from .worktree_flow import WorktreeSession
+
+if TYPE_CHECKING:
+    from .stream_monitor_state import MonitorSnapshot
+    from .worktree_flow import WorktreeSession
 
 
 class SlotStatus(str, Enum):
