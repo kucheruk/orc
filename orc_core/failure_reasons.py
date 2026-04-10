@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from .kanban_constants import IntegrationErrorKind
+
 MAIN_INTEGRATION_PREFLIGHT_FAILED = "main_integration_preflight_failed"
 
 
@@ -35,7 +37,7 @@ def format_known_failure_message(reason: str) -> str | None:
         return None
     _, _, remainder = normalized.partition(":")
     failure_kind, _, detail = remainder.partition(":")
-    if failure_kind == "dirty_base_repo":
+    if failure_kind == IntegrationErrorKind.DIRTY_BASE_REPO:
         details_suffix = f" Проблемные пути: {detail}." if detail else ""
         return (
             "Базовый git-репозиторий грязный перед интеграцией в main/master."
@@ -43,12 +45,12 @@ def format_known_failure_message(reason: str) -> str | None:
             " с переносом task commit. Проверьте `git status --porcelain` и либо"
             " закоммитьте, либо уберите эти изменения, затем повторите запуск."
         )
-    if failure_kind == "main_branch_missing":
+    if failure_kind == IntegrationErrorKind.MAIN_BRANCH_MISSING:
         return (
             "ORC не нашёл целевую ветку для main integration."
             f" Деталь: {detail or 'unknown'}."
         )
-    if failure_kind == "git_status_failed":
+    if failure_kind == IntegrationErrorKind.GIT_STATUS_FAILED:
         return (
             "ORC не смог прочитать состояние git-репозитория перед интеграцией."
             f" Деталь: {detail or 'unknown'}."

@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 import psutil
 
+from .kanban_constants import TaskCompletionStatus
 from .logging import debug_log, debug_mode_log, log_event, timeline_instant
 from .notify import send_telegram_message
 from .process import is_pid_alive
@@ -128,7 +129,7 @@ def wait_for_completion(
     ignore_initial_backlog_done: bool = False,
     escape_requested: Optional[Callable[[], bool]] = None,
     confirm_exit: Optional[Callable[[], bool]] = None,
-) -> str:
+) -> TaskCompletionStatus:
     start_time = time.time()
     pid_missing_since: Optional[float] = None
     last_heartbeat_time = 0.0
@@ -197,7 +198,7 @@ def wait_for_completion(
                 result="completed",
                 reason="task_file_removed",
             )
-            return "completed"
+            return TaskCompletionStatus.COMPLETED
         if _monitor_pid_missing(monitor):
             if pid_missing_since is None:
                 pid_missing_since = time.time()
@@ -224,7 +225,7 @@ def wait_for_completion(
                     result="completed",
                     reason="pid_missing_task_done",
                 )
-                return "completed"
+                return TaskCompletionStatus.COMPLETED
             log_event(log_path, "ERROR", "agent pid missing while task still active", task_id=task_id)
             timeline_instant(
                 timeline_id=timeline_id,
@@ -235,7 +236,7 @@ def wait_for_completion(
                 result="process_exited",
                 reason="pid_missing_task_active",
             )
-            return "process_exited"
+            return TaskCompletionStatus.PROCESS_EXITED
         else:
             pid_missing_since = None
         now = time.time()
@@ -260,7 +261,7 @@ def wait_for_completion(
                 result="completed",
                 reason="backlog_done_idle",
             )
-            return "completed"
+            return TaskCompletionStatus.COMPLETED
         maybe_report_started = time.time()
         monitor.maybe_report()
         maybe_report_duration = time.time() - maybe_report_started
@@ -293,7 +294,7 @@ def wait_for_completion(
                     send_telegram_message(stuck_msg, log_path)
         if getattr(monitor, "result_status", None) == "success":
             if not task_path.exists():
-                return "completed"
+                return TaskCompletionStatus.COMPLETED
 
         if monitor.proc.poll() is not None:
             returncode = int(monitor.proc.returncode or 0)
@@ -307,7 +308,7 @@ def wait_for_completion(
                     result="completed",
                     reason="process_exit_task_file_removed",
                 )
-                return "completed"
+                return TaskCompletionStatus.COMPLETED
             if returncode == 0 and task_path.exists():
                 # Check stream result_status first (hook-free completion detection)
                 stream_result = getattr(monitor, "result_status", None)
@@ -323,12 +324,12 @@ def wait_for_completion(
                         result="completed",
                         reason="stream_result_success",
                     )
-                    return "completed"
+                    return TaskCompletionStatus.COMPLETED
                 grace_deadline = time.time() + PROCESS_EXIT_GRACE_SECONDS
                 while time.time() < grace_deadline:
                     if not task_path.exists():
                         log_event(log_path, "INFO", "task file removed during exit grace window")
-                        return "completed"
+                        return TaskCompletionStatus.COMPLETED
                     if _task_done_in_backlog(task_path):
                         log_event(log_path, "INFO", "task marked done during exit grace window", task_id=task_id)
                         try:
@@ -345,7 +346,7 @@ def wait_for_completion(
                             result="completed",
                             reason="exit_grace_task_done",
                         )
-                        return "completed"
+                        return TaskCompletionStatus.COMPLETED
                     time.sleep(max(min(poll, 0.2), 0.05))
             if _is_model_unavailable_stderr(getattr(monitor, "last_stderr_line", "")):
                 log_event(
@@ -365,7 +366,7 @@ def wait_for_completion(
                     reason="agent_model_unavailable",
                     data={"returncode": returncode},
                 )
-                return "model_unavailable"
+                return TaskCompletionStatus.MODEL_UNAVAILABLE
             log_event(log_path, "ERROR", "agent process exited while task still active", returncode=monitor.proc.returncode)
             _force_close_active_tools_if_needed(
                 monitor,
@@ -394,7 +395,7 @@ def wait_for_completion(
                 reason="process_exited_while_task_active",
                 data={"returncode": returncode},
             )
-            return "process_exited"
+            return TaskCompletionStatus.PROCESS_EXITED
         if getattr(monitor, "ui_followup_prompt", False):
             log_event(log_path, "WARN", "follow-up input requested by agent", task_id=task_id)
             timeline_instant(
@@ -405,7 +406,7 @@ def wait_for_completion(
                 attempt=attempt,
                 result="waiting_for_input",
             )
-            return "waiting_for_input"
+            return TaskCompletionStatus.WAITING_FOR_INPUT
         now = time.time()
         silence_seconds = now - monitor.last_output_time
         snapshot_fn = getattr(monitor, "active_tool_calls_watchdog_snapshot", None)
@@ -470,7 +471,7 @@ def wait_for_completion(
                     "reason": stall_reason,
                 },
             )
-            return "stalled"
+            return TaskCompletionStatus.STALLED
         total_elapsed = elapsed_before_start + (time.time() - start_time)
         if total_elapsed > task_ttl:
             log_event(log_path, "ERROR", "task ttl exceeded", task_ttl=task_ttl)
@@ -489,7 +490,7 @@ def wait_for_completion(
                 result="ttl_exceeded",
                 data={"ttl_elapsed_ms": int(total_elapsed * 1000), "task_ttl_ms": int(task_ttl * 1000)},
             )
-            return "ttl_exceeded"
+            return TaskCompletionStatus.TTL_EXCEEDED
         time.sleep(max(poll, 0.2))
 
 
@@ -506,7 +507,7 @@ def wait_for_process_exit(
     attempt: int = 0,
     escape_requested: Optional[Callable[[], bool]] = None,
     confirm_exit: Optional[Callable[[], bool]] = None,
-) -> str:
+) -> TaskCompletionStatus:
     start_time = time.time()
     debug_log(
         "H3",
@@ -564,7 +565,7 @@ def wait_for_process_exit(
                 result="process_exited",
                 reason="maybe_report_exception",
             )
-            return "process_exited"
+            return TaskCompletionStatus.PROCESS_EXITED
         if _monitor_pid_missing(monitor):
             log_event(log_path, "ERROR", "phase agent pid missing while still running", label=label)
             timeline_instant(
@@ -576,7 +577,7 @@ def wait_for_process_exit(
                 result="process_exited",
                 reason="pid_missing",
             )
-            return "process_exited"
+            return TaskCompletionStatus.PROCESS_EXITED
         if stop_on_followup_prompt and getattr(monitor, "ui_followup_prompt", False):
             log_event(log_path, "WARN", "follow-up prompt visible during phase", label=label)
             timeline_instant(
@@ -587,7 +588,7 @@ def wait_for_process_exit(
                 attempt=attempt,
                 result="waiting_for_input",
             )
-            return "waiting_for_input"
+            return TaskCompletionStatus.WAITING_FOR_INPUT
         if monitor.proc.poll() is not None:
             log_event(
                 log_path,
@@ -605,7 +606,7 @@ def wait_for_process_exit(
                 result="completed" if monitor.proc.returncode == 0 else "process_exited",
                 data={"returncode": int(monitor.proc.returncode or 0)},
             )
-            return "completed" if monitor.proc.returncode == 0 else "process_exited"
+            return TaskCompletionStatus.COMPLETED if monitor.proc.returncode == 0 else TaskCompletionStatus.PROCESS_EXITED
         if time.time() - monitor.last_output_time > stall_timeout:
             log_event(log_path, "ERROR", "stall detected", label=label, stall_seconds=stall_timeout)
             timeline_instant(
@@ -620,7 +621,7 @@ def wait_for_process_exit(
                     "stall_timeout_ms": int(stall_timeout * 1000),
                 },
             )
-            return "stalled"
+            return TaskCompletionStatus.STALLED
         if time.time() - start_time > task_ttl:
             log_event(log_path, "ERROR", "phase ttl exceeded", label=label, task_ttl=task_ttl)
             timeline_instant(
@@ -632,13 +633,13 @@ def wait_for_process_exit(
                 result="ttl_exceeded",
                 data={"task_ttl_ms": int(task_ttl * 1000)},
             )
-            return "ttl_exceeded"
+            return TaskCompletionStatus.TTL_EXCEEDED
         time.sleep(max(poll, 0.2))
 
 
-async def async_wait_for_completion(**kwargs) -> str:
+async def async_wait_for_completion(**kwargs) -> TaskCompletionStatus:
     return await asyncio.to_thread(wait_for_completion, **kwargs)
 
 
-async def async_wait_for_process_exit(**kwargs) -> str:
+async def async_wait_for_process_exit(**kwargs) -> TaskCompletionStatus:
     return await asyncio.to_thread(wait_for_process_exit, **kwargs)

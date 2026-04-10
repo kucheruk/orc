@@ -5,6 +5,7 @@
 import subprocess
 from pathlib import Path
 
+from .kanban_constants import IntegrationErrorKind
 from .logging import log_event
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
@@ -40,31 +41,40 @@ def git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:
 
 
 def parse_git_porcelain(porcelain: str) -> tuple[list[str], list[str]]:
-    lines = [ln.rstrip("\n") for ln in (porcelain or "").splitlines() if ln.strip()]
     tracked: list[str] = []
     untracked: list[str] = []
-    for ln in lines:
-        if ln.startswith("?? "):
-            untracked.append(ln)
+    for line in (porcelain or "").splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("??"):
+            untracked.append(line[3:].strip())
         else:
-            tracked.append(ln)
+            tracked.append(line[3:].strip())
     return tracked, untracked
 
 
-def runtime_artifact_paths_from_porcelain_lines(lines: list[str]) -> tuple[list[str], list[str]]:
+_RUNTIME_ARTIFACT_PREFIXES = (".orc/", ".cursor/")
+
+
+def is_runtime_artifact(path: str) -> bool:
+    p = path.strip()
+    if not p:
+        return False
+    if "__pycache__" in p or p.endswith(".pyc"):
+        return True
+    if p == "nohup.out":
+        return True
+    return any(p.startswith(pfx) or f"/{pfx}" in p for pfx in _RUNTIME_ARTIFACT_PREFIXES)
+
+
+def runtime_artifact_paths_from_porcelain_lines(paths: list[str]) -> tuple[list[str], list[str]]:
     runtime: list[str] = []
     non_runtime: list[str] = []
-    for ln in lines:
-        path = ln[3:].strip() if len(ln) > 3 else ""
-        if (
-            path.startswith(".orc/")
-            or path == ".cursor/orc-task-runtime.json"
-            or path == ".cursor/orc-task.json"
-            or path == ".cursor/orc-stop-request.json"
-        ):
-            runtime.append(ln)
+    for p in paths:
+        if is_runtime_artifact(p):
+            runtime.append(p)
         else:
-            non_runtime.append(ln)
+            non_runtime.append(p)
     return runtime, non_runtime
 
 
@@ -156,20 +166,20 @@ def has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> bo
         return False
 
 
-def classify_main_integration_error(error: str) -> str:
+def classify_main_integration_error(error: str) -> IntegrationErrorKind:
     text = (error or "").strip().lower()
     if not text:
-        return "unknown"
+        return IntegrationErrorKind.UNKNOWN
     if "dirty before integration" in text:
-        return "dirty_base_repo"
+        return IntegrationErrorKind.DIRTY_BASE_REPO
     if text.startswith("git status failed"):
-        return "git_status_failed"
+        return IntegrationErrorKind.GIT_STATUS_FAILED
     if "main branch" in text and "not found" in text:
-        return "main_branch_missing"
+        return IntegrationErrorKind.MAIN_BRANCH_MISSING
     if text.startswith("checkout"):
-        return "checkout_failed"
+        return IntegrationErrorKind.CHECKOUT_FAILED
     if "timeout" in text:
-        return "git_timeout"
+        return IntegrationErrorKind.GIT_TIMEOUT
     if "cherry-pick" in text or "cherrypick" in text:
-        return "cherry_pick_failed"
-    return "unknown"
+        return IntegrationErrorKind.CHERRY_PICK_FAILED
+    return IntegrationErrorKind.UNKNOWN

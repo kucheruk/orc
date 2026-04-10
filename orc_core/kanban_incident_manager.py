@@ -15,6 +15,7 @@ from .kanban_constants import (
     STAGE_HANDOFF,
     STAGE_REVIEW,
     Action,
+    TaskExecutionStatus,
 )
 from .logging import log_event
 from .notify import send_telegram_message
@@ -168,7 +169,7 @@ class IncidentManager:
         result = self.engine.execute(self._make_request(task, prompt, self.workdir, sid, False, 600.0))
 
         try:
-            if result and result.status == "completed" and decision_path.exists():
+            if result and result.status == TaskExecutionStatus.COMPLETED and decision_path.exists():
                 decision = parse_incident_decision(decision_path)
             else:
                 self.publisher.log_incident(incident.id, "AI triage failed, using fallback")

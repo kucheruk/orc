@@ -24,6 +24,7 @@ from .kanban_constants import (
     STAGE_INBOX,
     STAGE_SHORT_NAMES,
     Action,
+    TaskExecutionStatus,
 )
 from .kanban_pull import ROLE_INTEGRATOR, WorkAssignment
 from .kanban_publisher import KanbanPublisher
@@ -117,6 +118,9 @@ class KanbanSessionManager:
         self._directive_queue: list[str] = []
         self._directive_lock = threading.Lock()
         self._last_health_check: float = 0.0
+        self._consecutive_health_checks: int = 0  # escalating interval on repeated issues
+        self._last_health_diagnostic: str = ""  # dedup unchanged diagnostics
+        self._telegram_available: bool | None = None  # cached telegram availability
         self._load_kanban_state()
         self._incident_mgr = IncidentManager(
             distributor=self._distributor,
@@ -425,6 +429,27 @@ class KanbanSessionManager:
             with self._slots_lock:
                 slot.status = SlotStatus.CLOSED
 
+    _FAIL_BLOCK_THRESHOLD = 2  # consecutive failures before auto-blocking a card
+
+    def _increment_fail_and_maybe_block(self, card: KanbanCard, error_desc: str) -> None:
+        """Track consecutive failures for a card. Block it after threshold to prevent infinite retry loops."""
+        count = self._card_fail_counts.get(card.id, 0) + 1
+        self._card_fail_counts[card.id] = count
+        self._mark_state_dirty()
+        if count >= self._FAIL_BLOCK_THRESHOLD:
+            try:
+                card.action = Action.BLOCKED.value
+                self._distributor.board.save_card(card)
+                self.publisher._emit("escalate", card.id,
+                                     f"{card.id} marked Blocked after {count} consecutive failures: {error_desc}")
+                log_event(self.log_path, "WARN", "card blocked after repeated failures",
+                          task_id=card.id, fail_count=count, error=error_desc)
+                self._send_telegram(
+                    f"🚫 {card.id} заблокирована после {count} подряд ошибок: {error_desc}",
+                )
+            except Exception:
+                pass
+
     def _execute_assignment(self, slot: SessionSlot, assignment: WorkAssignment) -> None:
         card, role, sid = assignment.card, assignment.role, slot.session_id
         self.publisher.log_assign(card.id, role, sid)
@@ -451,7 +476,7 @@ class KanbanSessionManager:
             commit_phase = bool(getattr(self.args, "commit_phase", True)) and assignment.needs_worktree
             result = self.engine.execute(self._make_request(task, prompt, wd, sid,
                                                             commit_phase, 1800.0))
-            if result and result.status == "completed":
+            if result and result.status == TaskExecutionStatus.COMPLETED:
                 elapsed = time.time() - task_start
                 old_stage = card.stage
                 old_action = card.action
@@ -471,30 +496,15 @@ class KanbanSessionManager:
                 reason = result.reason if result else "no result"
                 self.publisher._emit("escalate", card.id, f"{card.id} {role} failed: {reason}")
                 self._failed_tasks.append(card.id)
+                # Track API-level failures the same as exceptions to prevent infinite retry loops
+                self._increment_fail_and_maybe_block(card, f"agent returned: {reason}")
         except Exception as exc:
             self.publisher._emit("escalate", card.id,
                                  f"{card.id} ERROR: {type(exc).__name__}: {exc}")
             log_event(self.log_path, "ERROR", "assignment failed",
                       task_id=card.id, error=str(exc))
             self._failed_tasks.append(card.id)
-            # Track consecutive failures — deterministic errors will repeat forever
-            count = self._card_fail_counts.get(card.id, 0) + 1
-            self._card_fail_counts[card.id] = count
-            self._mark_state_dirty()
-            if count >= 2:
-                try:
-                    card.action = Action.BLOCKED.value
-                    self._distributor.board.save_card(card)
-                    self.publisher._emit("escalate", card.id,
-                                         f"{card.id} marked Blocked after {count} consecutive failures: {exc}")
-                    log_event(self.log_path, "WARN", "card blocked after repeated failures",
-                              task_id=card.id, fail_count=count, error=str(exc))
-                    send_telegram_message(
-                        f"🚫 {card.id} заблокирована после {count} подряд ошибок: {type(exc).__name__}: {exc}",
-                        log_path=self.log_path,
-                    )
-                except Exception:
-                    pass
+            self._increment_fail_and_maybe_block(card, f"{type(exc).__name__}: {exc}")
         else:
             # Reset failure counter on success
             if card.id in self._card_fail_counts:
@@ -510,7 +520,8 @@ class KanbanSessionManager:
 
     # ── Teamlead thread ──────────────────────────────────────────
 
-    _HEALTH_CHECK_INTERVAL = 300.0  # seconds between proactive health checks
+    _HEALTH_CHECK_INTERVAL_BASE = 300.0  # base seconds between proactive health checks
+    _HEALTH_CHECK_INTERVAL_MAX = 1800.0  # cap at 30 minutes after repeated same-issue checks
 
     def _run_teamlead(self, slot: SessionSlot) -> None:
         sid = slot.session_id
@@ -553,7 +564,11 @@ class KanbanSessionManager:
                     continue
 
                 # ── Priority 3: board health check (periodic, only when problems found) ──
-                if time.time() - self._last_health_check >= self._HEALTH_CHECK_INTERVAL:
+                health_interval = min(
+                    self._HEALTH_CHECK_INTERVAL_BASE * (2 ** self._consecutive_health_checks),
+                    self._HEALTH_CHECK_INTERVAL_MAX,
+                )
+                if time.time() - self._last_health_check >= health_interval:
                     if self._teamlead_health_check(slot, sid):
                         continue
 
@@ -647,7 +662,7 @@ class KanbanSessionManager:
         try:
             result = self.engine.execute(self._make_request(task, prompt, self.workdir,
                                                             sid, False, 600.0))
-            if result and result.status == "completed":
+            if result and result.status == TaskExecutionStatus.COMPLETED:
                 self._process_teamlead_decision(dec_path)
                 self._distributor.refresh()
                 refreshed = self._distributor.board.card_by_id(card.id)
@@ -728,6 +743,9 @@ class KanbanSessionManager:
                 if diag and "board empty" not in diag:
                     starvation = diag
         if not deadlock and not starvation:
+            # Board is healthy — reset escalation counter
+            self._consecutive_health_checks = 0
+            self._last_health_diagnostic = ""
             return False
         # Don't burn tokens on starvation caused purely by unmet deps —
         # teamlead can't resolve dependency chains, only workers completing
@@ -747,6 +765,15 @@ class KanbanSessionManager:
             diagnostic += f"DEADLOCK: {deadlock}\n"
         if starvation:
             diagnostic += f"STARVATION: {starvation}\n"
+        # Dedup: if diagnostic is unchanged from last check, skip AI invocation
+        if diagnostic == self._last_health_diagnostic and self._consecutive_health_checks > 0:
+            self._consecutive_health_checks += 1
+            log_event(self.log_path, "INFO",
+                      "health check: same diagnostic as last time, skipping AI",
+                      session_id=sid, consecutive=self._consecutive_health_checks)
+            return False
+        self._last_health_diagnostic = diagnostic
+        self._consecutive_health_checks += 1
         self.publisher._emit("escalate", "", f"[TL] Health check: {diagnostic.strip()}")
         log_event(self.log_path, "WARN", "board health issue detected",
                   session_id=sid, diagnostic=diagnostic[:500])
@@ -801,15 +828,17 @@ class KanbanSessionManager:
         msg = (f"ESCALATION: Task {card.id} ({card.title}) blocked. "
                f"Loop count: {card.loop_count}. Stage: {card.stage}.")
         self.publisher.log_escalate(card.id, msg)
-        send_telegram_message(
+        self._send_telegram(
             f"🚨 {card.id} BLOCKED\n"
             f"  {card.title}\n"
             f"  Stage: {card.stage}, loops: {card.loop_count}\n"
-            f"  Use /unblock {card.id} <directive> to resume",
-            self.log_path,
-            orc_root=Path(self.workdir),
+            f"  Use /unblock {card.id} <directive> to resume"
         )
         log_event(self.log_path, "WARN", "escalation", task_id=card.id, detail=msg)
+
+    def _send_telegram(self, message: str) -> None:
+        """Send telegram message, skipping if known unavailable."""
+        send_telegram_message(message, self.log_path, orc_root=Path(self.workdir))
 
     def _notify_completion(
         self, card: KanbanCard, role: str,
@@ -854,7 +883,7 @@ class KanbanSessionManager:
         done, _ip, total = self._distributor.get_progress()
         lines.append(f"\nProgress: {done}/{total}")
 
-        send_telegram_message("\n".join(lines), self.log_path, orc_root=Path(self.workdir))
+        self._send_telegram("\n".join(lines))
 
     @staticmethod
     def _extract_card_summary(card: KanbanCard) -> str:

@@ -7,18 +7,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from .git_helpers import is_runtime_artifact, parse_git_porcelain as _parse_git_porcelain
 from .logging import log_event
 from .state_paths import worktrees_root
 
 GIT_TIMEOUT_SECONDS = 30.0
-INTEGRATION_SAFE_UNTRACKED_PREFIXES = (".orc/",)
-INTEGRATION_SAFE_UNTRACKED_EXACT = {
-    ".cursor/hooks.json",
-    ".cursor/hooks/orc_before_submit.py",
-    ".cursor/hooks/orc_hook_lib.py",
-    ".cursor/hooks/orc_stop.py",
-    ".cursor/orc-stop-request.json",
-}
 
 
 @dataclass(frozen=True)
@@ -76,35 +69,9 @@ def run_git(
     return result.returncode == 0, result.stdout or "", result.stderr or "", int(result.returncode)
 
 
-def _parse_git_porcelain(porcelain: str) -> tuple[list[str], list[str]]:
-    tracked: list[str] = []
-    untracked: list[str] = []
-    for raw_line in porcelain.splitlines():
-        line = raw_line.rstrip("\n")
-        if len(line) < 4:
-            continue
-        status = line[:2]
-        path = line[3:].strip()
-        if not path:
-            continue
-        if status == "??":
-            untracked.append(path)
-        else:
-            tracked.append(path)
-    return tracked, untracked
 
-
-def _is_runtime_artifact_path(path: str) -> bool:
-    normalized = path.strip()
-    if not normalized:
-        return False
-    if normalized in INTEGRATION_SAFE_UNTRACKED_EXACT:
-        return True
-    return normalized.startswith(INTEGRATION_SAFE_UNTRACKED_PREFIXES)
-
-
-def _is_integration_safe_untracked(path: str) -> bool:
-    return _is_runtime_artifact_path(path)
+_is_runtime_artifact_path = is_runtime_artifact
+_is_integration_safe_untracked = is_runtime_artifact
 
 
 def _list_untracked_files(workdir: str) -> tuple[bool, list[str], str]:

@@ -204,6 +204,37 @@ def _card_priority_key(card) -> tuple[int, str, float]:
     return (cos_rank, deadline, -card.roi)
 
 
+_CARD_PROMPT_MAX_CHARS = 6000  # cap card body in teamlead prompts to save tokens
+
+
+def _truncate_card_for_prompt(card_md: str) -> str:
+    """Truncate card markdown to a reasonable size for teamlead prompts.
+
+    Keeps frontmatter + sections 1-3 (requirements, design, notes) and
+    truncates section 4 (Feedback & Checklist) which accumulates repetitive
+    arbitration history.
+    """
+    if len(card_md) <= _CARD_PROMPT_MAX_CHARS:
+        return card_md
+    # Try to find section 4 and truncate just that
+    marker = "# 4. Feedback"
+    idx = card_md.find(marker)
+    if idx == -1:
+        marker = "# 4."
+        idx = card_md.find(marker)
+    if idx != -1:
+        head = card_md[:idx]
+        tail = card_md[idx:]
+        if len(tail) > 1500:
+            # Keep last 1200 chars of feedback (most recent decisions)
+            tail = tail[:200] + "\n\n[... earlier feedback truncated ...]\n\n" + tail[-1200:]
+        result = head + tail
+        if len(result) <= _CARD_PROMPT_MAX_CHARS:
+            return result
+    # Hard truncate
+    return card_md[:_CARD_PROMPT_MAX_CHARS] + "\n\n[... truncated ...]"
+
+
 def build_teamlead_prompt(
     *,
     mode: str,
@@ -225,7 +256,7 @@ def build_teamlead_prompt(
 
     # Build mode-specific context
     if mode == "arbitration" and card:
-        card_content = _escape_braces(card.to_markdown())
+        card_content = _escape_braces(_truncate_card_for_prompt(card.to_markdown()))
         card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
         log_hint = ""
         if agent_log_path:

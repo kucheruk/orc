@@ -44,6 +44,7 @@ from .quit_signal import is_quit_after_task_requested, is_stop_requested
 from .runner import launch_agent_stream_json
 from .session_state import save_active_session, save_session_manifest
 from .stream_monitor_state import MonitorSnapshot
+from .kanban_constants import TaskCompletionStatus, TaskExecutionStatus
 from .supervisor_lifecycle import wait_for_completion, wait_for_process_exit
 from .stage_artifacts import build_stage_artifact_bundle, parse_stage_artifact_status, validate_stage_artifact_output
 from .task_state import delete_runtime_state_file, read_task_active_seconds, runtime_state_path
@@ -204,9 +205,9 @@ class AgentTaskWorker:
 
 
 RESTART_REASON_TEXT = {
-    "stalled": "Ты перестал выдавать результат (завис). Переоцени свой подход.",
-    "ttl_exceeded": "Ты превысил лимит времени. Сделай коммит текущего прогресса или выбери более простой путь.",
-    "process_exited": "Твой процесс неожиданно завершился (возможно, ошибка синтаксиса в bash).",
+    TaskCompletionStatus.STALLED: "Ты перестал выдавать результат (завис). Переоцени свой подход.",
+    TaskCompletionStatus.TTL_EXCEEDED: "Ты превысил лимит времени. Сделай коммит текущего прогресса или выбери более простой путь.",
+    TaskCompletionStatus.PROCESS_EXITED: "Твой процесс неожиданно завершился (возможно, ошибка синтаксиса в bash).",
 }
 
 
@@ -516,7 +517,7 @@ def _run_agent_phase(
                 pass
             _cleanup_monitor_processes(monitor, log_path, label=phase.label.replace(" ", "-"))
 
-        if result != "completed":
+        if result != TaskCompletionStatus.COMPLETED:
             log_event(log_path, "ERROR", f"{phase.label} failed", task_id=task_id, result=result)
             _logger.error(f"[orc] {phase.label}: failed ({result})")
             ts.result = "failed"
@@ -556,35 +557,6 @@ def _merge_expert_phase_spec(request: TaskExecutionRequest) -> AgentPhaseSpec:
     )
 
 
-def _parse_git_porcelain(porcelain: str) -> tuple[list[str], list[str]]:
-    """Parse git status --porcelain output into (tracked_changes, untracked_files)."""
-    tracked = []
-    untracked = []
-    for line in porcelain.splitlines():
-        if not line.strip():
-            continue
-        if line.startswith("??"):
-            untracked.append(line[3:].strip())
-        else:
-            tracked.append(line[3:].strip())
-    return tracked, untracked
-
-
-def _runtime_artifact_paths_from_porcelain_lines(
-    paths: list[str],
-) -> tuple[list[str], list[str]]:
-    """Split paths into runtime artifacts (ignorable) and real changes."""
-    runtime = []
-    real = []
-    for p in paths:
-        if ("__pycache__" in p or p.endswith(".pyc")
-                or p == "nohup.out"
-                or "/.orc/" in p or p.startswith(".orc/")
-                or "/.cursor/" in p or p.startswith(".cursor/")):
-            runtime.append(p)
-        else:
-            real.append(p)
-    return runtime, real
 
 
 def _run_commit_phase(
@@ -781,7 +753,7 @@ class TaskExecutionEngine:
                 ts_exec.result = "failed"
                 ts_exec.reason = f"main_integration_preflight_failed:{failure_kind}"
                 return TaskExecutionResult(
-                    status="failed",
+                    status=TaskExecutionStatus.FAILED,
                     reason=build_main_integration_preflight_reason(failure_kind, preflight.error),
                 )
         resume_existing = request.task_path.exists()
@@ -851,7 +823,7 @@ class TaskExecutionEngine:
                 _logger.error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
                 ts_exec.result = "failed"
                 ts_exec.reason = "commit_phase_failed"
-                return TaskExecutionResult(status="failed", reason="commit_phase_failed")
+                return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="commit_phase_failed")
             if should_run_commit_phase:
                 commit_completed = True
 
@@ -879,7 +851,7 @@ class TaskExecutionEngine:
                             pass
                         ts_integ.result = "skipped"
                         ts_integ.reason = "no_commits_ahead"
-                        return TaskExecutionResult(status="completed", committed=commit_completed)
+                        return TaskExecutionResult(status=TaskExecutionStatus.COMPLETED, committed=commit_completed)
                     try:
                         commit_sha = get_head_commit(request.workdir)
                     except Exception as exc:
@@ -895,7 +867,7 @@ class TaskExecutionEngine:
                         ts_integ.reason = "integration_commit_sha_failed"
                         ts_exec.result = "failed"
                         ts_exec.reason = "integration_commit_sha_failed"
-                        return TaskExecutionResult(status="failed", reason="integration_commit_sha_failed")
+                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="integration_commit_sha_failed")
 
                     integration = integrate_commit_into_main(
                         base_workdir=request.base_workdir,
@@ -926,7 +898,7 @@ class TaskExecutionEngine:
                             ts_integ.reason = "merge_expert_phase_failed"
                             ts_exec.result = "failed"
                             ts_exec.reason = "merge_expert_phase_failed"
-                            return TaskExecutionResult(status="failed", reason="merge_expert_phase_failed")
+                            return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="merge_expert_phase_failed")
                         integration = integrate_commit_into_main(
                             base_workdir=request.base_workdir,
                             commit_sha=commit_sha,
@@ -950,7 +922,7 @@ class TaskExecutionEngine:
                         ts_integ.reason = f"main_integration_failed:{failure_kind}"
                         ts_exec.result = "failed"
                         ts_exec.reason = f"main_integration_failed:{failure_kind}"
-                        return TaskExecutionResult(status="failed", reason="main_integration_failed")
+                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="main_integration_failed")
             # Kanban mode uses _board sentinel — card state is the source of truth, skip backlog invariant
             if base_backlog_path.name != "_board" and not base_backlog_path.is_dir():
                 try:
@@ -991,7 +963,7 @@ class TaskExecutionEngine:
                             )
                             ts_exec.result = "failed"
                             ts_exec.reason = "worktree_not_integrated_to_base"
-                            return TaskExecutionResult(status="failed", reason="worktree_not_integrated_to_base")
+                            return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="worktree_not_integrated_to_base")
                         synced = _sync_done_task_from_runtime_to_base(
                             task_id=current_task_id,
                             base_backlog_path=base_backlog_path,
@@ -1028,7 +1000,7 @@ class TaskExecutionEngine:
                 delete_runtime_state_file(request.task_path, self.log_path, reason="task_completed")
             except Exception:
                 pass
-            return TaskExecutionResult(status="completed", committed=commit_completed)
+            return TaskExecutionResult(status=TaskExecutionStatus.COMPLETED, committed=commit_completed)
 
         debug_log(
             "H2",
@@ -1061,7 +1033,7 @@ class TaskExecutionEngine:
                 )
                 ts_exec.result = "continue"
                 ts_exec.reason = "task_file_read_failed"
-                return TaskExecutionResult(status="continue", reason="task_file_read_failed", delay_seconds=max(request.timing.poll, 0.2))
+                return TaskExecutionResult(status=TaskExecutionStatus.CONTINUE, reason="task_file_read_failed", delay_seconds=max(request.timing.poll, 0.2))
 
             same_backlog = True
             if active_backlog_raw:
@@ -1096,7 +1068,7 @@ class TaskExecutionEngine:
                         log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
                     ts_exec.result = "continue"
                     ts_exec.reason = "stale_done_task_file"
-                    return TaskExecutionResult(status="continue", reason="stale_done_task_file")
+                    return TaskExecutionResult(status=TaskExecutionStatus.CONTINUE, reason="stale_done_task_file")
 
             if resume_existing:
                 task_id = active_task_id or task_id
@@ -1222,7 +1194,7 @@ class TaskExecutionEngine:
                     current_ts_attempt.reason = failure_reason
                     ts_exec.result = "failed"
                     ts_exec.reason = failure_reason
-                    return TaskExecutionResult(status="failed", reason=failure_reason), None, False
+                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
             if enforce_stage_artifacts and current_stage_id in {"review", "testing"}:
                 status_ok, stage_status, stage_status_reason, stage_status_path = parse_stage_artifact_status(
                     stage_id=current_stage_id,
@@ -1250,7 +1222,7 @@ class TaskExecutionEngine:
                     current_ts_attempt.reason = failure_reason
                     ts_exec.result = "failed"
                     ts_exec.reason = failure_reason
-                    return TaskExecutionResult(status="failed", reason=failure_reason), None, False
+                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
             current_ts_attempt.result = "completed"
             if completion_reason:
                 current_ts_attempt.reason = completion_reason
@@ -1281,7 +1253,7 @@ class TaskExecutionEngine:
                         _logger.error("❌ SDLC feedback loop превысил лимит итераций.")
                         ts_exec.result = "failed"
                         ts_exec.reason = failure_reason
-                        return TaskExecutionResult(status="failed", reason=failure_reason), None, False
+                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
                     if implementation_stage_index is None:
                         failure_reason = "sdlc_feedback_missing_implementation_stage"
                         log_event(
@@ -1296,7 +1268,7 @@ class TaskExecutionEngine:
                         _logger.error("❌ SDLC feedback loop не может вернуться: отсутствует stage `implementation`.")
                         ts_exec.result = "failed"
                         ts_exec.reason = failure_reason
-                        return TaskExecutionResult(status="failed", reason=failure_reason), None, False
+                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
                     next_stage_index = implementation_stage_index
                     log_event(
                         self.log_path,
@@ -1330,7 +1302,7 @@ class TaskExecutionEngine:
                     _logger.error("❌ Testing stage завершился с verdict `status: fail`.")
                     ts_exec.result = "failed"
                     ts_exec.reason = failure_reason
-                    return TaskExecutionResult(status="failed", reason=failure_reason), None, False
+                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
             log_event(
                 self.log_path,
                 "INFO",
@@ -1353,9 +1325,9 @@ class TaskExecutionEngine:
         ) -> bool:
             if retry_budget_left <= 0:
                 return False
-            if monitor_result != "process_exited":
+            if monitor_result != TaskCompletionStatus.PROCESS_EXITED:
                 return False
-            if stage_failure.status != "failed":
+            if stage_failure.status != TaskExecutionStatus.FAILED:
                 return False
             return stage_failure.reason.startswith(f"stage_artifact_{current_stage_id}_")
 
@@ -1437,7 +1409,7 @@ class TaskExecutionEngine:
                         ts_attempt.reason = "agent_not_found"
                         ts_exec.result = "failed"
                         ts_exec.reason = "agent_not_found"
-                        return TaskExecutionResult(status="failed", reason="agent_not_found")
+                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="agent_not_found")
 
                     try:
                         with timeline_step(
@@ -1487,7 +1459,7 @@ class TaskExecutionEngine:
                         },
                     )
 
-                    if result == "completed":
+                    if result == TaskCompletionStatus.COMPLETED:
                         stage_failure, stage_next_index, stage_completed_final = _complete_stage(
                             current_task_id=task_id,
                             current_task_text=task_text,
@@ -1504,7 +1476,7 @@ class TaskExecutionEngine:
                         if stage_completed_final:
                             return _finalize_completed(task_id, task_text, tag, active_monitor)
                         break
-                    if result == "model_unavailable":
+                    if result == TaskCompletionStatus.MODEL_UNAVAILABLE:
                         log_event(
                             self.log_path,
                             "ERROR",
@@ -1520,8 +1492,8 @@ class TaskExecutionEngine:
                         ts_attempt.reason = "model_unavailable"
                         ts_exec.result = "failed"
                         ts_exec.reason = "model_unavailable"
-                        return TaskExecutionResult(status="failed", reason="model_unavailable")
-                    if result == "waiting_for_input":
+                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="model_unavailable")
+                    if result == TaskCompletionStatus.WAITING_FOR_INPUT:
                         ts_attempt.result = "waiting_for_input"
                         restart_count += 1
                         update_task_restart_count(request.task_path, self.log_path, restart_count)
@@ -1545,7 +1517,7 @@ class TaskExecutionEngine:
                             _logger.error("❌ Агент зациклился на запросе follow-up ввода. Лимит перезапусков исчерпан.")
                             ts_exec.result = "failed"
                             ts_exec.reason = "max_restarts_exceeded"
-                            return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")
+                            return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="max_restarts_exceeded")
                         delay = max(request.timing.nudge_cooldown, request.timing.poll, 1.0)
                         timeline_instant(
                             timeline_id=timeline_id,
@@ -1563,7 +1535,7 @@ class TaskExecutionEngine:
                         )
                         ts_exec.result = "continue"
                         ts_exec.reason = "waiting_for_input"
-                        return TaskExecutionResult(status="continue", reason="waiting_for_input", delay_seconds=delay)
+                        return TaskExecutionResult(status=TaskExecutionStatus.CONTINUE, reason="waiting_for_input", delay_seconds=delay)
                     # Kanban mode: _board sentinel is not a real backlog — skip done-detection via backlog
                     if base_backlog_path.name != "_board" and not base_backlog_path.is_dir():
                         try:
@@ -1667,7 +1639,7 @@ class TaskExecutionEngine:
                                         )
                                         ts_exec.result = "failed"
                                         ts_exec.reason = "runtime_backlog_sync_failed"
-                                        return TaskExecutionResult(status="failed", reason="runtime_backlog_sync_failed")
+                                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="runtime_backlog_sync_failed")
                                     log_event(
                                         self.log_path,
                                         "WARN",
@@ -1743,7 +1715,7 @@ class TaskExecutionEngine:
                     _logger.error("❌ Агент не завершил задачу. Проверь логи.")
                     ts_exec.result = "failed"
                     ts_exec.reason = "max_restarts_exceeded"
-                    return TaskExecutionResult(status="failed", reason="max_restarts_exceeded")
+                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="max_restarts_exceeded")
                 log_event(self.log_path, "WARN", "restarting task", task_id=task_id, restart_count=restart_count, reason=result)
                 reason_text = RESTART_REASON_TEXT.get(result, result)
                 continue_vars = SafeDict(
@@ -1779,7 +1751,7 @@ class TaskExecutionEngine:
 
         ts_exec.result = "failed"
         ts_exec.reason = "no_final_stage_completion"
-        return TaskExecutionResult(status="failed", reason="no_final_stage_completion")
+        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="no_final_stage_completion")
 
     async def execute_async(self, request: TaskExecutionRequest) -> TaskExecutionResult:
         return await asyncio.to_thread(self.execute, request)

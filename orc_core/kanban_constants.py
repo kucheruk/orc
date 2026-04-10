@@ -82,5 +82,30 @@ COS_PRIORITY: dict[str, int] = {
     ClassOfService.INTANGIBLE: 3,
 }
 
+class IntegrationErrorKind(StrEnum):
+    UNKNOWN = "unknown"
+    DIRTY_BASE_REPO = "dirty_base_repo"
+    GIT_STATUS_FAILED = "git_status_failed"
+    MAIN_BRANCH_MISSING = "main_branch_missing"
+    CHECKOUT_FAILED = "checkout_failed"
+    GIT_TIMEOUT = "git_timeout"
+    CHERRY_PICK_FAILED = "cherry_pick_failed"
+
+
+class TaskExecutionStatus(StrEnum):
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CONTINUE = "continue"
+
+
+class TaskCompletionStatus(StrEnum):
+    COMPLETED = "completed"
+    STALLED = "stalled"
+    TTL_EXCEEDED = "ttl_exceeded"
+    PROCESS_EXITED = "process_exited"
+    WAITING_FOR_INPUT = "waiting_for_input"
+    MODEL_UNAVAILABLE = "model_unavailable"
+
+
 INDEX_FILENAME = "_index.md"
 TASKS_DIR = "tasks"
