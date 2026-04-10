@@ -8,7 +8,16 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
-from .kanban_constants import Action
+from .kanban_constants import (
+    STAGE_CODING,
+    STAGE_ESTIMATE,
+    STAGE_HANDOFF,
+    STAGE_INBOX,
+    STAGE_REVIEW,
+    STAGE_TESTING,
+    STAGE_TODO,
+    Action,
+)
 
 _pull_logger = logging.getLogger(__name__)
 
@@ -42,49 +51,49 @@ def find_next_work(board: "KanbanBoard") -> Optional[WorkAssignment]:
     _auto_promote_estimate(board)
 
     # 1. Handoff → Integrating (worktree=True so integrator sees coder's commits)
-    result = _try_stage(board, "7_Handoff", Action.INTEGRATING, ROLE_INTEGRATOR, worktree=True)
+    result = _try_stage(board, STAGE_HANDOFF, Action.INTEGRATING, ROLE_INTEGRATOR, worktree=True)
     if result:
         return result
 
     # 2. Testing
-    result = _try_stage_with_forward_wip(board, "6_Testing", Action.TESTING, ROLE_TESTER, "7_Handoff")
+    result = _try_stage_with_forward_wip(board, STAGE_TESTING, Action.TESTING, ROLE_TESTER, STAGE_HANDOFF)
     if result:
         return result
-    result = _try_stage(board, "6_Testing", Action.CODING, ROLE_CODER, worktree=True)
+    result = _try_stage(board, STAGE_TESTING, Action.CODING, ROLE_CODER, worktree=True)
     if result:
         return result
 
     # 3. Review
-    result = _try_stage_with_forward_wip(board, "5_Review", Action.REVIEWING, ROLE_REVIEWER, "6_Testing")
+    result = _try_stage_with_forward_wip(board, STAGE_REVIEW, Action.REVIEWING, ROLE_REVIEWER, STAGE_TESTING)
     if result:
         return result
-    result = _try_stage(board, "5_Review", Action.CODING, ROLE_CODER, worktree=True)
+    result = _try_stage(board, STAGE_REVIEW, Action.CODING, ROLE_CODER, worktree=True)
     if result:
         return result
 
     # 4. Coding
-    result = _try_stage(board, "4_Coding", Action.CODING, ROLE_CODER, worktree=True)
+    result = _try_stage(board, STAGE_CODING, Action.CODING, ROLE_CODER, worktree=True)
     if result:
         return result
 
     # 5. Todo → Pull to Coding (requires WIP room in 4_Coding)
-    if board.has_wip_room("4_Coding"):
-        card = board.pick_best("3_Todo", Action.CODING)
+    if board.has_wip_room(STAGE_CODING):
+        card = board.pick_best(STAGE_TODO, Action.CODING)
         if card:
-            board.move_card(card, "4_Coding", reason="pull: backlog ready")
+            board.move_card(card, STAGE_CODING, reason="pull: backlog ready")
             return WorkAssignment(card=card, role=ROLE_CODER, needs_worktree=True)
 
     # 6. Estimate (deps not enforced — architect/product only evaluates)
-    result = _try_stage(board, "2_Estimate", Action.ARCHITECT, ROLE_ARCHITECT, worktree=False, check_deps=False)
+    result = _try_stage(board, STAGE_ESTIMATE, Action.ARCHITECT, ROLE_ARCHITECT, worktree=False, check_deps=False)
     if result:
         return result
-    if board.has_wip_room("3_Todo"):
-        result = _try_stage(board, "2_Estimate", Action.PRODUCT, ROLE_PRODUCT, worktree=False, check_deps=False)
+    if board.has_wip_room(STAGE_TODO):
+        result = _try_stage(board, STAGE_ESTIMATE, Action.PRODUCT, ROLE_PRODUCT, worktree=False, check_deps=False)
         if result:
             return result
 
     # 7. Inbox (deps not enforced — product only evaluates)
-    result = _try_stage(board, "1_Inbox", Action.PRODUCT, ROLE_PRODUCT, worktree=False, check_deps=False)
+    result = _try_stage(board, STAGE_INBOX, Action.PRODUCT, ROLE_PRODUCT, worktree=False, check_deps=False)
     if result:
         return result
 
@@ -98,13 +107,13 @@ def _auto_promote_estimate(board: "KanbanBoard") -> None:
     dependencies are not yet in Done.  This function runs every pull cycle and
     promotes them as soon as deps clear and Todo has WIP room.
     """
-    if not board.has_wip_room("3_Todo"):
+    if not board.has_wip_room(STAGE_TODO):
         return
-    for card in board.cards_with_action("2_Estimate", Action.CODING):
+    for card in board.cards_with_action(STAGE_ESTIMATE, Action.CODING):
         if not board.has_unmet_dependencies(card):
-            board.move_card(card, "3_Todo", reason="pull: deps now met")
+            board.move_card(card, STAGE_TODO, reason="pull: deps now met")
             _pull_logger.info("Auto-promoted %s to Todo (deps unblocked)", card.id)
-            if not board.has_wip_room("3_Todo"):
+            if not board.has_wip_room(STAGE_TODO):
                 break
 
 

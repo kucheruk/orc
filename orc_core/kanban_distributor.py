@@ -11,6 +11,7 @@ from typing import Optional
 
 from .kanban_board import KanbanBoard
 from .kanban_card import KanbanCard
+from .kanban_constants import STAGE_DONE
 from .kanban_pull import WorkAssignment, find_next_work, find_teamlead_work
 
 _logger = logging.getLogger(__name__)
@@ -58,7 +59,7 @@ class KanbanDistributor:
         Safe to call at any time — does not depend on prior ``pick_worker_task`` state.
         """
         with self._lock:
-            non_done = [c for c in self._board.cards if c.stage != "8_Done"]
+            non_done = [c for c in self._board.cards if c.stage != STAGE_DONE]
             if not non_done:
                 return "board empty — all cards Done"
             assigned = [c for c in non_done if c.assigned_agent]
@@ -125,11 +126,11 @@ class KanbanDistributor:
         """Returns (done, in_progress, total) across the board."""
         with self._lock:
             cards = self._board.cards
-            done = sum(1 for c in cards if c.stage == "8_Done")
+            done = sum(1 for c in cards if c.stage == STAGE_DONE)
             in_progress = sum(1 for c in cards if c.assigned_agent)
             return done, in_progress, len(cards)
 
     def has_remaining_work(self) -> bool:
         """Check if there are any cards not in Done."""
         with self._lock:
-            return any(c.stage != "8_Done" for c in self._board.cards)
+            return any(c.stage != STAGE_DONE for c in self._board.cards)

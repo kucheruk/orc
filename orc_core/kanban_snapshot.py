@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from .kanban_constants import STAGES
+from .kanban_constants import STAGE_DONE, STAGES
 
 if TYPE_CHECKING:
     from .kanban_board import KanbanBoard
@@ -125,7 +125,7 @@ def build_board_snapshot(
             ))
         count = len(cards_in_stage)
         total += count
-        if stage_name == "8_Done":
+        if stage_name == STAGE_DONE:
             done_count = count
         blocked_count += sum(1 for c in cards_in_stage if c.action == "Blocked")
         stages.append(StageSnapshot(
@@ -153,7 +153,7 @@ def build_board_snapshot(
 
 
 def _compute_avg_lead_time(board: "KanbanBoard") -> float:
-    done = board.cards_in_stage("8_Done")
+    done = board.cards_in_stage(STAGE_DONE)
     if not done:
         return 0.0
     total_minutes = 0.0

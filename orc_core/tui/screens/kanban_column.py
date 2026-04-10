@@ -9,21 +9,11 @@ from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Label
 
-from ...kanban_constants import WIP_STAGES
+from ...kanban_constants import STAGE_ABBREV_NAMES, WIP_STAGES
 from ...kanban_snapshot import StageSnapshot
 from .kanban_card_widget import KanbanCardWidget
 
-# Short display names for stages
-_SHORT_NAMES: dict[str, str] = {
-    "1_Inbox": "Inbox",
-    "2_Estimate": "Estim",
-    "3_Todo": "Todo",
-    "4_Coding": "Code",
-    "5_Review": "Review",
-    "6_Testing": "Test",
-    "7_Handoff": "Hand",
-    "8_Done": "Done",
-}
+_SHORT_NAMES = STAGE_ABBREV_NAMES
 
 
 class _NoFocusScroll(VerticalScroll):

@@ -8,7 +8,18 @@ import logging
 from typing import TYPE_CHECKING
 
 from .kanban_card import PROTECTED_FIELDS, KanbanCard, read_card, validate_card
-from .kanban_constants import STAGE_ORDER, Action
+from .kanban_constants import (
+    STAGE_CODING,
+    STAGE_DONE,
+    STAGE_ESTIMATE,
+    STAGE_HANDOFF,
+    STAGE_INBOX,
+    STAGE_ORDER,
+    STAGE_REVIEW,
+    STAGE_TESTING,
+    STAGE_TODO,
+    Action,
+)
 
 if TYPE_CHECKING:
     from .kanban_board import KanbanBoard
@@ -57,16 +68,16 @@ _LOOP_BACK_ACTIONS: frozenset[str] = frozenset({Action.CODING})
 # Stage the card should move to when action changes (if any)
 _FORWARD_MOVES: dict[tuple[str, str], str] = {
     # (current_stage, new_action) → new_stage
-    ("1_Inbox", Action.ARCHITECT): "2_Estimate",
-    ("1_Inbox", Action.CODING): "3_Todo",           # product fast-tracks to backlog
-    ("2_Estimate", Action.CODING): "3_Todo",
-    ("4_Coding", Action.REVIEWING): "5_Review",
-    ("5_Review", Action.TESTING): "6_Testing",       # reviewer approves for testing
-    ("6_Testing", Action.INTEGRATING): "7_Handoff",
-    ("7_Handoff", Action.DONE): "8_Done",
+    (STAGE_INBOX, Action.ARCHITECT): STAGE_ESTIMATE,
+    (STAGE_INBOX, Action.CODING): STAGE_TODO,           # product fast-tracks to backlog
+    (STAGE_ESTIMATE, Action.CODING): STAGE_TODO,
+    (STAGE_CODING, Action.REVIEWING): STAGE_REVIEW,
+    (STAGE_REVIEW, Action.TESTING): STAGE_TESTING,       # reviewer approves for testing
+    (STAGE_TESTING, Action.INTEGRATING): STAGE_HANDOFF,
+    (STAGE_HANDOFF, Action.DONE): STAGE_DONE,
     # Integrator reject paths
-    ("7_Handoff", Action.REVIEWING): "5_Review",
-    ("7_Handoff", Action.TESTING): "6_Testing",
+    (STAGE_HANDOFF, Action.REVIEWING): STAGE_REVIEW,
+    (STAGE_HANDOFF, Action.TESTING): STAGE_TESTING,
 }
 
 
@@ -144,7 +155,7 @@ def process_agent_result(
         move_key = (card.stage, new_action)
         new_stage = _FORWARD_MOVES.get(move_key)
         # Block promotion to Todo/Coding if dependencies are unmet
-        if new_stage in ("3_Todo", "4_Coding") and board.has_unmet_dependencies(updated):
+        if new_stage in (STAGE_TODO, STAGE_CODING) and board.has_unmet_dependencies(updated):
             _logger.info("Cannot move %s to %s: unmet dependencies, staying in %s",
                           updated.id, new_stage, card.stage)
         elif new_stage and board.has_wip_room(new_stage):
@@ -152,7 +163,7 @@ def process_agent_result(
             board.move_card(updated, new_stage, allow_backward=is_backward,
                             reason=f"{role}: {old_action} -> {new_action}")
             # Ensure action is Done when card reaches 8_Done
-            if new_stage == "8_Done" and updated.action != Action.DONE:
+            if new_stage == STAGE_DONE and updated.action != Action.DONE:
                 updated.action = Action.DONE
                 board.save_card(updated)
         elif new_stage and not board.has_wip_room(new_stage):

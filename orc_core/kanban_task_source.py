@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .kanban_board import KanbanBoard
+from .kanban_constants import STAGE_DONE
 from .task_source import Task
 
 
@@ -31,7 +32,7 @@ class KanbanTaskSource:
 
     def list_tasks(self) -> List[Task]:
         return [
-            Task(task_id=c.id, text=c.title or c.id, done=(c.stage == "8_Done"))
+            Task(task_id=c.id, text=c.title or c.id, done=(c.stage == STAGE_DONE))
             for c in self._board.cards
         ]
 
@@ -46,16 +47,16 @@ class KanbanTaskSource:
         card = self._board.card_by_id(task_id)
         if card is None:
             return None
-        return Task(task_id=card.id, text=card.title or card.id, done=(card.stage == "8_Done"))
+        return Task(task_id=card.id, text=card.title or card.id, done=(card.stage == STAGE_DONE))
 
     def is_task_done(self, task_id: str) -> bool:
         card = self._board.card_by_id(task_id)
-        return card is not None and card.stage == "8_Done"
+        return card is not None and card.stage == STAGE_DONE
 
     def mark_task_done(self, task_id: str) -> bool:
         card = self._board.card_by_id(task_id)
         if card is None:
             return False
-        if card.stage != "8_Done":
-            self._board.move_card(card, "8_Done", reason="task completed")
+        if card.stage != STAGE_DONE:
+            self._board.move_card(card, STAGE_DONE, reason="task completed")
         return True

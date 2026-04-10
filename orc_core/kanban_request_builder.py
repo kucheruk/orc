@@ -91,7 +91,7 @@ def build_kanban_request(
         progress_done=done,
         progress_total=total,
         progress_in_progress=in_progress,
-        agent_env={"ORC_SESSION_ID": session_id, "ORC_BASE_WORKSPACE": base_workdir, "ORC_TASK_FILE": str(task_path)},
+        agent_env={"ORC_SESSION_ID": session_id, "ORC_BASE_WORKSPACE": base_workdir, "ORC_TASK_FILE": str(task_path), "PYTHONDONTWRITEBYTECODE": "1"},
         snapshot_publisher=snapshot_publisher,
     )
 

@@ -18,7 +18,16 @@ from .integration_manager import IntegrationManager
 from .kanban_agent_output import process_agent_result
 from .kanban_card import KanbanCard, new_card_body
 from .kanban_distributor import KanbanDistributor
-from .kanban_constants import Action
+from .kanban_constants import (
+    STAGE_CODING,
+    STAGE_DONE,
+    STAGE_ESTIMATE,
+    STAGE_HANDOFF,
+    STAGE_INBOX,
+    STAGE_REVIEW,
+    STAGE_SHORT_NAMES,
+    Action,
+)
 from .kanban_pull import ROLE_INTEGRATOR, WorkAssignment
 from .kanban_publisher import KanbanPublisher
 from .kanban_request_builder import build_kanban_request
@@ -233,9 +242,9 @@ class KanbanSessionManager:
         released = 0
         done_ids: set[str] = set()
         for card in list(board.cards):
-            if card.stage == "8_Done":
+            if card.stage == STAGE_DONE:
                 done_ids.add(card.id)
-            if card.assigned_agent and card.stage != "8_Done":
+            if card.assigned_agent and card.stage != STAGE_DONE:
                 old_agent = card.assigned_agent
                 board.release_agent(card)
                 released += 1
@@ -494,7 +503,7 @@ class KanbanSessionManager:
             slot.task = None  # clear so _running_slots_info shows idle, not stale task
             self._distributor.release_card(card.id)
             # Only cleanup worktree when card reaches Done — reuse for loop-backs
-            if worktree and card.stage == "8_Done":
+            if worktree and card.stage == STAGE_DONE:
                 with self._worktree_lock:
                     cleanup_task_worktree(worktree, self.log_path)
 
@@ -935,12 +944,12 @@ class KanbanSessionManager:
         # Map target_role to the correct stage+action so the pull system
         # assigns the card to the right role.
         _ROLE_PLACEMENT: dict[str, tuple[str, str]] = {
-            "coder":      ("4_Coding",  Action.CODING),
-            "architect":  ("2_Estimate", Action.ARCHITECT),
-            "reviewer":   ("5_Review",  Action.REVIEWING),
-            "integrator": ("7_Handoff", Action.INTEGRATING),
+            "coder":      (STAGE_CODING,   Action.CODING),
+            "architect":  (STAGE_ESTIMATE, Action.ARCHITECT),
+            "reviewer":   (STAGE_REVIEW,   Action.REVIEWING),
+            "integrator": (STAGE_HANDOFF,  Action.INTEGRATING),
         }
-        stage, action = _ROLE_PLACEMENT.get(incident.target_role, ("4_Coding", Action.CODING))
+        stage, action = _ROLE_PLACEMENT.get(incident.target_role, (STAGE_CODING, Action.CODING))
 
         card = board.create_expedite_card(
             card_id=fix_card_id,
@@ -969,7 +978,7 @@ class KanbanSessionManager:
         board = self._distributor.board
         fix_card = board.card_by_id(incident.fix_card_id)
 
-        if fix_card and fix_card.stage == "8_Done":
+        if fix_card and fix_card.stage == STAGE_DONE:
             self.publisher.log_incident(incident.id, f"Fix {incident.fix_card_id} completed!")
             log_event(self.log_path, "INFO", "fix completed",
                       incident_id=incident.id, fix_card_id=incident.fix_card_id)
@@ -1167,17 +1176,14 @@ class KanbanSessionManager:
         # Notify: stage changed, or expedite flagged, or Done
         stage_changed = old_stage != new_stage
         became_expedite = card.class_of_service == "expedite" and old_cos != "expedite"
-        is_done = new_stage == "8_Done"
+        is_done = new_stage == STAGE_DONE
 
         if not stage_changed and not became_expedite:
             return
 
         # Build short stage names for readability
-        short = {"1_Inbox": "Inbox", "2_Estimate": "Estimate", "3_Todo": "Todo",
-                 "4_Coding": "Coding", "5_Review": "Review", "6_Testing": "Testing",
-                 "7_Handoff": "Handoff", "8_Done": "Done"}
-        fr = short.get(old_stage, old_stage)
-        to = short.get(new_stage, new_stage)
+        fr = STAGE_SHORT_NAMES.get(old_stage, old_stage)
+        to = STAGE_SHORT_NAMES.get(new_stage, new_stage)
 
         icon = "✅" if is_done else "🔄"
         if became_expedite:
@@ -1314,7 +1320,7 @@ class KanbanSessionManager:
     def _board_diag_short(self) -> str:
         """One-line board summary for diagnostics."""
         board = self._distributor.board
-        inbox = board.cards_in_stage("1_Inbox")
+        inbox = board.cards_in_stage(STAGE_INBOX)
         free_inbox = sum(1 for c in inbox if not c.assigned_agent)
         total_assigned = sum(1 for c in board.cards if c.assigned_agent)
         return f"inbox={len(inbox)} (free={free_inbox}), assigned_total={total_assigned}"

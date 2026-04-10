@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,9 +11,8 @@ from typing import Any
 
 import yaml
 
-from .kanban_constants import Action, ClassOfService
-
-_FRONT_RE = re.compile(r"\A---\n(.*?\n?)---\n?(.*)", re.DOTALL)
+from .kanban_constants import STAGE_INBOX, Action, ClassOfService
+from .text_parse import parse_frontmatter
 
 # Fields agents are NOT allowed to change (Python-only)
 PROTECTED_FIELDS: frozenset[str] = frozenset({
@@ -26,7 +24,7 @@ PROTECTED_FIELDS: frozenset[str] = frozenset({
 class KanbanCard:
     id: str
     title: str = ""
-    stage: str = "1_Inbox"
+    stage: str = STAGE_INBOX
     action: str = Action.PRODUCT
     class_of_service: str = ClassOfService.STANDARD
     cos_justification: str = ""
@@ -84,16 +82,11 @@ class KanbanCard:
 
 
 def parse_card(text: str, file_path: Path | None = None) -> KanbanCard:
-    m = _FRONT_RE.match(text)
-    if not m:
-        raise ValueError(f"No YAML frontmatter found in {file_path or '<string>'}")
-    raw_yaml, body = m.group(1), m.group(2).strip()
-    loaded = yaml.safe_load(raw_yaml)
-    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
+    data, body = parse_frontmatter(text, str(file_path or "<string>"))
     card = KanbanCard(
         id=str(data.get("id", "")),
         title=str(data.get("title", "")),
-        stage=str(data.get("stage", "1_Inbox")),
+        stage=str(data.get("stage", STAGE_INBOX)),
         action=str(data.get("action", Action.PRODUCT)),
         class_of_service=str(data.get("class_of_service", ClassOfService.STANDARD)),
         cos_justification=str(data.get("cos_justification", "")),

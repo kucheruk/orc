@@ -4,7 +4,7 @@
 
 from pathlib import Path
 
-from .kanban_constants import DEFAULT_WIP_LIMITS, INDEX_FILENAME, STAGES, WIP_STAGES
+from .kanban_constants import DEFAULT_WIP_LIMITS, INDEX_FILENAME, STAGE_DONE, STAGES, WIP_STAGES
 
 
 def init_kanban_board(root: Path) -> Path:
@@ -28,7 +28,7 @@ def init_kanban_board(root: Path) -> Path:
                     encoding="utf-8",
                 )
 
-    gitkeep = tasks_dir / "8_Done" / ".gitkeep"
+    gitkeep = tasks_dir / STAGE_DONE / ".gitkeep"
     if not gitkeep.exists():
         gitkeep.write_text("", encoding="utf-8")
 

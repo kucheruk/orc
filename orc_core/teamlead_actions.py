@@ -9,21 +9,18 @@ This module parses it and executes the actions against the board.
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
-
-from .kanban_constants import STAGES, Action
+from .kanban_constants import STAGE_DONE, STAGE_INBOX, STAGES, Action
+from .text_parse import parse_frontmatter
 
 if TYPE_CHECKING:
     from .kanban_board import KanbanBoard
     from .kanban_publisher import KanbanPublisher
 
 _logger = logging.getLogger(__name__)
-_FRONT_RE = re.compile(r"\A---\n(.*?\n?)---\n?(.*)", re.DOTALL)
 
 DECISION_FILENAME = "teamlead-decision.md"
 
@@ -57,14 +54,7 @@ def decision_path(workdir: str) -> Path:
 def parse_teamlead_decision(path: Path) -> TeamleadDecision:
     """Parse a teamlead decision file. Raises ValueError on bad format."""
     text = path.read_text(encoding="utf-8")
-    m = _FRONT_RE.match(text)
-    if not m:
-        raise ValueError(f"No YAML frontmatter in {path}")
-
-    raw_yaml = m.group(1)
-    data = yaml.safe_load(raw_yaml)
-    if not isinstance(data, dict):
-        raise ValueError(f"Frontmatter is not a dict in {path}")
+    data, _ = parse_frontmatter(text, str(path))
 
     summary = str(data.get("summary", "")).strip()
     raw_actions = data.get("actions", [])
@@ -225,7 +215,7 @@ def _do_modify_deps(board, p, reason, publisher):
 
 def _do_create_card(board, p, reason, publisher):
     title = _require(p, "title")
-    stage = str(p.get("stage", "1_Inbox"))
+    stage = str(p.get("stage", STAGE_INBOX))
     action_str = str(p.get("action", "Product"))
     body = str(p.get("body", ""))
     if stage not in STAGES:
@@ -234,7 +224,7 @@ def _do_create_card(board, p, reason, publisher):
         Action(action_str)
     except ValueError:
         raise ValueError(f"Invalid action: {action_str}")
-    if stage == "1_Inbox":
+    if stage == STAGE_INBOX:
         card = board.create_inbox_card(board.next_card_id(), title)
     else:
         card = board.create_expedite_card(
@@ -297,9 +287,9 @@ def _do_skip_card(board, p, reason, publisher):
     # Move directly to Done, bypassing the pipeline
     card.action = Action.DONE.value
     board.save_card(card)
-    board.move_card(card, "8_Done", allow_backward=True,
+    board.move_card(card, STAGE_DONE, allow_backward=True,
                     reason=f"teamlead skip: {reason}" if reason else "teamlead skip")
-    publisher._emit("teamlead", card_id, f"Skipped {card_id} → 8_Done: {reason}")
+    publisher._emit("teamlead", card_id, f"Skipped {card_id} → {STAGE_DONE}: {reason}")
 
 
 def _do_write_feedback(board, p, reason, publisher):

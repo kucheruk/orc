@@ -44,9 +44,7 @@ GIT_COMMAND_TIMEOUT_SECONDS = 20.0
 SDLC_FEEDBACK_MAX_ITERATIONS = 3
 
 
-class SafeDict(dict):
-    def __missing__(self, key: str) -> str:
-        return "{" + key + "}"
+from .text_parse import SafeDict
 
 
 @dataclass(frozen=True)
@@ -707,6 +705,37 @@ def _merge_expert_phase_spec(request: TaskExecutionRequest) -> AgentPhaseSpec:
         stall_timeout=request.timing.commit_stall_timeout,
         ttl=request.timing.commit_ttl,
     )
+
+
+def _parse_git_porcelain(porcelain: str) -> tuple[list[str], list[str]]:
+    """Parse git status --porcelain output into (tracked_changes, untracked_files)."""
+    tracked = []
+    untracked = []
+    for line in porcelain.splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("??"):
+            untracked.append(line[3:].strip())
+        else:
+            tracked.append(line[3:].strip())
+    return tracked, untracked
+
+
+def _runtime_artifact_paths_from_porcelain_lines(
+    paths: list[str],
+) -> tuple[list[str], list[str]]:
+    """Split paths into runtime artifacts (ignorable) and real changes."""
+    runtime = []
+    real = []
+    for p in paths:
+        if ("__pycache__" in p or p.endswith(".pyc")
+                or p == "nohup.out"
+                or "/.orc/" in p or p.startswith(".orc/")
+                or "/.cursor/" in p or p.startswith(".cursor/")):
+            runtime.append(p)
+        else:
+            real.append(p)
+    return runtime, real
 
 
 def _run_commit_phase(

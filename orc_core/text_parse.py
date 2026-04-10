@@ -2,7 +2,33 @@
 # -*- coding: utf-8 -*-
 
 import re
-from typing import Iterable, List, Optional, Tuple
+from typing import Any, Iterable, List, Optional, Tuple
+
+import yaml
+
+class SafeDict(dict):
+    """Dict that returns the key as-is for missing format placeholders."""
+
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n?)---\n?(.*)", re.DOTALL)
+
+
+def parse_frontmatter(text: str, source: str = "<string>") -> tuple[dict[str, Any], str]:
+    """Parse YAML frontmatter from text. Returns (data_dict, body).
+
+    Raises ValueError if no frontmatter block is found.
+    """
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        raise ValueError(f"No YAML frontmatter found in {source}")
+    raw_yaml, body = m.group(1), m.group(2).strip()
+    loaded = yaml.safe_load(raw_yaml)
+    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
+    return data, body
+
 
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 OSC_RE = re.compile(r"\x1b\][^\x07]*(\x07|\x1b\\)")

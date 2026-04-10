@@ -18,7 +18,15 @@ from .kanban_constants import (
     COS_PRIORITY,
     DEFAULT_WIP_LIMITS,
     INDEX_FILENAME,
+    STAGE_CODING,
+    STAGE_DONE,
+    STAGE_ESTIMATE,
+    STAGE_HANDOFF,
+    STAGE_INBOX,
     STAGE_ORDER,
+    STAGE_REVIEW,
+    STAGE_TESTING,
+    STAGE_TODO,
     STAGES,
     WIP_STAGES,
 )
@@ -173,21 +181,21 @@ class KanbanBoard:
         with self._lock:
             return [c for c in self._cards
                     if c.loop_count >= threshold and not c.assigned_agent
-                    and c.stage != "8_Done"]
+                    and c.stage != STAGE_DONE]
 
     def blocked_cards(self) -> list[KanbanCard]:
         with self._lock:
             return [c for c in self._cards
                     if c.action == "Blocked" and not c.assigned_agent
-                    and c.stage != "8_Done"]
+                    and c.stage != STAGE_DONE]
 
     def _apply_deferred_moves(self) -> None:
         """Move cards whose action doesn't match their stage (stuck after restart)."""
         _EXPECTED_STAGE = {
-            ("6_Testing", "Integrating"): "7_Handoff",
-            ("7_Handoff", "Done"): "8_Done",
-            ("4_Coding", "Reviewing"): "5_Review",
-            ("5_Review", "Testing"): "6_Testing",
+            (STAGE_TESTING, "Integrating"): STAGE_HANDOFF,
+            (STAGE_HANDOFF, "Done"): STAGE_DONE,
+            (STAGE_CODING, "Reviewing"): STAGE_REVIEW,
+            (STAGE_REVIEW, "Testing"): STAGE_TESTING,
         }
         for card in list(self._cards):
             if card.assigned_agent:
@@ -206,7 +214,7 @@ class KanbanBoard:
         - The stages feeding those dependencies cannot be processed due to WIP constraints
         """
         with self._lock:
-            non_done = [c for c in self._cards if c.stage != "8_Done"]
+            non_done = [c for c in self._cards if c.stage != STAGE_DONE]
             if not non_done:
                 return ""
             # Check if ANY card is assignable (not assigned, correct action, deps met)
@@ -215,9 +223,9 @@ class KanbanBoard:
                 return ""  # cards exist but all assigned — not a deadlock, just busy
 
             # Check Todo: full + all cards have unmet deps
-            done_ids = {c.id for c in self._cards if c.stage == "8_Done"}
-            todo = [c for c in self._cards if c.stage == "3_Todo"]
-            todo_limit = self._wip_limits.get("3_Todo", 999)
+            done_ids = {c.id for c in self._cards if c.stage == STAGE_DONE}
+            todo = [c for c in self._cards if c.stage == STAGE_TODO]
+            todo_limit = self._wip_limits.get(STAGE_TODO, 999)
             todo_full = len(todo) >= todo_limit and todo_limit < 999
 
             if todo_full and todo:
@@ -229,7 +237,7 @@ class KanbanBoard:
                 todo_no_deps = [c for c in todo if not c.dependencies and not c.assigned_agent]
                 if todo_all_blocked and not todo_no_deps:
                     # Find which Estimate cards are the blocking deps
-                    estimate = [c for c in self._cards if c.stage == "2_Estimate"]
+                    estimate = [c for c in self._cards if c.stage == STAGE_ESTIMATE]
                     needed_deps = set()
                     for c in todo:
                         for dep in c.dependencies:
@@ -246,10 +254,10 @@ class KanbanBoard:
                         )
 
             # Check broader starvation: Coding/Review/Testing all empty, no work can be pulled
-            coding = [c for c in self._cards if c.stage == "4_Coding"]
-            review = [c for c in self._cards if c.stage == "5_Review"]
-            testing = [c for c in self._cards if c.stage == "6_Testing"]
-            handoff = [c for c in self._cards if c.stage == "7_Handoff"]
+            coding = [c for c in self._cards if c.stage == STAGE_CODING]
+            review = [c for c in self._cards if c.stage == STAGE_REVIEW]
+            testing = [c for c in self._cards if c.stage == STAGE_TESTING]
+            handoff = [c for c in self._cards if c.stage == STAGE_HANDOFF]
             active_work = coding + review + testing + handoff
             if not active_work and todo_full:
                 return (
@@ -307,7 +315,7 @@ class KanbanBoard:
     def _detect_stuck_cards(self, cards: list["KanbanCard"], threshold_minutes: int = 45) -> str:
         """Detect cards stuck in a non-Done stage for too long."""
         from datetime import datetime, timezone
-        done_ids = {c.id for c in self._cards if c.stage == "8_Done"}
+        done_ids = {c.id for c in self._cards if c.stage == STAGE_DONE}
         now = datetime.now(timezone.utc)
         stuck: list[str] = []
         for c in cards:
@@ -335,7 +343,7 @@ class KanbanBoard:
         if not card.dependencies:
             return False
         with self._lock:
-            done_ids = {c.id for c in self._cards if c.stage == "8_Done"}
+            done_ids = {c.id for c in self._cards if c.stage == STAGE_DONE}
         return any(dep not in done_ids for dep in card.dependencies)
 
     # ── Card operations ─────────────────────────────────────────
@@ -433,11 +441,11 @@ class KanbanBoard:
         from .kanban_card import KanbanCard as KC, new_card_body, write_card
         from datetime import datetime, timezone
         card = KC(
-            id=card_id, title=title, stage="1_Inbox", action="Product",
+            id=card_id, title=title, stage=STAGE_INBOX, action="Product",
             created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             body=new_card_body(),
         )
-        inbox_dir = self._tasks_dir / "1_Inbox"
+        inbox_dir = self._tasks_dir / STAGE_INBOX
         inbox_dir.mkdir(parents=True, exist_ok=True)
         path = inbox_dir / f"{card_id}.md"
         write_card(card, path)
@@ -451,7 +459,7 @@ class KanbanBoard:
         title: str,
         body: str,
         *,
-        stage: str = "4_Coding",
+        stage: str = STAGE_CODING,
         action: str = "Coding",
         cos_justification: str = "",
     ) -> KanbanCard:

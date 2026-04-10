@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .kanban_constants import COS_PRIORITY, STAGES
+from .kanban_constants import COS_PRIORITY, STAGE_DONE, STAGES
 from .kanban_pull import (
     ROLE_ARCHITECT,
     ROLE_CODER,
@@ -134,7 +134,7 @@ def format_board_detail(board: "KanbanBoard", token_stats: dict[str, int] | None
     loop count, CoS, elapsed time in stage, and token usage.
     Done cards are listed as IDs only to save tokens.
     """
-    done_ids = {c.id for c in board.cards if c.stage == "8_Done"}
+    done_ids = {c.id for c in board.cards if c.stage == STAGE_DONE}
     stats = token_stats or {}
     sections: list[str] = []
 
@@ -143,12 +143,12 @@ def format_board_detail(board: "KanbanBoard", token_stats: dict[str, int] | None
         limit = board.wip_limit(stage)
         count = len(cards)
 
-        if stage == "8_Done":
+        if stage == STAGE_DONE:
             if cards:
                 ids = ", ".join(c.id for c in cards)
-                sections.append(f"### 8_Done [{count} cards]\n{ids}")
+                sections.append(f"### {STAGE_DONE} [{count} cards]\n{ids}")
             else:
-                sections.append("### 8_Done [0 cards]")
+                sections.append(f"### {STAGE_DONE} [0 cards]")
             continue
 
         wip_str = f"{count}/{limit}" if limit < 999 else str(count)
@@ -299,8 +299,4 @@ def clear_template_cache() -> None:
     _template_cache.clear()
 
 
-class _SafeDict(dict):
-    """Dict that returns the key as-is for missing format placeholders."""
-
-    def __missing__(self, key: str) -> str:
-        return f"{{{key}}}"
+from .text_parse import SafeDict as _SafeDict
