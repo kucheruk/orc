@@ -1,7 +1,7 @@
 # ORC / ORCS — оркестратор задач для AI-агентов
 
 > **Claude Code skill**: `/orc-repo-init` — подготовит любой проект для ORC за один шаг.
-> Установка скилла: `claude skills add --path /Users/vetinary/work/orc/skills/orc-repo-init`
+> Установка скилла: `claude skills add --path <orc-repo>/skills/orc-repo-init`
 > После установки — откройте терминал в папке своего проекта и скажите Claude Code: "подготовь проект под orc" или "/orc-repo-init".
 
 ORC автоматизирует последовательное выполнение задач из `BACKLOG.md` с помощью AI-агентов (Cursor, Claude Code, Codex).

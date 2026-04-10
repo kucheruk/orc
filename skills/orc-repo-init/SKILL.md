@@ -184,7 +184,7 @@ Dependency graph: BE-001 → BE-002 → BE-003, BE-004
 ## How to run
 
 1. Install ORC (if not installed):
-   cd /Users/vetinary/work/orc && uv tool install --editable .
+   cd <orc-repo> && uv tool install --editable .
 
 2. Launch the kanban board:
    orc --mode kanban --workspace <project-path>

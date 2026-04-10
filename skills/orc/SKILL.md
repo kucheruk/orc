@@ -253,7 +253,7 @@ Cards move automatically when an agent changes the `action` field:
 
 ### 7 Roles and Their Prompts
 
-Each role has a prompt template in `prompts/kanban_<role>.txt` that gets injected with the current board state and card content. The ORC installation at `/Users/vetinary/work/orc` contains all prompts.
+Each role has a prompt template in `prompts/kanban_<role>.txt` that gets injected with the current board state and card content.
 
 | Role | Prompt file | Gets worktree? |
 |------|-------------|----------------|
@@ -353,7 +353,7 @@ Source: PRD.md, requirement REQ-042
 
 ```bash
 # Install (from orc repo)
-cd /Users/vetinary/work/orc && uv tool install --editable .
+cd <orc-repo> && uv tool install --editable .
 
 # Initialize kanban board in target project
 orc --init-kanban --workspace /path/to/project
