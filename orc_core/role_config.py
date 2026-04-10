@@ -16,10 +16,6 @@ DEFAULT_PROMPT_PATH = PROMPTS_DIR / "default.txt"
 CONTINUE_PROMPT_PATH = PROMPTS_DIR / "continue.txt"
 COMMIT_PROMPT_PATH = PROMPTS_DIR / "commit.txt"
 MERGE_EXPERT_PROMPT_PATH = PROMPTS_DIR / "merge_expert.txt"
-PLANNING_PROMPT_PATH = PROMPTS_DIR / "planning.txt"
-DESIGN_PROMPT_PATH = PROMPTS_DIR / "design.txt"
-REVIEW_PROMPT_PATH = PROMPTS_DIR / "review.txt"
-TESTING_PROMPT_PATH = PROMPTS_DIR / "testing.txt"
 
 ROLE_ANALYSIS_PLANNING = "analysis_planning"
 ROLE_DESIGN = "design"
@@ -42,11 +38,7 @@ ALL_ROLE_IDS = (
 )
 
 ROLE_SETTINGS_VISIBLE_IDS = (
-    ROLE_ANALYSIS_PLANNING,
-    ROLE_DESIGN,
     ROLE_CODER,
-    ROLE_CODE_REVIEW,
-    ROLE_TESTER,
     ROLE_HANDOFF,
 )
 
@@ -78,8 +70,8 @@ class RoleProfileRegistry:
                 role_id=ROLE_ANALYSIS_PLANNING,
                 title="Исследование и планирование",
                 default_enabled=False,
-                can_toggle_enabled=True,
-                default_prompt_path=PLANNING_PROMPT_PATH,
+                can_toggle_enabled=False,
+                default_prompt_text="(legacy role — not used in kanban mode)",
             ),
             ROLE_SUPERVISOR: RoleDefinition(
                 role_id=ROLE_SUPERVISOR,
@@ -95,8 +87,8 @@ class RoleProfileRegistry:
                 role_id=ROLE_DESIGN,
                 title="Дизайн решения",
                 default_enabled=False,
-                can_toggle_enabled=True,
-                default_prompt_path=DESIGN_PROMPT_PATH,
+                can_toggle_enabled=False,
+                default_prompt_text="(legacy role — not used in kanban mode)",
             ),
             ROLE_CODER: RoleDefinition(
                 role_id=ROLE_CODER,
@@ -109,15 +101,15 @@ class RoleProfileRegistry:
                 role_id=ROLE_CODE_REVIEW,
                 title="Код-ревью",
                 default_enabled=False,
-                can_toggle_enabled=True,
-                default_prompt_path=REVIEW_PROMPT_PATH,
+                can_toggle_enabled=False,
+                default_prompt_text="(legacy role — not used in kanban mode)",
             ),
             ROLE_TESTER: RoleDefinition(
                 role_id=ROLE_TESTER,
                 title="Тестировщик",
                 default_enabled=False,
-                can_toggle_enabled=True,
-                default_prompt_path=TESTING_PROMPT_PATH,
+                can_toggle_enabled=False,
+                default_prompt_text="(legacy role — not used in kanban mode)",
             ),
             ROLE_HANDOFF: RoleDefinition(
                 role_id=ROLE_HANDOFF,

@@ -55,13 +55,13 @@ class RoleProfileRegistryTest(unittest.TestCase):
             coder = registry.resolve_role(tmpdir, ROLE_CODER)
 
         self.assertFalse(planning.enabled)
-        self.assertTrue(planning.can_toggle_enabled)
+        self.assertFalse(planning.can_toggle_enabled)  # legacy role
         self.assertFalse(design.enabled)
-        self.assertTrue(design.can_toggle_enabled)
+        self.assertFalse(design.can_toggle_enabled)  # legacy role
         self.assertFalse(review.enabled)
-        self.assertTrue(review.can_toggle_enabled)
+        self.assertFalse(review.can_toggle_enabled)  # legacy role
         self.assertFalse(testing.enabled)
-        self.assertTrue(testing.can_toggle_enabled)
+        self.assertFalse(testing.can_toggle_enabled)  # legacy role
         self.assertTrue(coder.enabled)
         self.assertTrue(coder.can_toggle_enabled)
         self.assertTrue(handoff.enabled)

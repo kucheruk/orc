@@ -266,6 +266,160 @@ KanbanSessionManager         — 1 teamlead-поток + N worker-потоков
 └── KanbanPublisher          — снапшоты доски и журнал для TUI
 ```
 
+#### Цикл выполнения: код → промпт → агент → код
+
+Диаграмма показывает один цикл обработки карточки — от выбора работы до валидации результата. Границы между Python-кодом ORC и AI-агентом отмечены явно.
+
+```
+                          ┌─────────────────────────────────────────────────┐
+                          │              ORC Python (код)                   │
+                          │                                                 │
+  ┌───────────────────────┤  1. PULL: выбор работы                         │
+  │                       │                                                 │
+  │  KanbanBoard          │  find_next_work()           kanban_pull.py      │
+  │  ┌──────────┐         │  ┌───────────────────────────────────────┐      │
+  │  │ tasks/   │────────►│  │ scan R→L: Handoff→...→Inbox          │      │
+  │  │ */*.md   │  read   │  │ check WIP limits, deps, CoS priority │      │
+  │  └──────────┘         │  │ auto-promote Estimate→Todo           │      │
+  │       ▲               │  └───────────────┬───────────────────────┘      │
+  │       │               │                  │                              │
+  │       │               │                  ▼                              │
+  │       │               │  WorkAssignment { card, role, needs_worktree }  │
+  │       │               │                  │                              │
+  │       │               ├──────────────────┼──────────────────────────────┤
+  │       │               │  2. PROMPT: сборка промпта                     │
+  │       │               │                  │                              │
+  │       │               │                  ▼                              │
+  │       │               │  build_prompt(role, card, board)                │
+  │       │               │  ┌───────────────────────────────────────┐      │
+  │       │               │  │ _load_template(role)                  │      │
+  │       │               │  │   → prompts/kanban_{role}.txt         │      │
+  │       │               │  │ format_board_summary(board)           │      │
+  │       │               │  │   → markdown table: stage/WIP/free    │      │
+  │       │               │  │ card.to_markdown()                    │      │
+  │       │               │  │   → YAML frontmatter + body           │      │
+  │       │               │  │ template.format_map(SafeDict(...))    │      │
+  │       │               │  │   → {board_summary}, {card_content},  │      │
+  │       │               │  │     {card_path}, {card_id}, ...       │      │
+  │       │               │  └───────────────┬───────────────────────┘      │
+  │       │               │                  │ rendered prompt (str)        │
+  │       │               │                  │                              │
+  │       │               ├──────────────────┼──────────────────────────────┤
+  │       │               │  3. LAUNCH: запуск агента                      │
+  │       │               │                  │                              │
+  │       │               │                  ▼                              │
+  │       │               │  create_task_worktree()  (if needs_worktree)    │
+  │       │               │  backend.build_agent_cmd(model, prompt)         │
+  │       │               │  ┌───────────────────────────────────────┐      │
+  │       │               │  │ claude -p --output-format stream-json │      │
+  │       │               │  │   --model {model}                     │      │
+  │       │               │  │   --dangerously-skip-permissions      │      │
+  │       │               │  │   "{rendered_prompt}"                  │      │
+  │       │               │  └───────────────┬───────────────────────┘      │
+  │       │               │                  │ subprocess.Popen             │
+  │       │               └──────────────────┼──────────────────────────────┘
+  │       │                                  │
+  │       │               ╔══════════════════╧══════════════════════════════╗
+  │       │               ║           AI-АГЕНТ (чёрный ящик)               ║
+  │       │               ║                                                ║
+  │       │               ║  Агент получает:                               ║
+  │       │               ║  • роль и обязанности                          ║
+  │       │               ║  • состояние доски (таблица WIP)               ║
+  │       │               ║  • содержимое карточки (YAML + body)           ║
+  │       │               ║  • правила: valid actions, protected fields    ║
+  │       │               ║                                                ║
+  │       │               ║  Агент делает:                                 ║
+  │       │               ║  • читает TECHSPEC.md, AGENTS.md, код          ║
+  │       │               ║  • пишет код, запускает тесты (coder)          ║
+  │       │               ║  • перезаписывает card .md файл                ║
+  │       │               ║    (меняет YAML frontmatter: action, scores)   ║
+  │       │               ║    (заполняет секции 1-4 в body)               ║
+  │       │               ║  • делает git commit (coder, если commit_phase)║
+  │       │               ║                                                ║
+  │       │               ║  stream-json → stdout                          ║
+  │       │               ╚══════════════════╤══════════════════════════════╝
+  │       │                                  │
+  │       │               ┌──────────────────┼──────────────────────────────┐
+  │       │               │  ORC Python (код)│                              │
+  │       │               │                  ▼                              │
+  │       │               │  StreamJsonMonitor                              │
+  │       │               │  ┌───────────────────────────────────────┐      │
+  │       │               │  │ парсит stream-json: tokens, files,    │      │
+  │       │               │  │ commands, reasoning, progress         │      │
+  │       │               │  │ → MonitorSnapshot → TUI               │      │
+  │       │               │  └───────────────┬───────────────────────┘      │
+  │       │               │                  │ agent finished               │
+  │       │               │                  │                              │
+  │       │               ├──────────────────┼──────────────────────────────┤
+  │       │               │  4. VALIDATE: валидация результата              │
+  │       │               │                  │                              │
+  │       │               │                  ▼                              │
+  │       │               │  process_agent_result(board, card, role)        │
+  │       │               │  ┌───────────────────────────────────────┐      │
+  │       │               │  │ a) re-read card from disk             │      │
+  │       │               │  │ b) check protected fields unchanged   │      │
+  │       │               │  │    PROTECTED = {id, stage, roi,       │      │
+  │       │               │  │      assigned_agent, created_at}      │      │
+  │       │               │  │ c) revert role-readonly fields        │      │
+  │       │               │  │    architect: ✗ value_score, CoS      │      │
+  │       │               │  │    coder:     ✗ value/effort_score    │      │
+  │       │               │  │ d) validate action transition         │      │
+  │       │               │  │    product:    Product → {Architect,  │      │
+  │       │               │  │                          Coding}      │      │
+  │       │               │  │    architect:  Architect → {Product}  │      │
+  │       │               │  │    coder:      Coding → {Reviewing,   │      │
+  │       │               │  │                         Testing}      │      │
+  │       │               │  │    reviewer:   Reviewing → {Coding,   │      │
+  │       │               │  │                            Testing}   │      │
+  │       │               │  │    tester:     Testing → {Coding,     │      │
+  │       │               │  │                          Integrating} │      │
+  │       │               │  │    integrator: Integrating → {Done}   │      │
+  │       │               │  │ e) auto-default if action unchanged:  │      │
+  │       │               │  │    coder→Reviewing, reviewer→Testing, │      │
+  │       │               │  │    tester→Integrating                 │      │
+  │       │               │  │ f) increment loop_count if → Coding   │      │
+  │       │               │  │ g) restore protected, recompute ROI   │      │
+  │       │               │  │ h) save card, move to new stage       │      │
+  │       │               │  │    if FORWARD_MOVES[stage,action]     │      │
+  │       │               │  │    and WIP room available             │      │
+  │       │               │  └───────────────┬───────────────────────┘      │
+  │       │               │                  │                              │
+  │       │               ├──────────────────┼──────────────────────────────┤
+  │       │               │  5. NEXT: цикл повторяется                     │
+  │       │               │                  │                              │
+  │       │               │                  ▼                              │
+  │       │               │  board.refresh() → goto step 1                  │
+  │       │               │                                                 │
+  │       │               │  Если loop_count ≥ 2:                           │
+  │       │               │    → teamlead arbitration (отдельный поток)     │
+  │       │               │    → build_teamlead_prompt() → decision YAML    │
+  │       │               │    → execute_teamlead_actions()                 │
+  │       │               │                                                 │
+  │       │               │  Если agent crash:                              │
+  │       │               │    → teamlead incident response                 │
+  │       │               │    → build_incident_prompt() → triage decision  │
+  │       │               │    → create FIX card, scale-down/up             │
+  └───────┼───────────────│                                                 │
+          │               └─────────────────────────────────────────────────┘
+          │
+          │  card .md file = единственный контракт между кодом и агентом
+          │  агент пишет в файл, код читает из файла
+          │
+          ▼
+```
+
+**Границы ответственности:**
+
+| Граница | Код (ORC) | Промпт/Агент |
+|---------|-----------|--------------|
+| **Выбор работы** | `find_next_work()` — WIP, deps, CoS | — |
+| **Контекст** | `build_prompt()` — board state, card content | Агент читает TECHSPEC/AGENTS.md |
+| **Исполнение** | subprocess + stream monitor | Агент пишет код, тесты, модифицирует card .md |
+| **Валидация** | `process_agent_result()` — protected fields, transitions, loop_count | Промпт описывает правила, но enforce в коде |
+| **Перемещение** | `FORWARD_MOVES` + `has_wip_room()` | Агент выставляет `action`, код двигает карточку |
+| **Эскалация** | `loop_count ≥ 2` → teamlead, `≥ 4` → force-block | Teamlead принимает решение через YAML decision file |
+| **Интеграция** | `IntegrationManager` — cherry-pick, merge expert | Integrator агент пишет summary, ставит `action: Done` |
+
 Ключевые файлы:
 - `orc_core/kanban_session_manager.py` — оркестратор потоков
 - `orc_core/kanban_board.py` — доска и WIP-лимиты

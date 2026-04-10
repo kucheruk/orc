@@ -15,6 +15,16 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+# Fields that specific roles must NOT modify (role-based restrictions).
+# These are not globally protected but belong to another role's responsibility.
+_ROLE_READONLY_FIELDS: dict[str, frozenset[str]] = {
+    "architect": frozenset({"value_score", "class_of_service", "cos_justification", "deadline"}),
+    "coder": frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
+    "reviewer": frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
+    "tester": frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
+    "integrator": frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
+}
+
 # Valid action transitions per role
 _VALID_TRANSITIONS: dict[str, dict[str, set[str]]] = {
     "product": {
@@ -157,6 +167,15 @@ def _validate_agent_changes(
     # Check protected fields
     if updated.id != original.id:
         errors.append(f"Agent changed id from {original.id} to {updated.id}")
+
+    # Check role-based readonly fields — revert silently (same as protected fields)
+    readonly = _ROLE_READONLY_FIELDS.get(role, frozenset())
+    for field in readonly:
+        orig_val = getattr(original, field)
+        new_val = getattr(updated, field)
+        if new_val != orig_val:
+            _logger.info("Agent %s changed readonly field %s for %s (reverting)", role, field, original.id)
+            setattr(updated, field, orig_val)
 
     # Validate action transition (identity = agent didn't change action, allowed)
     if updated.action != original.action:
