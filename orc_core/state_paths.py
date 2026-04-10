@@ -160,6 +160,10 @@ def integration_report_path(workdir: str, session_id: str, task_id: str) -> Path
     return _repo_root(workdir) / "integration-reports" / f"{session_id}__{task_id}.json"
 
 
+def kanban_state_path(workdir: str) -> Path:
+    return _repo_root(workdir) / "kanban-state.json"
+
+
 def ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 

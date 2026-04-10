@@ -118,9 +118,45 @@ class KanbanSessionManager:
         self._incident_counter: int = 0
         self._card_fail_counts: dict[str, int] = {}  # card_id → consecutive failures
         self._arbitrated_at_loop: dict[str, int] = {}  # card_id → loop_count at last arbitration
+        self._state_dirty: bool = False
         self._directive_queue: list[str] = []
         self._directive_lock = threading.Lock()
         self._last_health_check: float = 0.0
+        self._load_kanban_state()
+
+    # ── State persistence ─────────────────────────────────────────
+
+    def _load_kanban_state(self) -> None:
+        """Load persisted card_fail_counts and arbitrated_at_loop from disk."""
+        import json
+        from .state_paths import kanban_state_path
+        path = kanban_state_path(self.workdir)
+        if not path.exists():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self._card_fail_counts = {k: int(v) for k, v in data.get("card_fail_counts", {}).items()}
+            self._arbitrated_at_loop = {k: int(v) for k, v in data.get("arbitrated_at_loop", {}).items()}
+        except Exception as exc:
+            _logger.warning("Failed to load kanban state: %s", exc)
+
+    def _save_kanban_state(self) -> None:
+        """Persist card_fail_counts and arbitrated_at_loop to disk."""
+        from .atomic_io import write_json_atomic
+        from .state_paths import kanban_state_path
+        path = kanban_state_path(self.workdir)
+        write_json_atomic(path, {
+            "card_fail_counts": self._card_fail_counts,
+            "arbitrated_at_loop": self._arbitrated_at_loop,
+        })
+        self._state_dirty = False
+
+    def _mark_state_dirty(self) -> None:
+        self._state_dirty = True
+
+    def _flush_state_if_dirty(self) -> None:
+        if self._state_dirty:
+            self._save_kanban_state()
 
     # ── Public API ──────────────────────────────────────────────
 
@@ -290,6 +326,7 @@ class KanbanSessionManager:
     def _publish_board_state(self) -> None:
         self._distributor.refresh()
         self.publisher.publish_board(self._distributor.board, self._session_snapshots)
+        self._flush_state_if_dirty()
 
     def _has_active_slots(self) -> bool:
         with self._slots_lock:
@@ -432,6 +469,7 @@ class KanbanSessionManager:
             # Track consecutive failures — deterministic errors will repeat forever
             count = self._card_fail_counts.get(card.id, 0) + 1
             self._card_fail_counts[card.id] = count
+            self._mark_state_dirty()
             if count >= 2:
                 try:
                     card.action = Action.BLOCKED.value
@@ -448,7 +486,9 @@ class KanbanSessionManager:
                     pass
         else:
             # Reset failure counter on success
-            self._card_fail_counts.pop(card.id, None)
+            if card.id in self._card_fail_counts:
+                del self._card_fail_counts[card.id]
+                self._mark_state_dirty()
         finally:
             slot.task = None  # clear so _running_slots_info shows idle, not stale task
             self._distributor.release_card(card.id)
@@ -619,6 +659,7 @@ class KanbanSessionManager:
                     else:
                         # Resolved — record arbitration point, do NOT reset loop_count
                         self._arbitrated_at_loop[card.id] = card.loop_count
+                        self._mark_state_dirty()
                         self.publisher._emit("arbitration", card.id,
                                              f"{card.id} teamlead resolved → {refreshed.action} "
                                              f"(loop_count={refreshed.loop_count})")

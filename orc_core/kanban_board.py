@@ -34,13 +34,17 @@ class KanbanBoard:
         self._lock = threading.Lock()
         self._cards: list[KanbanCard] = []
         self._wip_limits: dict[str, int] = dict(DEFAULT_WIP_LIMITS)
+        self._card_locks: dict[str, threading.Lock] = {}
+        self._last_stage_mtimes: dict[str, float] = {}
         self.on_move: Optional[Callable[[str, str, str, str], None]] = None  # (card_id, from, to, reason)
         self.on_action_change: Optional[Callable[[str, str, str, str], None]] = None  # (card_id, old, new, role)
-        self.refresh()
+        self.refresh(force=True)
 
     # ── State hydration ─────────────────────────────────────────
 
-    def refresh(self) -> None:
+    def refresh(self, *, force: bool = False) -> None:
+        if not force and self._is_fresh():
+            return
         with self._lock:
             self._cards = []
             self._wip_limits = dict(DEFAULT_WIP_LIMITS)
@@ -51,6 +55,24 @@ class KanbanBoard:
                 self._read_index(stage_dir, stage)
                 self._read_cards(stage_dir, stage)
             self._recompute_roi()
+            self._last_stage_mtimes = self._scan_stage_mtimes()
+
+    def _is_fresh(self) -> bool:
+        """Check if any stage directory has been modified since last refresh."""
+        if not self._last_stage_mtimes:
+            return False
+        return self._scan_stage_mtimes() == self._last_stage_mtimes
+
+    def _scan_stage_mtimes(self) -> dict[str, float]:
+        result: dict[str, float] = {}
+        for stage in STAGES:
+            stage_dir = self._tasks_dir / stage
+            if stage_dir.is_dir():
+                try:
+                    result[stage] = stage_dir.stat().st_mtime
+                except OSError:
+                    pass
+        return result
 
     def _read_index(self, stage_dir: Path, stage: str) -> None:
         idx = stage_dir / INDEX_FILENAME
@@ -81,6 +103,15 @@ class KanbanBoard:
     def _recompute_roi(self) -> None:
         for card in self._cards:
             card.refresh_roi()
+
+    # ── Per-card locking ──────────────────────────────────────────
+
+    def card_lock(self, card_id: str) -> threading.Lock:
+        """Return a per-card lock, creating it lazily. Thread-safe."""
+        with self._lock:
+            if card_id not in self._card_locks:
+                self._card_locks[card_id] = threading.Lock()
+            return self._card_locks[card_id]
 
     # ── Queries ─────────────────────────────────────────────────
 
@@ -320,17 +351,18 @@ class KanbanBoard:
             try:
                 self.on_move(card.id, old_stage, new_stage, reason)
             except Exception:
-                _logger.debug("on_move callback failed for %s", card.id, exc_info=True)
+                _logger.warning("on_move callback failed for %s", card.id, exc_info=True)
 
     def save_card(self, card: KanbanCard, *, old_action: str = "", role: str = "") -> None:
-        card.touch()
-        card.refresh_roi()
-        write_card(card)
+        with self._lock:
+            card.touch()
+            card.refresh_roi()
+            write_card(card)
         if old_action and old_action != card.action and self.on_action_change:
             try:
                 self.on_action_change(card.id, old_action, card.action, role)
             except Exception:
-                _logger.debug("on_action_change callback failed for %s", card.id, exc_info=True)
+                _logger.warning("on_action_change callback failed for %s", card.id, exc_info=True)
 
     def assign_agent(self, card: KanbanCard, agent_id: str) -> None:
         with self._lock:

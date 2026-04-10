@@ -189,6 +189,78 @@ class TestBoardSummary(unittest.TestCase):
             self.assertEqual(summary["4_Coding"]["wip_limit"], 3)
 
 
+class TestCardLock(unittest.TestCase):
+
+    def test_same_card_id_returns_same_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, board = _make_board(tmp)
+            lock1 = board.card_lock("TASK-001")
+            lock2 = board.card_lock("TASK-001")
+            self.assertIs(lock1, lock2)
+
+    def test_different_cards_get_different_locks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, board = _make_board(tmp)
+            lock_a = board.card_lock("A")
+            lock_b = board.card_lock("B")
+            self.assertIsNot(lock_a, lock_b)
+
+    def test_card_lock_provides_mutual_exclusion(self):
+        import threading
+        import time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _, board = _make_board(tmp)
+            counter = [0]
+            max_concurrent = [0]
+            barrier = threading.Barrier(2)
+
+            def worker():
+                barrier.wait()
+                lock = board.card_lock("X")
+                with lock:
+                    counter[0] += 1
+                    current = counter[0]
+                    if current > max_concurrent[0]:
+                        max_concurrent[0] = current
+                    time.sleep(0.02)
+                    counter[0] -= 1
+
+            t1 = threading.Thread(target=worker)
+            t2 = threading.Thread(target=worker)
+            t1.start(); t2.start()
+            t1.join(); t2.join()
+            self.assertEqual(max_concurrent[0], 1)
+
+
+class TestCallbackWarnings(unittest.TestCase):
+
+    def test_move_callback_error_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, _ = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="CB-1", stage="4_Coding", action="Reviewing"))
+            board = KanbanBoard(tasks_dir)
+            board.on_move = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
+
+            card = board.card_by_id("CB-1")
+            board.move_card(card, "5_Review")
+            # Card moved despite callback error
+            self.assertEqual(card.stage, "5_Review")
+
+    def test_action_change_callback_error_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, _ = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="CB-2", stage="4_Coding", action="Coding"))
+            board = KanbanBoard(tasks_dir)
+            board.on_action_change = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
+
+            card = board.card_by_id("CB-2")
+            card.action = "Reviewing"
+            board.save_card(card, old_action="Coding", role="coder")
+            # Card saved despite callback error
+            self.assertEqual(card.action, "Reviewing")
+
+
 class TestInitBoard(unittest.TestCase):
 
     def test_creates_structure(self):

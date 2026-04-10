@@ -77,5 +77,11 @@ Check `loop_count` in the frontmatter. If > 0:
 
 ## Output Contract
 Update the card file with test results.
-Do NOT modify: `id`, `stage`, `roi`, `assigned_agent`, `created_at`.
 Write the complete updated card file.
+
+## System Rules
+- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
+- **Auto-advance:** If you do not change the `action` field, the system will automatically set it to `Integrating`. This is the expected behavior when QA passes.
+- **Valid actions for tester:** `Coding` (fail — send back for fixes), `Integrating` (pass QA). Any other value is rejected.
+- **loop_count:** Increments each time a card bounces back to Coding. At loop_count >= 2, the teamlead intervenes. At >= 4, force-block. Consider whether the failure is truly a DoD gap.
+- **WIP limits:** If the Handoff stage is full, your `Integrating` action is deferred — the card stays in Testing until space opens up.

@@ -23,5 +23,8 @@ File: `{card_path}`
 - Write integration summary in section "# 3. Implementation Notes" (append, don't overwrite).
 - The orchestrator will move the card to 8_Done and send a Telegram notification.
 
-Do NOT modify: `id`, `stage`, `roi`, `assigned_agent`, `created_at`.
 Write the complete updated card file.
+
+## System Rules
+- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
+- **Valid actions for integrator:** `Done` (integration complete). Any other value is rejected.

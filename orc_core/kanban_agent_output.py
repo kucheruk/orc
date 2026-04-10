@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from .kanban_card import PROTECTED_FIELDS, KanbanCard, read_card
+from .kanban_card import PROTECTED_FIELDS, KanbanCard, read_card, validate_card
 from .kanban_constants import STAGE_ORDER, Action
 
 if TYPE_CHECKING:
@@ -66,79 +66,85 @@ def process_agent_result(
 
     Returns list of validation errors (empty = success).
     """
-    file_path = card.file_path
-    if file_path is None or not file_path.exists():
-        # Card may have been moved by another agent/teamlead while this agent was running.
-        # Search by ID across all stage directories.
-        found = board.find_card_file(card.id)
-        if found is None:
-            return [f"Card file not found (checked all stages): {card.id}"]
-        _logger.info("Card %s moved during execution: %s → %s", card.id, file_path, found)
-        file_path = found
-        card.file_path = found
+    with board.card_lock(card.id):
+        file_path = card.file_path
+        if file_path is None or not file_path.exists():
+            # Card may have been moved by another agent/teamlead while this agent was running.
+            # Search by ID across all stage directories.
+            found = board.find_card_file(card.id)
+            if found is None:
+                return [f"Card file not found (checked all stages): {card.id}"]
+            _logger.info("Card %s moved during execution: %s → %s", card.id, file_path, found)
+            file_path = found
+            card.file_path = found
 
-    updated = read_card(file_path)
-    errors = _validate_agent_changes(card, updated, role)
-    if errors:
-        _logger.warning("Agent output validation errors for %s: %s", card.id, errors)
-        return errors
+        updated = read_card(file_path)
+        errors = _validate_agent_changes(card, updated, role)
+        if errors:
+            _logger.warning("Agent output validation errors for %s: %s", card.id, errors)
+            return errors
 
-    # Auto-default: if the agent didn't change the action, apply the most
-    # common "done" transition for that role so work keeps flowing.
-    _IDENTITY_DEFAULTS: dict[str, dict[str, str]] = {
-        "coder": {Action.CODING: Action.REVIEWING},
-        "reviewer": {Action.REVIEWING: Action.TESTING},
-        "tester": {Action.TESTING: Action.INTEGRATING},
-    }
-    if updated.action == card.action:
-        defaults = _IDENTITY_DEFAULTS.get(role, {})
-        default_next = defaults.get(card.action)
-        if default_next:
-            _logger.info(
-                "Agent %s left action unchanged (%s); auto-defaulting to %s for %s",
-                role, card.action, default_next, card.id,
-            )
-            updated.action = default_next
+        card_errors = validate_card(updated)
+        if card_errors:
+            _logger.warning("Card validation errors for %s: %s", card.id, card_errors)
+            return card_errors
 
-    # Apply valid changes
-    new_action = updated.action
-    old_action = card.action
+        # Auto-default: if the agent didn't change the action, apply the most
+        # common "done" transition for that role so work keeps flowing.
+        _IDENTITY_DEFAULTS: dict[str, dict[str, str]] = {
+            "coder": {Action.CODING: Action.REVIEWING},
+            "reviewer": {Action.REVIEWING: Action.TESTING},
+            "tester": {Action.TESTING: Action.INTEGRATING},
+        }
+        if updated.action == card.action:
+            defaults = _IDENTITY_DEFAULTS.get(role, {})
+            default_next = defaults.get(card.action)
+            if default_next:
+                _logger.info(
+                    "Agent %s left action unchanged (%s); auto-defaulting to %s for %s",
+                    role, card.action, default_next, card.id,
+                )
+                updated.action = default_next
 
-    # Detect loop-back (reviewer/tester sending back to coder)
-    if new_action in _LOOP_BACK_ACTIONS and old_action != Action.CODING:
-        updated.loop_count = card.loop_count + 1
+        # Apply valid changes
+        new_action = updated.action
+        old_action = card.action
 
-    # Restore protected fields from original
-    updated.stage = card.stage
-    updated.roi = card.roi
-    updated.assigned_agent = card.assigned_agent
-    updated.created_at = card.created_at
+        # Detect loop-back (reviewer/tester sending back to coder)
+        if new_action in _LOOP_BACK_ACTIONS and old_action != Action.CODING:
+            updated.loop_count = card.loop_count + 1
 
-    # Recompute ROI in case value/effort changed
-    updated.refresh_roi()
-    updated.touch()
-    board.save_card(updated, old_action=old_action, role=role)
+        # Restore protected fields from original
+        updated.stage = card.stage
+        updated.roi = card.roi
+        updated.assigned_agent = card.assigned_agent
+        updated.created_at = card.created_at
 
-    # Move card if this transition requires a stage change
-    move_key = (card.stage, new_action)
-    new_stage = _FORWARD_MOVES.get(move_key)
-    # Block promotion to Todo/Coding if dependencies are unmet
-    if new_stage in ("3_Todo", "4_Coding") and board.has_unmet_dependencies(updated):
-        _logger.info("Cannot move %s to %s: unmet dependencies, staying in %s",
-                      updated.id, new_stage, card.stage)
-    elif new_stage and board.has_wip_room(new_stage):
-        board.move_card(updated, new_stage, reason=f"{role}: {old_action} -> {new_action}")
-        # Ensure action is Done when card reaches 8_Done
-        if new_stage == "8_Done" and updated.action != Action.DONE:
-            updated.action = Action.DONE
-            board.save_card(updated)
-    elif new_stage and not board.has_wip_room(new_stage):
-        _logger.info("Cannot move %s to %s: WIP limit reached, will retry later", card.id, new_stage)
+        # Recompute ROI in case value/effort changed
+        updated.refresh_roi()
+        updated.touch()
+        board.save_card(updated, old_action=old_action, role=role)
 
-    # Sync the original card object and refresh board state
-    _sync_card(card, updated)
-    board.refresh()
-    return []
+        # Move card if this transition requires a stage change
+        move_key = (card.stage, new_action)
+        new_stage = _FORWARD_MOVES.get(move_key)
+        # Block promotion to Todo/Coding if dependencies are unmet
+        if new_stage in ("3_Todo", "4_Coding") and board.has_unmet_dependencies(updated):
+            _logger.info("Cannot move %s to %s: unmet dependencies, staying in %s",
+                          updated.id, new_stage, card.stage)
+        elif new_stage and board.has_wip_room(new_stage):
+            board.move_card(updated, new_stage, reason=f"{role}: {old_action} -> {new_action}")
+            # Ensure action is Done when card reaches 8_Done
+            if new_stage == "8_Done" and updated.action != Action.DONE:
+                updated.action = Action.DONE
+                board.save_card(updated)
+        elif new_stage and not board.has_wip_room(new_stage):
+            _logger.info("Cannot move %s to %s: WIP limit reached, will retry later", card.id, new_stage)
+
+        # Sync the original card object and refresh board state
+        _sync_card(card, updated)
+        board.refresh()
+        return []
 
 
 def _validate_agent_changes(

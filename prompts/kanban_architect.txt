@@ -37,5 +37,9 @@ You MUST update the card file with:
 - Section "# 2. Technical Design & DoD" with technical plan and checklist
 - Set `action: Product` in frontmatter (so Product can prioritize it for Todo)
 
-Do NOT modify: `id`, `stage`, `roi`, `assigned_agent`, `created_at`, `value_score`, `class_of_service`.
 Write the complete updated card file.
+
+## System Rules
+- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`, `value_score`, `class_of_service`. Changes to these are silently reverted by the system.
+- **Valid actions for architect:** `Product` (send back for prioritization). Any other value is rejected.
+- **WIP limits:** If Todo is full, the card stays in Estimate until space opens up.

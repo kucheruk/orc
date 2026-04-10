@@ -44,5 +44,9 @@ You MUST update the card file with:
 - Set `action: Architect` if the card is **new** (in Inbox) or you want the architect to **re-estimate** (in Estimate).
 - Set `action: Coding` if the card is in **Estimate** and the technical design is approved — this moves the card to the Todo backlog for development.
 
-Do NOT modify: `id`, `stage`, `roi`, `assigned_agent`, `created_at`.
 Write the complete updated card file.
+
+## System Rules
+- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
+- **Valid actions for product:** `Architect` (send to estimation), `Coding` (fast-track approved card to Todo backlog). Any other value is rejected.
+- **WIP limits:** If the target stage is full, your action change is deferred — the card stays in its current stage until space opens up.
