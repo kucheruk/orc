@@ -430,7 +430,7 @@ class KanbanSessionManager:
         self.publisher.log_assign(card.id, role, sid)
         log_event(self.log_path, "INFO", "executing",
                   session_id=sid, task_id=card.id, role=role, stage=card.stage)
-        prompt = build_prompt(role, card, self._distributor.board)
+        prompt = build_prompt(role, card, self._distributor.board, main_branch=self.main_branch)
         task_start = time.time()
         worktree: Optional[WorktreeSession] = None
         try:

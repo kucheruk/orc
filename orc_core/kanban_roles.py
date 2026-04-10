@@ -34,7 +34,8 @@ _WORKTREE_CONTEXT = (
     "You are working in an **isolated git worktree**, not the main repository. "
     "Your changes will be merged to main automatically at the Handoff stage. "
     "Do NOT run `git push` or try to merge to main yourself.\n\n"
-    "**Sync with main first:** Before starting work, run `git merge main --no-edit` "
+    "**Sync with upstream first:** Before starting work, run "
+    "`git merge {main_branch} --no-edit` "
     "to pick up changes from other completed cards. If there are merge conflicts, "
     "resolve them — you are a coding agent, this is part of your job."
 )
@@ -74,12 +75,14 @@ def _escape_braces(text: str) -> str:
     return text.replace("{", "{{").replace("}", "}}")
 
 
-def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard") -> str:
+def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard",
+                 *, main_branch: str = "main") -> str:
     """Build a complete prompt for the given role, card, and board state."""
     template = _load_template(role)
     card_content = _escape_braces(card.to_markdown())
     card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
     board_summary = format_board_summary(board)
+    worktree_ctx = _WORKTREE_CONTEXT.format(main_branch=main_branch)
 
     return template.format_map(_SafeDict(
         board_summary=board_summary,
@@ -89,7 +92,7 @@ def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard") -> str:
         card_stage=card.stage,
         card_action=card.action,
         loop_count=str(card.loop_count),
-        worktree_context=_WORKTREE_CONTEXT,
+        worktree_context=worktree_ctx,
         feedback_loop=_FEEDBACK_LOOP_BLOCK,
     ))
 
