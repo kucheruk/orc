@@ -1143,7 +1143,7 @@ class KanbanSessionManager:
             self.log_path,
             orc_root=Path(self.workdir),
         )
-        log_event(self.log_path, "WARN", "escalation", task_id=card.id, message=msg)
+        log_event(self.log_path, "WARN", "escalation", task_id=card.id, detail=msg)
 
     def _notify_completion(
         self, card: KanbanCard, role: str,
