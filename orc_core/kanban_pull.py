@@ -41,8 +41,8 @@ def find_next_work(board: "KanbanBoard") -> Optional[WorkAssignment]:
     #    Runs FIRST so promoted cards are immediately visible to the pull scan.
     _auto_promote_estimate(board)
 
-    # 1. Handoff → Integrating
-    result = _try_stage(board, "7_Handoff", Action.INTEGRATING, ROLE_INTEGRATOR, worktree=False)
+    # 1. Handoff → Integrating (worktree=True so integrator sees coder's commits)
+    result = _try_stage(board, "7_Handoff", Action.INTEGRATING, ROLE_INTEGRATOR, worktree=True)
     if result:
         return result
 

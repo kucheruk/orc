@@ -193,13 +193,13 @@ class TestWorktreeFlag(unittest.TestCase):
             result = find_next_work(board)
             self.assertTrue(result.needs_worktree)
 
-    def test_integrator_no_worktree(self):
+    def test_integrator_uses_worktree(self):
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
             _add(td, KanbanCard(id="W-2", stage="7_Handoff", action="Integrating"))
             board = KanbanBoard(td)
             result = find_next_work(board)
-            self.assertFalse(result.needs_worktree)
+            self.assertTrue(result.needs_worktree)
 
     def test_product_no_worktree(self):
         with tempfile.TemporaryDirectory() as tmp:
