@@ -890,7 +890,7 @@ class KanbanSessionManager:
     _last_auto_commit = 0.0
 
     def _auto_commit_cards(self) -> None:
-        """Periodically git-add+commit tasks/ directory to keep base repo clean."""
+        """Periodically git-add+commit all changes to keep base repo clean."""
         now = time.time()
         if now - self._last_auto_commit < self._AUTO_COMMIT_INTERVAL:
             return
@@ -898,14 +898,12 @@ class KanbanSessionManager:
         try:
             from .worktree_flow import run_git
             wd = self.workdir
-            # Check if there are changes in tasks/
-            ok, stdout, _, _ = run_git(wd, ["git", "status", "--porcelain", "tasks/"])
+            ok, stdout, _, _ = run_git(wd, ["git", "status", "--porcelain"])
             if not ok or not stdout.strip():
                 return
-            run_git(wd, ["git", "add", "tasks/"])
-            run_git(wd, ["git", "add", ".gitignore"])
-            run_git(wd, ["git", "commit", "-m", "chore: sync kanban board state"])
-            log_event(self.log_path, "INFO", "auto-committed card state")
+            run_git(wd, ["git", "add", "-A"])
+            run_git(wd, ["git", "commit", "-m", "chore: sync board state and project files"])
+            log_event(self.log_path, "INFO", "auto-committed workspace state")
         except Exception as exc:
             log_event(self.log_path, "WARN", "auto-commit failed", error=str(exc))
 
