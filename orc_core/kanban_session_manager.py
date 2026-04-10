@@ -8,7 +8,6 @@ import asyncio
 import logging
 import threading
 import time
-import traceback
 from argparse import Namespace
 from pathlib import Path
 from typing import Callable, Optional
@@ -16,7 +15,6 @@ from typing import Callable, Optional
 from .backend import Backend, get_backend
 from .integration_manager import IntegrationManager
 from .kanban_incident_manager import IncidentManager
-from .kanban_agent_output import process_agent_result
 from .kanban_card import KanbanCard, new_card_body
 from .kanban_distributor import KanbanDistributor
 from .kanban_constants import (
@@ -24,14 +22,13 @@ from .kanban_constants import (
     STAGE_INBOX,
     STAGE_SHORT_NAMES,
     Action,
-    TaskExecutionStatus,
 )
-from .kanban_pull import ROLE_INTEGRATOR, WorkAssignment
 from .kanban_publisher import KanbanPublisher
 from .kanban_request_builder import build_kanban_request
+from .kanban_teamlead_runner import KanbanTeamleadRunner
+from .kanban_worker_runner import KanbanWorkerRunner
 from .notify import send_telegram_message
-from .kanban_roles import ROLE_TEAMLEAD, build_prompt, build_teamlead_prompt
-from .teamlead_incident import Incident
+from .kanban_roles import ROLE_TEAMLEAD
 from .logging import log_event
 from .quit_signal import is_quit_after_task_requested, is_session_stop_requested, is_stop_requested
 from .session_types import (
@@ -45,19 +42,12 @@ from .session_types import (
 )
 from .stream_monitor_state import MonitorSnapshot
 from .task_execution import TaskExecutionEngine
-from .task_source import Task
 from .worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_INTERRUPT = 130
 
-
-def _teamlead_decision_path(workdir: str) -> Path:
-    """Return the standard teamlead decision file path."""
-    p = Path(workdir) / ".orc"
-    p.mkdir(parents=True, exist_ok=True)
-    return p / "teamlead-decision.md"
 
 SnapshotPublisher = Callable[[str, Optional[MonitorSnapshot]], None]
 _logger = logging.getLogger(__name__)
@@ -117,9 +107,6 @@ class KanbanSessionManager:
         self._state_dirty: bool = False
         self._directive_queue: list[str] = []
         self._directive_lock = threading.Lock()
-        self._last_health_check: float = 0.0
-        self._consecutive_health_checks: int = 0  # escalating interval on repeated issues
-        self._last_health_diagnostic: str = ""  # dedup unchanged diagnostics
         self._telegram_available: bool | None = None  # cached telegram availability
         self._load_kanban_state()
         self._incident_mgr = IncidentManager(
@@ -136,6 +123,42 @@ class KanbanSessionManager:
             make_request_fn=self._make_request,
             add_session_fn=self.request_add_session,
             remove_session_fn=lambda sid: self.request_remove_session(sid),
+        )
+        self._worker_runner = KanbanWorkerRunner(
+            workdir=self.workdir,
+            log_path=self.log_path,
+            engine=self.engine,
+            distributor=self._distributor,
+            publisher=self.publisher,
+            args=self.args,
+            main_branch=self.main_branch,
+            slots_lock=self._slots_lock,
+            worktree_lock=self._worktree_lock,
+            card_fail_counts=self._card_fail_counts,
+            completed_tasks=self._completed_tasks,
+            failed_tasks=self._failed_tasks,
+            make_request_fn=self._make_request,
+            mark_state_dirty_fn=self._mark_state_dirty,
+            send_telegram_fn=self._send_telegram,
+            notify_completion_fn=self._notify_completion,
+            should_continue_fn=self._should_continue,
+            sleep_fn=self.sleep_fn,
+        )
+        self._teamlead_runner = KanbanTeamleadRunner(
+            workdir=self.workdir,
+            log_path=self.log_path,
+            engine=self.engine,
+            distributor=self._distributor,
+            publisher=self.publisher,
+            incident_mgr=self._incident_mgr,
+            slots_lock=self._slots_lock,
+            arbitrated_at_loop=self._arbitrated_at_loop,
+            make_request_fn=self._make_request,
+            mark_state_dirty_fn=self._mark_state_dirty,
+            send_telegram_fn=self._send_telegram,
+            should_continue_fn=self._should_continue,
+            pop_directive_fn=self._pop_directive,
+            sleep_fn=self.sleep_fn,
         )
 
     # ── State persistence ─────────────────────────────────────────
@@ -393,313 +416,14 @@ class KanbanSessionManager:
     # ── Worker thread ────────────────────────────────────────────
 
     def _run_worker(self, slot: SessionSlot) -> None:
-        sid = slot.session_id
-        self.publisher._emit("system", "", f"{sid} worker started, scanning board...")
-        try:
-            idle_reason_logged: str = ""
-            while self._should_continue(slot):
-                self._distributor.refresh()
-                assignment = self._distributor.pick_worker_task(sid)
-                if assignment is None:
-                    reason = self._distributor.diagnose_no_work()
-                    if reason != idle_reason_logged:
-                        self.publisher._emit("system", "", f"{sid} idle — {reason}")
-                        idle_reason_logged = reason
-                    self.sleep_fn(2.0)
-                    if not self._distributor.has_remaining_work():
-                        self.publisher._emit("system", "", f"{sid} no remaining work, stopping")
-                        break
-                    continue
-                idle_reason_logged = ""
-                self._execute_assignment(slot, assignment)
-                if is_quit_after_task_requested():
-                    self.publisher._emit("system", "", f"{sid} finished task, exiting (quit-after-task)")
-                    break
-                self.sleep_fn(1.0)
-        except KeyboardInterrupt:
-            raise
-        except Exception as exc:
-            slot.crash_traceback = traceback.format_exc()[:2000]
-            slot.error = f"worker_crashed:{type(exc).__name__}"
-            self.publisher._emit("escalate", "", f"{sid} CRASHED: {type(exc).__name__}: {exc}")
-            log_event(self.log_path, "ERROR", "worker crashed",
-                      session_id=sid, error=str(exc),
-                      traceback=traceback.format_exc()[:2000])
-        finally:
-            with self._slots_lock:
-                slot.status = SlotStatus.CLOSED
-
-    _FAIL_BLOCK_THRESHOLD = 2  # consecutive failures before auto-blocking a card
-
-    def _increment_fail_and_maybe_block(self, card: KanbanCard, error_desc: str) -> None:
-        """Track consecutive failures for a card. Block it after threshold to prevent infinite retry loops."""
-        count = self._card_fail_counts.get(card.id, 0) + 1
-        self._card_fail_counts[card.id] = count
-        self._mark_state_dirty()
-        if count >= self._FAIL_BLOCK_THRESHOLD:
-            try:
-                card.action = Action.BLOCKED.value
-                self._distributor.board.save_card(card)
-                self.publisher._emit("escalate", card.id,
-                                     f"{card.id} marked Blocked after {count} consecutive failures: {error_desc}")
-                log_event(self.log_path, "WARN", "card blocked after repeated failures",
-                          task_id=card.id, fail_count=count, error=error_desc)
-                self._send_telegram(
-                    f"🚫 {card.id} заблокирована после {count} подряд ошибок: {error_desc}",
-                )
-            except Exception:
-                pass
-
-    def _execute_assignment(self, slot: SessionSlot, assignment: WorkAssignment) -> None:
-        card, role, sid = assignment.card, assignment.role, slot.session_id
-        self.publisher.log_assign(card.id, role, sid)
-        log_event(self.log_path, "INFO", "executing",
-                  session_id=sid, task_id=card.id, role=role, stage=card.stage)
-        prompt = build_prompt(role, card, self._distributor.board, main_branch=self.main_branch)
-        task_start = time.time()
-        worktree: Optional[WorktreeSession] = None
-        try:
-            if assignment.needs_worktree:
-                with self._worktree_lock:
-                    worktree = create_task_worktree(
-                        base_workdir=self.workdir, task_id=card.id,
-                        log_path=self.log_path, main_branch=self.main_branch,
-                    )
-                wd = worktree.worktree_path
-                if not worktree.reused:
-                    self.publisher._emit("system", card.id, f"{card.id} worktree ready")
-            else:
-                wd = self.workdir
-            task = Task(task_id=card.id, text=card.title or card.id, done=False)
-            slot.task = task
-            self.publisher._emit("system", card.id, f"{card.id} launching {role} agent...")
-            commit_phase = bool(getattr(self.args, "commit_phase", True)) and assignment.needs_worktree
-            result = self.engine.execute(self._make_request(task, prompt, wd, sid,
-                                                            commit_phase, 1800.0))
-            if result and result.status == TaskExecutionStatus.COMPLETED:
-                elapsed = time.time() - task_start
-                old_stage = card.stage
-                old_action = card.action
-                old_cos = card.class_of_service
-                errors = process_agent_result(self._distributor.board, card, role)
-                if not errors:
-                    self._completed_tasks.append(card.id)
-                    self.publisher.log_complete(card.id, role, elapsed)
-                    self._notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
-                else:
-                    self.publisher._emit("escalate", card.id,
-                                         f"{card.id} validation failed: {'; '.join(errors[:3])}")
-                    log_event(self.log_path, "WARN", "agent output validation failed",
-                              task_id=card.id, role=role, errors=str(errors))
-                    self._failed_tasks.append(card.id)
-            else:
-                reason = result.reason if result else "no result"
-                self.publisher._emit("escalate", card.id, f"{card.id} {role} failed: {reason}")
-                self._failed_tasks.append(card.id)
-                # Track API-level failures the same as exceptions to prevent infinite retry loops
-                self._increment_fail_and_maybe_block(card, f"agent returned: {reason}")
-        except Exception as exc:
-            self.publisher._emit("escalate", card.id,
-                                 f"{card.id} ERROR: {type(exc).__name__}: {exc}")
-            log_event(self.log_path, "ERROR", "assignment failed",
-                      task_id=card.id, error=str(exc))
-            self._failed_tasks.append(card.id)
-            self._increment_fail_and_maybe_block(card, f"{type(exc).__name__}: {exc}")
-        else:
-            # Reset failure counter on success
-            if card.id in self._card_fail_counts:
-                del self._card_fail_counts[card.id]
-                self._mark_state_dirty()
-        finally:
-            slot.task = None  # clear so _running_slots_info shows idle, not stale task
-            self._distributor.release_card(card.id)
-            # Only cleanup worktree when card reaches Done — reuse for loop-backs
-            if worktree and card.stage == STAGE_DONE:
-                with self._worktree_lock:
-                    cleanup_task_worktree(worktree, self.log_path)
+        self._worker_runner.run(slot)
 
     # ── Teamlead thread ──────────────────────────────────────────
 
-    _HEALTH_CHECK_INTERVAL_BASE = 300.0  # base seconds between proactive health checks
-    _HEALTH_CHECK_INTERVAL_MAX = 1800.0  # cap at 30 minutes after repeated same-issue checks
-
     def _run_teamlead(self, slot: SessionSlot) -> None:
-        sid = slot.session_id
-        self.publisher._emit("system", "", f"{sid} teamlead started, monitoring board...")
-        incident: Optional[Incident] = None
-        try:
-            while self._should_continue(slot):
-                self._distributor.refresh()
-                self._distributor.board._apply_deferred_moves()
-                if incident is not None:
-                    # ── Incident mode: process state machine ──
-                    incident = self._incident_mgr.process_incident(slot, incident)
-                    if incident is None:
-                        self.publisher._emit("incident", "",
-                                             "Incident resolved, resuming normal operations")
-                    self.sleep_fn(2.0)
-                    if is_quit_after_task_requested():
-                        self.publisher._emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
-                        break
-                    continue
+        self._teamlead_runner.run(slot)
 
-                # ── Priority 1: user directives ──
-                directive = self._pop_directive()
-                if directive:
-                    self._teamlead_directive(slot, sid, directive)
-                    continue
-
-                # ── Priority 2: anomaly detection (worker crashes) ──
-                anomaly = self._incident_mgr.detect_anomaly()
-                if anomaly is not None:
-                    incident = anomaly
-                    self.publisher.log_incident(
-                        incident.id,
-                        f"{incident.error_type} on {incident.source_task_id or incident.source_slot_id}: "
-                        f"{incident.error_message[:200]}",
-                    )
-                    log_event(self.log_path, "WARN", "incident detected",
-                              incident_id=incident.id, error_type=incident.error_type,
-                              source_task=incident.source_task_id, source_slot=incident.source_slot_id)
-                    continue
-
-                # ── Priority 3: board health check (periodic, only when problems found) ──
-                health_interval = min(
-                    self._HEALTH_CHECK_INTERVAL_BASE * (2 ** self._consecutive_health_checks),
-                    self._HEALTH_CHECK_INTERVAL_MAX,
-                )
-                if time.time() - self._last_health_check >= health_interval:
-                    if self._teamlead_health_check(slot, sid):
-                        continue
-
-                # ── Priority 4: card arbitration (looping / blocked cards) ──
-                self._teamlead_arbitrate(slot, sid)
-
-                # ── Priority 5: auto-commit card state to keep base repo clean ──
-                self._auto_commit_cards()
-
-                if not self._distributor.has_remaining_work():
-                    self.publisher._emit("system", "", f"{sid} teamlead: no remaining work")
-                    break
-                self.sleep_fn(5.0)
-                if is_quit_after_task_requested():
-                    self.publisher._emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
-                    break
-        except KeyboardInterrupt:
-            raise
-        except Exception as exc:
-            slot.error = f"teamlead_crashed:{type(exc).__name__}"
-            log_event(self.log_path, "ERROR", "teamlead crashed",
-                      session_id=sid, error=str(exc),
-                      traceback=traceback.format_exc()[:2000])
-        finally:
-            with self._slots_lock:
-                slot.status = SlotStatus.CLOSED
-
-    # ── Teamlead: card-level arbitration ───────────────────────────
-
-    def _find_latest_agent_log(self, card_id: str) -> str:
-        """Find the most recent raw-stream log for a card across all kanban sessions."""
-        from .state_paths import run_root
-        runs_dir = run_root(self.workdir, "").parent / "runs"
-        if not runs_dir.exists():
-            return ""
-        best: Path | None = None
-        for session_dir in runs_dir.iterdir():
-            if not session_dir.name.startswith("kanban-"):
-                continue
-            stream_dir = session_dir / "raw-stream"
-            if not stream_dir.is_dir():
-                continue
-            for log_file in stream_dir.glob(f"*__{card_id}.log"):
-                if best is None or log_file.stat().st_mtime > best.stat().st_mtime:
-                    best = log_file
-        return str(best) if best else ""
-
-    def _load_token_stats(self) -> dict[str, int]:
-        """Load per-task token stats from analytics."""
-        import json
-        from .state_paths import stats_path
-        path = stats_path(self.workdir)
-        if not path.exists():
-            return {}
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            raw = data.get("tokens_by_task", {})
-            return {k: int(v) for k, v in raw.items() if isinstance(v, (int, float))}
-        except Exception:
-            return {}
-
-    def _teamlead_arbitrate(self, slot: SessionSlot, sid: str) -> None:
-        """Handle looping/blocked cards. Decision-only protocol — no card file editing."""
-        card = self._distributor.pick_teamlead_task(sid)
-        if card is None:
-            return
-        # Skip if already arbitrated at this loop_count (or if Blocked and already escalated)
-        prev_arb = self._arbitrated_at_loop.get(card.id, -1)
-        if card.loop_count <= prev_arb:
-            self._distributor.release_card(card.id)
-            return
-        needs_esc = self._distributor.needs_escalation(card)
-        if needs_esc:
-            self.publisher._emit("escalate", card.id,
-                                 f"{card.id} loop_count={card.loop_count}, "
-                                 f"teamlead arbitrating before escalation")
-        log_event(self.log_path, "INFO", "teamlead arbitration",
-                  session_id=sid, task_id=card.id, loop_count=card.loop_count,
-                  escalation_candidate=needs_esc)
-        card.action = Action.ARBITRATION
-        self._distributor.board.save_card(card)
-        dec_path = _teamlead_decision_path(self.workdir)
-        agent_log = self._find_latest_agent_log(card.id)
-        prompt = build_teamlead_prompt(
-            mode="arbitration", board=self._distributor.board, card=card,
-            decision_path=str(dec_path), agent_log_path=agent_log,
-            token_stats=self._load_token_stats(),
-        )
-        task = Task(task_id=card.id, text=f"[TL] {card.title}", done=False)
-        slot.task = task
-        try:
-            result = self.engine.execute(self._make_request(task, prompt, self.workdir,
-                                                            sid, False, 600.0))
-            if result and result.status == TaskExecutionStatus.COMPLETED:
-                self._process_teamlead_decision(dec_path)
-                self._distributor.refresh()
-                refreshed = self._distributor.board.card_by_id(card.id)
-                if refreshed:
-                    if refreshed.action == Action.BLOCKED:
-                        self._escalate(refreshed)
-                    elif refreshed.action == Action.ARBITRATION:
-                        # Teamlead didn't set_action → safety fallback to Blocked
-                        refreshed.action = Action.BLOCKED.value
-                        self._distributor.board.save_card(refreshed)
-                        log_event(self.log_path, "WARN",
-                                  "teamlead left card in Arbitration, auto-blocking",
-                                  task_id=card.id)
-                        self._escalate(refreshed)
-                    elif needs_esc:
-                        # Escalation threshold reached — but if teamlead resolved it
-                        # and card is progressing through pipeline (Review/Testing),
-                        # let it continue rather than force-blocking.
-                        self._arbitrated_at_loop[card.id] = card.loop_count
-                        self._mark_state_dirty()
-                        log_event(self.log_path, "INFO",
-                                  "escalation threshold reached but teamlead resolved — allowing progress",
-                                  task_id=card.id, loop_count=refreshed.loop_count,
-                                  action=refreshed.action, stage=refreshed.stage)
-                    else:
-                        # Resolved — record arbitration point, do NOT reset loop_count
-                        self._arbitrated_at_loop[card.id] = card.loop_count
-                        self._mark_state_dirty()
-                        self.publisher._emit("arbitration", card.id,
-                                             f"{card.id} teamlead resolved → {refreshed.action} "
-                                             f"(loop_count={refreshed.loop_count})")
-        finally:
-            slot.task = None
-            self._distributor.release_card(card.id)
-        self.sleep_fn(3.0)
-
-    # ── Teamlead: user directive handling ────────────────────────
+    # ── Teamlead helpers (kept in manager) ─────────────────────────
 
     def _pop_directive(self) -> Optional[str]:
         with self._directive_lock:
@@ -707,137 +431,8 @@ class KanbanSessionManager:
                 return self._directive_queue.pop(0)
         return None
 
-    def _teamlead_directive(self, slot: SessionSlot, sid: str, directive_text: str) -> None:
-        """Run teamlead agent to process a user directive."""
-        self.publisher._emit("directive", "", f"Teamlead processing: {directive_text}")
-        log_event(self.log_path, "INFO", "teamlead directive start",
-                  session_id=sid, directive=directive_text[:200])
-        dec_path = _teamlead_decision_path(self.workdir)
-        prompt = build_teamlead_prompt(
-            mode="directive", board=self._distributor.board,
-            directive_text=directive_text, decision_path=str(dec_path),
-            token_stats=self._load_token_stats(),
-        )
-        task = Task(task_id="tl-directive", text=f"[TL] {directive_text[:40]}", done=False)
-        slot.task = task
-        try:
-            result = self.engine.execute(self._make_request(task, prompt, self.workdir,
-                                                            sid, False, 600.0))
-            self._process_teamlead_decision(dec_path)
-        finally:
-            slot.task = None
-        self.sleep_fn(2.0)
-
-    # ── Teamlead: proactive board health check ───────────────────
-
-    def _teamlead_health_check(self, slot: SessionSlot, sid: str) -> bool:
-        """Run health check. Returns True if problems found and agent was invoked."""
-        self._last_health_check = time.time()
-        board = self._distributor.board
-        deadlock = board.detect_wip_deadlock()
-        starvation = ""
-        if not deadlock:
-            # Check starvation: remaining work exists but no worker can pick anything
-            if self._distributor.has_remaining_work():
-                diag = self._distributor.diagnose_no_work()
-                if diag and "board empty" not in diag:
-                    starvation = diag
-        if not deadlock and not starvation:
-            # Board is healthy — reset escalation counter
-            self._consecutive_health_checks = 0
-            self._last_health_diagnostic = ""
-            return False
-        # Don't burn tokens on starvation caused purely by unmet deps —
-        # teamlead can't resolve dependency chains, only workers completing
-        # tasks can.  Only invoke AI for deadlocks or mixed starvation.
-        if starvation and not deadlock:
-            all_dep_blocked = all(
-                "unmet deps" in line or "action=Blocked" in line
-                or "no matching role" in line
-                for line in starvation.split(";") if line.strip()
-            )
-            if all_dep_blocked:
-                log_event(self.log_path, "INFO", "health check: dep-only starvation, skipping AI",
-                          session_id=sid)
-                return False
-        diagnostic = ""
-        if deadlock:
-            diagnostic += f"DEADLOCK: {deadlock}\n"
-        if starvation:
-            diagnostic += f"STARVATION: {starvation}\n"
-        # Dedup: if diagnostic is unchanged from last check, skip AI invocation
-        if diagnostic == self._last_health_diagnostic and self._consecutive_health_checks > 0:
-            self._consecutive_health_checks += 1
-            log_event(self.log_path, "INFO",
-                      "health check: same diagnostic as last time, skipping AI",
-                      session_id=sid, consecutive=self._consecutive_health_checks)
-            return False
-        self._last_health_diagnostic = diagnostic
-        self._consecutive_health_checks += 1
-        self.publisher._emit("escalate", "", f"[TL] Health check: {diagnostic.strip()}")
-        log_event(self.log_path, "WARN", "board health issue detected",
-                  session_id=sid, diagnostic=diagnostic[:500])
-        dec_path = _teamlead_decision_path(self.workdir)
-        prompt = build_teamlead_prompt(
-            mode="health", board=self._distributor.board,
-            diagnostic_info=diagnostic, decision_path=str(dec_path),
-            token_stats=self._load_token_stats(),
-        )
-        task = Task(task_id="tl-health", text="[TL] Board health check", done=False)
-        slot.task = task
-        try:
-            result = self.engine.execute(self._make_request(task, prompt, self.workdir,
-                                                            sid, False, 600.0))
-            self._process_teamlead_decision(dec_path)
-        finally:
-            slot.task = None
-        self.sleep_fn(3.0)
-        return True
-
-    # ── Teamlead: decision file executor (shared by all modes) ───
-
-    def _process_teamlead_decision(self, dec_path: Path) -> None:
-        """Parse and execute a teamlead decision file if it exists."""
-        from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
-
-        if not dec_path.exists():
-            return
-        try:
-            decision = parse_teamlead_decision(dec_path)
-            errors = execute_teamlead_actions(
-                self._distributor.board, decision, self.publisher, self.log_path,
-            )
-            if errors:
-                for e in errors:
-                    self.publisher._emit("escalate", "", f"[TL] Action failed: {e}")
-        except Exception as exc:
-            self.publisher._emit("escalate", "", f"[TL] Decision parse failed: {exc}")
-            log_event(self.log_path, "WARN", "teamlead decision parse failed", error=str(exc))
-        finally:
-            try:
-                dec_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-
-    def _escalate(self, card: KanbanCard) -> None:
-        card.action = "Blocked"
-        self._distributor.board.save_card(card)
-        # Record escalation so teamlead doesn't re-arbitrate this card endlessly
-        self._arbitrated_at_loop[card.id] = card.loop_count
-        self._mark_state_dirty()
-        msg = (f"ESCALATION: Task {card.id} ({card.title}) blocked. "
-               f"Loop count: {card.loop_count}. Stage: {card.stage}.")
-        self.publisher.log_escalate(card.id, msg)
-        self._send_telegram(
-            f"🚨 {card.id} BLOCKED\n"
-            f"  {card.title}\n"
-            f"  Stage: {card.stage}, loops: {card.loop_count}\n"
-            f"  Use /unblock {card.id} <directive> to resume"
-        )
-        log_event(self.log_path, "WARN", "escalation", task_id=card.id, detail=msg)
-
     def _send_telegram(self, message: str) -> None:
-        """Send telegram message, skipping if known unavailable."""
+        """Send telegram message."""
         send_telegram_message(message, self.log_path, orc_root=Path(self.workdir))
 
     def _notify_completion(
@@ -912,29 +507,6 @@ class KanbanSessionManager:
         if len(last) > 500:
             last = last[:497] + "..."
         return last
-
-    # ── Auto-commit card state ──────────────────────────────────
-
-    _AUTO_COMMIT_INTERVAL = 120.0  # seconds between auto-commits
-    _last_auto_commit = 0.0
-
-    def _auto_commit_cards(self) -> None:
-        """Periodically git-add+commit all changes to keep base repo clean."""
-        now = time.time()
-        if now - self._last_auto_commit < self._AUTO_COMMIT_INTERVAL:
-            return
-        self._last_auto_commit = now
-        try:
-            from .worktree_flow import run_git
-            wd = self.workdir
-            ok, stdout, _, _ = run_git(wd, ["git", "status", "--porcelain"])
-            if not ok or not stdout.strip():
-                return
-            run_git(wd, ["git", "add", "-A"])
-            run_git(wd, ["git", "commit", "-m", "chore: sync board state and project files"])
-            log_event(self.log_path, "INFO", "auto-committed workspace state")
-        except Exception as exc:
-            log_event(self.log_path, "WARN", "auto-commit failed", error=str(exc))
 
     # ── Request builder ──────────────────────────────────────────
 

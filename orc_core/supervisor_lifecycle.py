@@ -26,7 +26,7 @@ TOKENS_STUCK_NOTICE_LABEL = "15m"
 def _task_done_in_backlog(task_path: Path) -> bool:
     try:
         payload = json.loads(task_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError):
         return False
     backlog_raw = str(payload.get("backlog_path") or "").strip()
     task_id = str(payload.get("task_id") or "").strip()
@@ -36,7 +36,7 @@ def _task_done_in_backlog(task_path: Path) -> bool:
         from .task_source import MarkdownTaskSource
 
         return MarkdownTaskSource(Path(backlog_raw)).is_task_done(task_id)
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError, KeyError):
         return False
 
 
@@ -111,6 +111,448 @@ def _get_active_children_count(monitor) -> int:
         except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
             continue
     return active_count
+class CompletionMonitor:
+    """Monitors a running agent task and checks for various completion/failure conditions."""
+
+    def __init__(
+        self,
+        task_path: Path,
+        monitor,
+        poll: float,
+        stall_timeout: float,
+        task_ttl: float,
+        log_path: Path,
+        nudge_after: int,
+        nudge_cooldown: float,
+        nudge_text: str,
+        task_id: str,
+        task_text: str,
+        timeline_id: str = "",
+        attempt: int = 0,
+        elapsed_before_start: float = 0.0,
+        ignore_initial_backlog_done: bool = False,
+        escape_requested: Optional[Callable[[], bool]] = None,
+        confirm_exit: Optional[Callable[[], bool]] = None,
+    ) -> None:
+        self.task_path = task_path
+        self.monitor = monitor
+        self.poll = poll
+        self.stall_timeout = stall_timeout
+        self.task_ttl = task_ttl
+        self.log_path = log_path
+        self.nudge_after = nudge_after
+        self.nudge_cooldown = nudge_cooldown
+        self.nudge_text = nudge_text
+        self.task_id = task_id
+        self.task_text = task_text
+        self.timeline_id = timeline_id
+        self.attempt = attempt
+        self.elapsed_before_start = elapsed_before_start
+        self.ignore_initial_backlog_done = ignore_initial_backlog_done
+        self.escape_requested = escape_requested
+        self.confirm_exit = confirm_exit
+
+        self.start_time = time.time()
+        self.pid_missing_since: Optional[float] = None
+        self.last_heartbeat_time = 0.0
+        self.last_tokens_value: Optional[int] = None
+        self.last_tokens_time = time.time()
+        self.last_stuck_notice_time = 0.0
+        self.backlog_done_at_start = _task_done_in_backlog(task_path)
+
+    def _check_escape(self) -> Optional[TaskCompletionStatus]:
+        if self.escape_requested is not None and self.escape_requested():
+            if self.confirm_exit is None or self.confirm_exit():
+                log_event(self.log_path, "WARN", "escape interrupt confirmed", task_id=self.task_id)
+                timeline_instant(
+                    timeline_id=self.timeline_id,
+                    task_id=self.task_id,
+                    step="wait_for_completion_exit",
+                    location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                    attempt=self.attempt,
+                    result="interrupt",
+                    reason="escape_confirmed",
+                )
+                raise KeyboardInterrupt
+            log_event(self.log_path, "INFO", "escape interrupt cancelled", task_id=self.task_id)
+        return None
+
+    def _check_task_file_removed(self) -> Optional[TaskCompletionStatus]:
+        if not self.task_path.exists():
+            log_event(self.log_path, "INFO", "task file removed; completion observed")
+            debug_log(
+                "H3",
+                "orc_core/supervisor_lifecycle.py:wait_for_completion:done",
+                "task file removed",
+                {"task_path": str(self.task_path)},
+            )
+            timeline_instant(
+                timeline_id=self.timeline_id,
+                task_id=self.task_id,
+                step="wait_for_completion_exit",
+                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                attempt=self.attempt,
+                result="completed",
+                reason="task_file_removed",
+            )
+            return TaskCompletionStatus.COMPLETED
+        return None
+
+    def _check_pid_missing(self) -> Optional[TaskCompletionStatus]:
+        if _monitor_pid_missing(self.monitor):
+            if self.pid_missing_since is None:
+                self.pid_missing_since = time.time()
+                log_event(self.log_path, "WARN", "agent pid missing detected; waiting grace", task_id=self.task_id)
+                time.sleep(max(min(self.poll, 0.2), 0.05))
+                return None  # continue to next iteration
+            if (time.time() - self.pid_missing_since) < PID_MISSING_GRACE_SECONDS:
+                time.sleep(max(min(self.poll, 0.2), 0.05))
+                return None  # continue to next iteration
+            backlog_done = _task_done_in_backlog(self.task_path)
+            if backlog_done and not (self.ignore_initial_backlog_done and self.backlog_done_at_start):
+                log_event(self.log_path, "INFO", "agent pid missing and task marked done; treating as completed", task_id=self.task_id)
+                try:
+                    self.task_path.unlink()
+                    delete_runtime_state_file(self.task_path, self.log_path, reason="pid_missing_task_done")
+                except OSError:
+                    pass
+                timeline_instant(
+                    timeline_id=self.timeline_id,
+                    task_id=self.task_id,
+                    step="wait_for_completion_exit",
+                    location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                    attempt=self.attempt,
+                    result="completed",
+                    reason="pid_missing_task_done",
+                )
+                return TaskCompletionStatus.COMPLETED
+            log_event(self.log_path, "ERROR", "agent pid missing while task still active", task_id=self.task_id)
+            timeline_instant(
+                timeline_id=self.timeline_id,
+                task_id=self.task_id,
+                step="wait_for_completion_exit",
+                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                attempt=self.attempt,
+                result="process_exited",
+                reason="pid_missing_task_active",
+            )
+            return TaskCompletionStatus.PROCESS_EXITED
+        else:
+            self.pid_missing_since = None
+        return None
+
+    def _check_backlog_done_idle(self) -> Optional[TaskCompletionStatus]:
+        now = time.time()
+        backlog_done = _task_done_in_backlog(self.task_path)
+        if (
+            backlog_done
+            and not (self.ignore_initial_backlog_done and self.backlog_done_at_start)
+            and (now - self.monitor.last_output_time) >= DONE_BACKLOG_IDLE_GRACE_SECONDS
+        ):
+            log_event(self.log_path, "INFO", "task marked done and agent idle; treating as completed", task_id=self.task_id)
+            try:
+                self.task_path.unlink()
+                delete_runtime_state_file(self.task_path, self.log_path, reason="idle_task_done")
+            except OSError:
+                pass
+            timeline_instant(
+                timeline_id=self.timeline_id,
+                task_id=self.task_id,
+                step="wait_for_completion_exit",
+                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                attempt=self.attempt,
+                result="completed",
+                reason="backlog_done_idle",
+            )
+            return TaskCompletionStatus.COMPLETED
+        return None
+
+    def _check_tokens_stuck(self) -> None:
+        tokens_value = self.monitor.metrics.tokens_total
+        if tokens_value is not None:
+            if self.last_tokens_value is None or tokens_value != self.last_tokens_value:
+                self.last_tokens_value = tokens_value
+                self.last_tokens_time = time.time()
+            else:
+                since_tokens = time.time() - self.last_tokens_time
+                if since_tokens >= TOKENS_STUCK_NOTICE_SECONDS and (
+                    time.time() - self.last_stuck_notice_time
+                ) >= TOKENS_STUCK_NOTICE_SECONDS:
+                    self.last_stuck_notice_time = time.time()
+                    stuck_msg = f"{self.task_id} — agent stuck (tokens unchanged {TOKENS_STUCK_NOTICE_LABEL})"
+                    if self.task_text:
+                        stuck_msg = (
+                            f"{self.task_id} — {self.task_text}\n"
+                            f"agent stuck (tokens unchanged {TOKENS_STUCK_NOTICE_LABEL})"
+                        )
+                    send_telegram_message(stuck_msg, self.log_path)
+
+    def _check_process_exited(self) -> Optional[TaskCompletionStatus]:
+        if getattr(self.monitor, "result_status", None) == "success":
+            if not self.task_path.exists():
+                return TaskCompletionStatus.COMPLETED
+
+        if self.monitor.proc.poll() is not None:
+            returncode = int(self.monitor.proc.returncode or 0)
+            if returncode == 0 and not self.task_path.exists():
+                timeline_instant(
+                    timeline_id=self.timeline_id,
+                    task_id=self.task_id,
+                    step="wait_for_completion_exit",
+                    location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                    attempt=self.attempt,
+                    result="completed",
+                    reason="process_exit_task_file_removed",
+                )
+                return TaskCompletionStatus.COMPLETED
+            if returncode == 0 and self.task_path.exists():
+                # Check stream result_status first (hook-free completion detection)
+                stream_result = getattr(self.monitor, "result_status", None)
+                if stream_result == "success":
+                    log_event(self.log_path, "INFO", "completed via stream result_status=success",
+                              task_id=self.task_id)
+                    timeline_instant(
+                        timeline_id=self.timeline_id,
+                        task_id=self.task_id,
+                        step="wait_for_completion_exit",
+                        location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                        attempt=self.attempt,
+                        result="completed",
+                        reason="stream_result_success",
+                    )
+                    return TaskCompletionStatus.COMPLETED
+                grace_deadline = time.time() + PROCESS_EXIT_GRACE_SECONDS
+                while time.time() < grace_deadline:
+                    if not self.task_path.exists():
+                        log_event(self.log_path, "INFO", "task file removed during exit grace window")
+                        return TaskCompletionStatus.COMPLETED
+                    if _task_done_in_backlog(self.task_path):
+                        log_event(self.log_path, "INFO", "task marked done during exit grace window", task_id=self.task_id)
+                        try:
+                            self.task_path.unlink()
+                            delete_runtime_state_file(self.task_path, self.log_path, reason="exit_grace_task_done")
+                        except OSError:
+                            pass
+                        timeline_instant(
+                            timeline_id=self.timeline_id,
+                            task_id=self.task_id,
+                            step="wait_for_completion_exit",
+                            location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                            attempt=self.attempt,
+                            result="completed",
+                            reason="exit_grace_task_done",
+                        )
+                        return TaskCompletionStatus.COMPLETED
+                    time.sleep(max(min(self.poll, 0.2), 0.05))
+            if _is_model_unavailable_stderr(getattr(self.monitor, "last_stderr_line", "")):
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "agent model unavailable",
+                    returncode=self.monitor.proc.returncode,
+                    stderr_line=getattr(self.monitor, "last_stderr_line", ""),
+                )
+                timeline_instant(
+                    timeline_id=self.timeline_id,
+                    task_id=self.task_id,
+                    step="wait_for_completion_exit",
+                    location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                    attempt=self.attempt,
+                    result="model_unavailable",
+                    reason="agent_model_unavailable",
+                    data={"returncode": returncode},
+                )
+                return TaskCompletionStatus.MODEL_UNAVAILABLE
+            log_event(self.log_path, "ERROR", "agent process exited while task still active", returncode=self.monitor.proc.returncode)
+            _force_close_active_tools_if_needed(
+                self.monitor,
+                self.log_path,
+                self.task_id,
+                reason=f"process_exited_while_task_active_rc_{returncode}",
+            )
+            debug_log(
+                "H4",
+                "orc_core/supervisor_lifecycle.py:wait_for_completion:exit",
+                "agent process exited early",
+                {
+                    "returncode": self.monitor.proc.returncode,
+                    "task_exists": self.task_path.exists(),
+                    "stderr_count": self.monitor.stderr_count,
+                    "last_stderr_line": self.monitor.last_stderr_line,
+                },
+            )
+            timeline_instant(
+                timeline_id=self.timeline_id,
+                task_id=self.task_id,
+                step="wait_for_completion_exit",
+                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                attempt=self.attempt,
+                result="process_exited",
+                reason="process_exited_while_task_active",
+                data={"returncode": returncode},
+            )
+            return TaskCompletionStatus.PROCESS_EXITED
+        return None
+
+    def _check_followup_prompt(self) -> Optional[TaskCompletionStatus]:
+        if getattr(self.monitor, "ui_followup_prompt", False):
+            log_event(self.log_path, "WARN", "follow-up input requested by agent", task_id=self.task_id)
+            timeline_instant(
+                timeline_id=self.timeline_id,
+                task_id=self.task_id,
+                step="wait_for_completion_exit",
+                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                attempt=self.attempt,
+                result="waiting_for_input",
+            )
+            return TaskCompletionStatus.WAITING_FOR_INPUT
+        return None
+
+    def _check_stall(self) -> Optional[TaskCompletionStatus]:
+        now = time.time()
+        silence_seconds = now - self.monitor.last_output_time
+        snapshot_fn = getattr(self.monitor, "active_tool_calls_watchdog_snapshot", None)
+        tool_snapshot = snapshot_fn() if callable(snapshot_fn) else {}
+        active_tools_count = int(tool_snapshot.get("count") or 0) if isinstance(tool_snapshot, dict) else 0
+        is_stalled = False
+        stall_reason = ""
+        if active_tools_count > 0:
+            active_children = _get_active_children_count(self.monitor)
+            if active_children <= 0 and silence_seconds > TOOL_DIGESTION_GRACE_SECONDS:
+                is_stalled = True
+                stall_reason = f"agent_digestion_timeout_{TOOL_DIGESTION_GRACE_SECONDS}s"
+        elif silence_seconds > self.stall_timeout:
+            is_stalled = True
+            stall_reason = f"stall_timeout_{self.stall_timeout}s"
+        if is_stalled:
+            debug_mode_log(
+                "run1",
+                "H5",
+                "orc_core/supervisor_lifecycle.py:wait_for_completion:stall_timeout",
+                "stall timeout reached",
+                {
+                    "silence_seconds": float(silence_seconds),
+                    "reason": stall_reason,
+                    "active_tools": active_tools_count,
+                    "tool_snapshot": tool_snapshot if isinstance(tool_snapshot, dict) else {},
+                    "proc_returncode": self.monitor.proc.poll(),
+                    "task_exists": self.task_path.exists(),
+                },
+            )
+            log_event(
+                self.log_path,
+                "ERROR",
+                "stall detected",
+                stall_seconds=silence_seconds,
+                reason=stall_reason,
+                active_tools=active_tools_count,
+            )
+            debug_log(
+                "H5",
+                "orc_core/supervisor_lifecycle.py:wait_for_completion:stall",
+                "stall detected",
+                {
+                    "stall_seconds": silence_seconds,
+                    "reason": stall_reason,
+                    "active_tools": active_tools_count,
+                    "lines": self.monitor.metrics.total_lines,
+                    "task_exists": self.task_path.exists(),
+                },
+            )
+            if active_tools_count > 0:
+                _force_close_active_tools_if_needed(self.monitor, self.log_path, self.task_id, reason=stall_reason)
+            timeline_instant(
+                timeline_id=self.timeline_id,
+                task_id=self.task_id,
+                step="wait_for_completion_exit",
+                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                attempt=self.attempt,
+                result="stalled",
+                data={
+                    "since_last_output_ms": int(silence_seconds * 1000),
+                    "reason": stall_reason,
+                },
+            )
+            return TaskCompletionStatus.STALLED
+        return None
+
+    def _check_ttl(self) -> Optional[TaskCompletionStatus]:
+        total_elapsed = self.elapsed_before_start + (time.time() - self.start_time)
+        if total_elapsed > self.task_ttl:
+            log_event(self.log_path, "ERROR", "task ttl exceeded", task_ttl=self.task_ttl)
+            debug_log(
+                "H6",
+                "orc_core/supervisor_lifecycle.py:wait_for_completion:ttl",
+                "task ttl exceeded",
+                {"task_ttl": self.task_ttl, "elapsed": total_elapsed},
+            )
+            timeline_instant(
+                timeline_id=self.timeline_id,
+                task_id=self.task_id,
+                step="wait_for_completion_exit",
+                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+                attempt=self.attempt,
+                result="ttl_exceeded",
+                data={"ttl_elapsed_ms": int(total_elapsed * 1000), "task_ttl_ms": int(self.task_ttl * 1000)},
+            )
+            return TaskCompletionStatus.TTL_EXCEEDED
+        return None
+
+    def _maybe_report(self) -> None:
+        maybe_report_started = time.time()
+        self.monitor.maybe_report()
+        maybe_report_duration = time.time() - maybe_report_started
+        timeline_instant(
+            timeline_id=self.timeline_id,
+            task_id=self.task_id,
+            step="wait_for_completion_maybe_report",
+            location="orc_core/supervisor_lifecycle.py:wait_for_completion",
+            attempt=self.attempt,
+            result="ok",
+            data={"duration_ms": int(maybe_report_duration * 1000)},
+        )
+
+    def check(self) -> Optional[TaskCompletionStatus]:
+        """Run one iteration of checks. Returns a status if done, or None to continue."""
+        result = self._check_escape()
+        if result is not None:
+            return result
+
+        result = self._check_task_file_removed()
+        if result is not None:
+            return result
+
+        result = self._check_pid_missing()
+        if result is not None:
+            return result
+
+        result = self._check_backlog_done_idle()
+        if result is not None:
+            return result
+
+        self._maybe_report()
+
+        self._check_tokens_stuck()
+
+        result = self._check_process_exited()
+        if result is not None:
+            return result
+
+        result = self._check_followup_prompt()
+        if result is not None:
+            return result
+
+        result = self._check_stall()
+        if result is not None:
+            return result
+
+        result = self._check_ttl()
+        if result is not None:
+            return result
+
+        return None
+
+
 def wait_for_completion(
     task_path: Path,
     monitor,
@@ -130,13 +572,25 @@ def wait_for_completion(
     escape_requested: Optional[Callable[[], bool]] = None,
     confirm_exit: Optional[Callable[[], bool]] = None,
 ) -> TaskCompletionStatus:
-    start_time = time.time()
-    pid_missing_since: Optional[float] = None
-    last_heartbeat_time = 0.0
-    last_tokens_value: Optional[int] = None
-    last_tokens_time = time.time()
-    last_stuck_notice_time = 0.0
-    backlog_done_at_start = _task_done_in_backlog(task_path)
+    cm = CompletionMonitor(
+        task_path=task_path,
+        monitor=monitor,
+        poll=poll,
+        stall_timeout=stall_timeout,
+        task_ttl=task_ttl,
+        log_path=log_path,
+        nudge_after=nudge_after,
+        nudge_cooldown=nudge_cooldown,
+        nudge_text=nudge_text,
+        task_id=task_id,
+        task_text=task_text,
+        timeline_id=timeline_id,
+        attempt=attempt,
+        elapsed_before_start=elapsed_before_start,
+        ignore_initial_backlog_done=ignore_initial_backlog_done,
+        escape_requested=escape_requested,
+        confirm_exit=confirm_exit,
+    )
     debug_log(
         "H3",
         "orc_core/supervisor_lifecycle.py:wait_for_completion:start",
@@ -148,7 +602,7 @@ def wait_for_completion(
             "task_ttl": task_ttl,
             "elapsed_before_start": elapsed_before_start,
             "poll": poll,
-            "backlog_done_at_start": backlog_done_at_start,
+            "backlog_done_at_start": cm.backlog_done_at_start,
             "ignore_initial_backlog_done": ignore_initial_backlog_done,
         },
     )
@@ -167,330 +621,9 @@ def wait_for_completion(
         },
     )
     while True:
-        if escape_requested is not None and escape_requested():
-            if confirm_exit is None or confirm_exit():
-                log_event(log_path, "WARN", "escape interrupt confirmed", task_id=task_id)
-                timeline_instant(
-                    timeline_id=timeline_id,
-                    task_id=task_id,
-                    step="wait_for_completion_exit",
-                    location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                    attempt=attempt,
-                    result="interrupt",
-                    reason="escape_confirmed",
-                )
-                raise KeyboardInterrupt
-            log_event(log_path, "INFO", "escape interrupt cancelled", task_id=task_id)
-        if not task_path.exists():
-            log_event(log_path, "INFO", "task file removed; completion observed")
-            debug_log(
-                "H3",
-                "orc_core/supervisor_lifecycle.py:wait_for_completion:done",
-                "task file removed",
-                {"task_path": str(task_path)},
-            )
-            timeline_instant(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="wait_for_completion_exit",
-                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                attempt=attempt,
-                result="completed",
-                reason="task_file_removed",
-            )
-            return TaskCompletionStatus.COMPLETED
-        if _monitor_pid_missing(monitor):
-            if pid_missing_since is None:
-                pid_missing_since = time.time()
-                log_event(log_path, "WARN", "agent pid missing detected; waiting grace", task_id=task_id)
-                time.sleep(max(min(poll, 0.2), 0.05))
-                continue
-            if (time.time() - pid_missing_since) < PID_MISSING_GRACE_SECONDS:
-                time.sleep(max(min(poll, 0.2), 0.05))
-                continue
-            backlog_done = _task_done_in_backlog(task_path)
-            if backlog_done and not (ignore_initial_backlog_done and backlog_done_at_start):
-                log_event(log_path, "INFO", "agent pid missing and task marked done; treating as completed", task_id=task_id)
-                try:
-                    task_path.unlink()
-                    delete_runtime_state_file(task_path, log_path, reason="pid_missing_task_done")
-                except Exception:
-                    pass
-                timeline_instant(
-                    timeline_id=timeline_id,
-                    task_id=task_id,
-                    step="wait_for_completion_exit",
-                    location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                    attempt=attempt,
-                    result="completed",
-                    reason="pid_missing_task_done",
-                )
-                return TaskCompletionStatus.COMPLETED
-            log_event(log_path, "ERROR", "agent pid missing while task still active", task_id=task_id)
-            timeline_instant(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="wait_for_completion_exit",
-                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                attempt=attempt,
-                result="process_exited",
-                reason="pid_missing_task_active",
-            )
-            return TaskCompletionStatus.PROCESS_EXITED
-        else:
-            pid_missing_since = None
-        now = time.time()
-        backlog_done = _task_done_in_backlog(task_path)
-        if (
-            backlog_done
-            and not (ignore_initial_backlog_done and backlog_done_at_start)
-            and (now - monitor.last_output_time) >= DONE_BACKLOG_IDLE_GRACE_SECONDS
-        ):
-            log_event(log_path, "INFO", "task marked done and agent idle; treating as completed", task_id=task_id)
-            try:
-                task_path.unlink()
-                delete_runtime_state_file(task_path, log_path, reason="idle_task_done")
-            except Exception:
-                pass
-            timeline_instant(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="wait_for_completion_exit",
-                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                attempt=attempt,
-                result="completed",
-                reason="backlog_done_idle",
-            )
-            return TaskCompletionStatus.COMPLETED
-        maybe_report_started = time.time()
-        monitor.maybe_report()
-        maybe_report_duration = time.time() - maybe_report_started
-        timeline_instant(
-            timeline_id=timeline_id,
-            task_id=task_id,
-            step="wait_for_completion_maybe_report",
-            location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-            attempt=attempt,
-            result="ok",
-            data={"duration_ms": int(maybe_report_duration * 1000)},
-        )
-        tokens_value = monitor.metrics.tokens_total
-        if tokens_value is not None:
-            if last_tokens_value is None or tokens_value != last_tokens_value:
-                last_tokens_value = tokens_value
-                last_tokens_time = time.time()
-            else:
-                since_tokens = time.time() - last_tokens_time
-                if since_tokens >= TOKENS_STUCK_NOTICE_SECONDS and (
-                    time.time() - last_stuck_notice_time
-                ) >= TOKENS_STUCK_NOTICE_SECONDS:
-                    last_stuck_notice_time = time.time()
-                    stuck_msg = f"{task_id} — agent stuck (tokens unchanged {TOKENS_STUCK_NOTICE_LABEL})"
-                    if task_text:
-                        stuck_msg = (
-                            f"{task_id} — {task_text}\n"
-                            f"agent stuck (tokens unchanged {TOKENS_STUCK_NOTICE_LABEL})"
-                        )
-                    send_telegram_message(stuck_msg, log_path)
-        if getattr(monitor, "result_status", None) == "success":
-            if not task_path.exists():
-                return TaskCompletionStatus.COMPLETED
-
-        if monitor.proc.poll() is not None:
-            returncode = int(monitor.proc.returncode or 0)
-            if returncode == 0 and not task_path.exists():
-                timeline_instant(
-                    timeline_id=timeline_id,
-                    task_id=task_id,
-                    step="wait_for_completion_exit",
-                    location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                    attempt=attempt,
-                    result="completed",
-                    reason="process_exit_task_file_removed",
-                )
-                return TaskCompletionStatus.COMPLETED
-            if returncode == 0 and task_path.exists():
-                # Check stream result_status first (hook-free completion detection)
-                stream_result = getattr(monitor, "result_status", None)
-                if stream_result == "success":
-                    log_event(log_path, "INFO", "completed via stream result_status=success",
-                              task_id=task_id)
-                    timeline_instant(
-                        timeline_id=timeline_id,
-                        task_id=task_id,
-                        step="wait_for_completion_exit",
-                        location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                        attempt=attempt,
-                        result="completed",
-                        reason="stream_result_success",
-                    )
-                    return TaskCompletionStatus.COMPLETED
-                grace_deadline = time.time() + PROCESS_EXIT_GRACE_SECONDS
-                while time.time() < grace_deadline:
-                    if not task_path.exists():
-                        log_event(log_path, "INFO", "task file removed during exit grace window")
-                        return TaskCompletionStatus.COMPLETED
-                    if _task_done_in_backlog(task_path):
-                        log_event(log_path, "INFO", "task marked done during exit grace window", task_id=task_id)
-                        try:
-                            task_path.unlink()
-                            delete_runtime_state_file(task_path, log_path, reason="exit_grace_task_done")
-                        except Exception:
-                            pass
-                        timeline_instant(
-                            timeline_id=timeline_id,
-                            task_id=task_id,
-                            step="wait_for_completion_exit",
-                            location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                            attempt=attempt,
-                            result="completed",
-                            reason="exit_grace_task_done",
-                        )
-                        return TaskCompletionStatus.COMPLETED
-                    time.sleep(max(min(poll, 0.2), 0.05))
-            if _is_model_unavailable_stderr(getattr(monitor, "last_stderr_line", "")):
-                log_event(
-                    log_path,
-                    "ERROR",
-                    "agent model unavailable",
-                    returncode=monitor.proc.returncode,
-                    stderr_line=getattr(monitor, "last_stderr_line", ""),
-                )
-                timeline_instant(
-                    timeline_id=timeline_id,
-                    task_id=task_id,
-                    step="wait_for_completion_exit",
-                    location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                    attempt=attempt,
-                    result="model_unavailable",
-                    reason="agent_model_unavailable",
-                    data={"returncode": returncode},
-                )
-                return TaskCompletionStatus.MODEL_UNAVAILABLE
-            log_event(log_path, "ERROR", "agent process exited while task still active", returncode=monitor.proc.returncode)
-            _force_close_active_tools_if_needed(
-                monitor,
-                log_path,
-                task_id,
-                reason=f"process_exited_while_task_active_rc_{returncode}",
-            )
-            debug_log(
-                "H4",
-                "orc_core/supervisor_lifecycle.py:wait_for_completion:exit",
-                "agent process exited early",
-                {
-                    "returncode": monitor.proc.returncode,
-                    "task_exists": task_path.exists(),
-                    "stderr_count": monitor.stderr_count,
-                    "last_stderr_line": monitor.last_stderr_line,
-                },
-            )
-            timeline_instant(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="wait_for_completion_exit",
-                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                attempt=attempt,
-                result="process_exited",
-                reason="process_exited_while_task_active",
-                data={"returncode": returncode},
-            )
-            return TaskCompletionStatus.PROCESS_EXITED
-        if getattr(monitor, "ui_followup_prompt", False):
-            log_event(log_path, "WARN", "follow-up input requested by agent", task_id=task_id)
-            timeline_instant(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="wait_for_completion_exit",
-                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                attempt=attempt,
-                result="waiting_for_input",
-            )
-            return TaskCompletionStatus.WAITING_FOR_INPUT
-        now = time.time()
-        silence_seconds = now - monitor.last_output_time
-        snapshot_fn = getattr(monitor, "active_tool_calls_watchdog_snapshot", None)
-        tool_snapshot = snapshot_fn() if callable(snapshot_fn) else {}
-        active_tools_count = int(tool_snapshot.get("count") or 0) if isinstance(tool_snapshot, dict) else 0
-        is_stalled = False
-        stall_reason = ""
-        if active_tools_count > 0:
-            active_children = _get_active_children_count(monitor)
-            if active_children <= 0 and silence_seconds > TOOL_DIGESTION_GRACE_SECONDS:
-                is_stalled = True
-                stall_reason = f"agent_digestion_timeout_{TOOL_DIGESTION_GRACE_SECONDS}s"
-        elif silence_seconds > stall_timeout:
-            is_stalled = True
-            stall_reason = f"stall_timeout_{stall_timeout}s"
-        if is_stalled:
-            debug_mode_log(
-                "run1",
-                "H5",
-                "orc_core/supervisor_lifecycle.py:wait_for_completion:stall_timeout",
-                "stall timeout reached",
-                {
-                    "silence_seconds": float(silence_seconds),
-                    "reason": stall_reason,
-                    "active_tools": active_tools_count,
-                    "tool_snapshot": tool_snapshot if isinstance(tool_snapshot, dict) else {},
-                    "proc_returncode": monitor.proc.poll(),
-                    "task_exists": task_path.exists(),
-                },
-            )
-            log_event(
-                log_path,
-                "ERROR",
-                "stall detected",
-                stall_seconds=silence_seconds,
-                reason=stall_reason,
-                active_tools=active_tools_count,
-            )
-            debug_log(
-                "H5",
-                "orc_core/supervisor_lifecycle.py:wait_for_completion:stall",
-                "stall detected",
-                {
-                    "stall_seconds": silence_seconds,
-                    "reason": stall_reason,
-                    "active_tools": active_tools_count,
-                    "lines": monitor.metrics.total_lines,
-                    "task_exists": task_path.exists(),
-                },
-            )
-            if active_tools_count > 0:
-                _force_close_active_tools_if_needed(monitor, log_path, task_id, reason=stall_reason)
-            timeline_instant(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="wait_for_completion_exit",
-                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                attempt=attempt,
-                result="stalled",
-                data={
-                    "since_last_output_ms": int(silence_seconds * 1000),
-                    "reason": stall_reason,
-                },
-            )
-            return TaskCompletionStatus.STALLED
-        total_elapsed = elapsed_before_start + (time.time() - start_time)
-        if total_elapsed > task_ttl:
-            log_event(log_path, "ERROR", "task ttl exceeded", task_ttl=task_ttl)
-            debug_log(
-                "H6",
-                "orc_core/supervisor_lifecycle.py:wait_for_completion:ttl",
-                "task ttl exceeded",
-                {"task_ttl": task_ttl, "elapsed": total_elapsed},
-            )
-            timeline_instant(
-                timeline_id=timeline_id,
-                task_id=task_id,
-                step="wait_for_completion_exit",
-                location="orc_core/supervisor_lifecycle.py:wait_for_completion",
-                attempt=attempt,
-                result="ttl_exceeded",
-                data={"ttl_elapsed_ms": int(total_elapsed * 1000), "task_ttl_ms": int(task_ttl * 1000)},
-            )
-            return TaskCompletionStatus.TTL_EXCEEDED
+        result = cm.check()
+        if result is not None:
+            return result
         time.sleep(max(poll, 0.2))
 
 

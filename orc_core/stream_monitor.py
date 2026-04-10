@@ -416,7 +416,7 @@ class StreamJsonMonitor:
                 candidate = str(payload.get("backlog_path") or "").strip()
                 if candidate:
                     backlog_path = Path(candidate)
-            except Exception:
+            except (OSError, json.JSONDecodeError, ValueError):
                 pass
         # Kanban mode uses a _board sentinel instead of BACKLOG.md — skip progress refresh
         if backlog_path.name == "_board" or backlog_path.is_dir():
@@ -618,7 +618,7 @@ class StreamJsonMonitor:
             self._agent_output_file = None
             try:
                 f.close()
-            except Exception:
+            except OSError:
                 pass
 
     def _publish_snapshot(self) -> None:

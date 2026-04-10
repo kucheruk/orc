@@ -9,7 +9,7 @@ import re
 _logger = logging.getLogger(__name__)
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping, Optional, Protocol
@@ -248,7 +248,7 @@ def _update_completion_stats(
     stats_file = get_stats_path(workdir)
     try:
         stats = json.loads(stats_file.read_text(encoding="utf-8")) if stats_file.exists() else {}
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError):
         stats = {}
     stats.setdefault("tokens_total", 0)
     stats.setdefault("tokens_by_task", {})
@@ -794,248 +794,16 @@ class TaskExecutionEngine:
         resume_existing = request.task_path.exists()
         resume_id: Optional[str] = None
         worktree_path_value = request.workdir if Path(request.workdir).resolve() != Path(request.base_workdir).resolve() else ""
+        ctx = _ExecutionContext(
+            request=request, task_id=task_id, task_text=task_text,
+            timeline_id=timeline_id, ts_exec=ts_exec,
+            effective_agent_output_log_path=effective_agent_output_log_path,
+            base_backlog_path=base_backlog_path, runtime_backlog_path=runtime_backlog_path,
+        )
 
         def _finalize_completed(current_task_id: str, current_task_text: str, current_tag: str, monitor) -> TaskExecutionResult:
-            commit_completed = False
-            log_event(self.log_path, "INFO", "task completed", task_id=current_task_id)
-            raw_summary_text = monitor.get_summary_text()
-            raw_lines = raw_summary_text.splitlines() if raw_summary_text else []
-            cleaned_lines = clean_summary_lines(raw_lines)
-            if _is_fragmented_summary_lines(cleaned_lines):
-                summary_text = _normalize_fragmented_summary_text("\n".join(cleaned_lines))
-            else:
-                summary_text = "\n".join(cleaned_lines[-request.timing.summary_lines :])
-            tokens = monitor.metrics.tokens_total if monitor.metrics.tokens_total is not None else "-"
-            files_edited = monitor.metrics.files_edited if monitor.metrics.files_edited is not None else "-"
-            _logger.info(
-                f"[orc] completed stats tokens={tokens} lines={monitor.metrics.total_lines} "
-                f"commands={monitor.metrics.command_count} files_edited={files_edited}"
-            )
-            _update_completion_stats(
-                monitor=monitor,
-                task_id=current_task_id,
-                task_path=request.task_path,
-                workdir=request.workdir,
-                log_path=self.log_path,
-            )
-            debug_log(
-                "H8",
-                "orc_core/task_execution.py:execute:summary",
-                "summary prepared",
-                {
-                    "summary_len": len(summary_text),
-                    "summary_lines": summary_text.count("\n") + 1 if summary_text else 0,
-                },
-            )
-            # Kanban session manager handles its own notifications
-            prompt_vars = SafeDict(
-                task_text=current_task_text,
-                task_id=current_task_id,
-                backlog=request.backlog_arg,
-                workspace=request.workdir,
-            )
-            force_commit_for_quit_after_task = bool((not request.commit_phase) and is_quit_after_task_requested())
-            should_run_commit_phase = bool(request.commit_phase or force_commit_for_quit_after_task)
-            if force_commit_for_quit_after_task:
-                log_event(
-                    self.log_path,
-                    "INFO",
-                    "commit phase forced by quit-after-task request",
-                    task_id=current_task_id,
-                )
-                _logger.info("[orc] commit phase: forced by QUIT AFTER TASK")
-            if should_run_commit_phase and not _run_commit_phase(
-                self.worker,
-                request,
-                prompt_vars,
-                current_task_id,
-                current_tag,
-                self.log_path,
-                effective_agent_output_log_path,
-                timeline_id,
-                restart_count,
-            ):
-                _logger.error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
-                ts_exec.result = "failed"
-                ts_exec.reason = "commit_phase_failed"
-                return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="commit_phase_failed")
-            if should_run_commit_phase:
-                commit_completed = True
-
-            if request.integrate_to_main:
-                with timeline_step(
-                    timeline_id=timeline_id,
-                    task_id=current_task_id,
-                    step="main_integration",
-                    location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                    attempt=restart_count + 1,
-                    data={"branch": request.main_branch},
-                ) as ts_integ:
-                    if not has_commits_ahead_of_branch(request.workdir, request.main_branch, self.log_path):
-                        log_event(
-                            self.log_path,
-                            "INFO",
-                            "main integration skipped: no task commit ahead of main",
-                            task_id=current_task_id,
-                            branch=request.main_branch,
-                        )
-                        try:
-                            request.task_path.unlink(missing_ok=True)
-                            delete_runtime_state_file(request.task_path, self.log_path, reason="task_completed")
-                        except Exception:
-                            pass
-                        ts_integ.result = "skipped"
-                        ts_integ.reason = "no_commits_ahead"
-                        return TaskExecutionResult(status=TaskExecutionStatus.COMPLETED, committed=commit_completed)
-                    try:
-                        commit_sha = get_head_commit(request.workdir)
-                    except Exception as exc:
-                        log_event(
-                            self.log_path,
-                            "ERROR",
-                            "cannot resolve task commit sha before main integration",
-                            task_id=current_task_id,
-                            error=str(exc),
-                        )
-                        _logger.error("❌ Не удалось определить commit задачи для переноса в main.")
-                        ts_integ.result = "failed"
-                        ts_integ.reason = "integration_commit_sha_failed"
-                        ts_exec.result = "failed"
-                        ts_exec.reason = "integration_commit_sha_failed"
-                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="integration_commit_sha_failed")
-
-                    integration = integrate_commit_into_main(
-                        base_workdir=request.base_workdir,
-                        commit_sha=commit_sha,
-                        task_id=current_task_id,
-                        log_path=self.log_path,
-                        main_branch=request.main_branch,
-                    )
-                    if not integration.ok and integration.conflict:
-                        merge_prompt_vars = SafeDict(
-                            task_text=current_task_text,
-                            task_id=current_task_id,
-                            backlog=request.backlog_arg,
-                            workspace=request.base_workdir,
-                        )
-                        if not run_merge_expert_phase(
-                            self.worker,
-                            request,
-                            merge_prompt_vars,
-                            current_task_id,
-                            current_tag,
-                            self.log_path,
-                            effective_agent_output_log_path,
-                            timeline_id,
-                            restart_count,
-                        ):
-                            ts_integ.result = "failed"
-                            ts_integ.reason = "merge_expert_phase_failed"
-                            ts_exec.result = "failed"
-                            ts_exec.reason = "merge_expert_phase_failed"
-                            return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="merge_expert_phase_failed")
-                        integration = integrate_commit_into_main(
-                            base_workdir=request.base_workdir,
-                            commit_sha=commit_sha,
-                            task_id=current_task_id,
-                            log_path=self.log_path,
-                            main_branch=request.main_branch,
-                        )
-                    if not integration.ok:
-                        failure_kind = classify_main_integration_error(integration.error)
-                        log_event(
-                            self.log_path,
-                            "ERROR",
-                            "failed to integrate task commit into main",
-                            task_id=current_task_id,
-                            commit_sha=commit_sha,
-                            integration_failure_kind=failure_kind,
-                            error=integration.error[:500],
-                        )
-                        _logger.error(f"❌ Не удалось перенести commit в {request.main_branch}: {integration.error}")
-                        ts_integ.result = "failed"
-                        ts_integ.reason = f"main_integration_failed:{failure_kind}"
-                        ts_exec.result = "failed"
-                        ts_exec.reason = f"main_integration_failed:{failure_kind}"
-                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="main_integration_failed")
-            # Kanban mode uses _board sentinel — card state is the source of truth, skip backlog invariant
-            if base_backlog_path.name != "_board" and not base_backlog_path.is_dir():
-                try:
-                    from .task_source import MarkdownTaskSource
-
-                    base_done = MarkdownTaskSource(base_backlog_path).is_task_done(current_task_id)
-                    runtime_done = False
-                    if runtime_backlog_path != base_backlog_path:
-                        runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(current_task_id)
-                    if runtime_done and not base_done:
-                        if _should_defer_base_backlog_sync_to_integration(
-                            integrate_to_main=request.integrate_to_main,
-                            base_backlog_path=base_backlog_path,
-                            runtime_backlog_path=runtime_backlog_path,
-                        ):
-                            log_event(
-                                self.log_path,
-                                "ERROR",
-                                "backlog invariant violated after main integration: task marked done only in runtime worktree backlog",
-                                task_id=current_task_id,
-                                base_backlog_path=str(base_backlog_path),
-                                runtime_backlog_path=str(runtime_backlog_path),
-                                integrate_to_main=request.integrate_to_main,
-                            )
-                            debug_log(
-                                "MI2",
-                                "orc_core/task_execution.py:TaskExecutionEngine.execute",
-                                "base backlog was not updated by integrated commit",
-                                {
-                                    "task_id": current_task_id,
-                                    "base_backlog_path": str(base_backlog_path),
-                                    "runtime_backlog_path": str(runtime_backlog_path),
-                                },
-                            )
-                            _logger.error(
-                                "❌ После успешной main integration backlog в base не отмечен как done. "
-                                "Значит, отметка попала не в task commit, а пыталась догнаться позже."
-                            )
-                            ts_exec.result = "failed"
-                            ts_exec.reason = "worktree_not_integrated_to_base"
-                            return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="worktree_not_integrated_to_base")
-                        synced = _sync_done_task_from_runtime_to_base(
-                            task_id=current_task_id,
-                            base_backlog_path=base_backlog_path,
-                            runtime_backlog_path=runtime_backlog_path,
-                            log_path=self.log_path,
-                        )
-                        if not synced:
-                            # Sync can fail due to race with concurrent cherry-pick
-                            # (conflict markers in base BACKLOG.md). This is not fatal:
-                            # the integration step will cherry-pick the worktree commit
-                            # (which includes the done mark) into base anyway.
-                            log_event(
-                                self.log_path,
-                                "WARN",
-                                "backlog sync to base failed (likely race with concurrent integration); "
-                                "integration step will reconcile",
-                                task_id=current_task_id,
-                                base_backlog_path=str(base_backlog_path),
-                                runtime_backlog_path=str(runtime_backlog_path),
-                            )
-                except Exception as exc:
-                    log_event(
-                        self.log_path,
-                        "ERROR",
-                        "failed to validate backlog invariant after completion",
-                        task_id=current_task_id,
-                        error=str(exc),
-                        base_backlog_path=str(base_backlog_path),
-                        runtime_backlog_path=str(runtime_backlog_path),
-                    )
-            # Clean up task state files (previously done by stop hook)
-            try:
-                request.task_path.unlink(missing_ok=True)
-                delete_runtime_state_file(request.task_path, self.log_path, reason="task_completed")
-            except Exception:
-                pass
-            return TaskExecutionResult(status=TaskExecutionStatus.COMPLETED, committed=commit_completed)
+            ctx.restart_count = restart_count
+            return self._finalize_completed_impl(ctx, current_task_id, current_task_text, current_tag, monitor)
 
         debug_log(
             "H2",
@@ -1074,7 +842,7 @@ class TaskExecutionEngine:
             if active_backlog_raw:
                 try:
                     same_backlog = Path(active_backlog_raw).resolve() == request.backlog_path.resolve()
-                except Exception:
+                except (OSError, ValueError):
                     same_backlog = active_backlog_raw == str(request.backlog_path)
 
             if not same_backlog:
@@ -1122,7 +890,7 @@ class TaskExecutionEngine:
                     try:
                         request.task_path.unlink()
                         delete_runtime_state_file(request.task_path, self.log_path, reason="auto_drop_no_conversation")
-                    except Exception:
+                    except OSError:
                         pass
                     resume_existing = False
                     resume_id = None
@@ -1186,170 +954,15 @@ class TaskExecutionEngine:
         artifact_prompt_vars = dict(artifact_bundle.to_prompt_vars())
         enforce_stage_artifacts = bool(request.enforce_stage_artifacts) and bool(request.stage_specs)
         implementation_stage_index = _find_first_stage_index(stage_specs, "implementation")
-        feedback_iteration_count = 0
+        ctx.stage_specs = stage_specs
+        ctx.artifact_bundle = artifact_bundle
+        ctx.enforce_stage_artifacts = enforce_stage_artifacts
+        ctx.implementation_stage_index = implementation_stage_index
+        ctx.feedback_iteration_count = 0
         stage_index = 0
 
-        def _complete_stage(
-            *,
-            current_task_id: str,
-            current_task_text: str,
-            current_tag: str,
-            current_monitor,
-            current_stage_id: str,
-            current_stage_index: int,
-            current_stage_is_final: bool,
-            current_attempt_number: int,
-            current_ts_attempt,
-            completion_reason: str = "",
-        ) -> tuple[Optional[TaskExecutionResult], Optional[int], bool]:
-            nonlocal feedback_iteration_count
-            if enforce_stage_artifacts:
-                artifact_ok, artifact_reason, artifact_path = validate_stage_artifact_output(
-                    stage_id=current_stage_id,
-                    bundle=artifact_bundle,
-                )
-                if not artifact_ok:
-                    failure_reason = f"stage_artifact_{current_stage_id}_{artifact_reason}"
-                    log_event(
-                        self.log_path,
-                        "ERROR",
-                        "sdlc stage artifact validation failed",
-                        task_id=current_task_id,
-                        stage_id=current_stage_id,
-                        stage_index=current_stage_index + 1,
-                        stage_total=len(stage_specs),
-                        artifact_path=str(artifact_path),
-                        artifact_reason=artifact_reason,
-                    )
-                    _logger.error(
-                        "❌ SDLC stage завершился без валидного артефакта: "
-                        f"{current_stage_id} -> {artifact_path}"
-                    )
-                    current_ts_attempt.result = "failed"
-                    current_ts_attempt.reason = failure_reason
-                    ts_exec.result = "failed"
-                    ts_exec.reason = failure_reason
-                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
-            if enforce_stage_artifacts and current_stage_id in {"review", "testing"}:
-                status_ok, stage_status, stage_status_reason, stage_status_path = parse_stage_artifact_status(
-                    stage_id=current_stage_id,
-                    bundle=artifact_bundle,
-                )
-                if not status_ok:
-                    failure_reason = f"stage_artifact_{current_stage_id}_{stage_status_reason}"
-                    log_event(
-                        self.log_path,
-                        "ERROR",
-                        "sdlc stage status parsing failed",
-                        task_id=current_task_id,
-                        stage_id=current_stage_id,
-                        stage_index=current_stage_index + 1,
-                        stage_total=len(stage_specs),
-                        artifact_path=str(stage_status_path),
-                        artifact_reason=stage_status_reason,
-                        artifact_status=stage_status,
-                    )
-                    _logger.error(
-                        "❌ SDLC stage артефакт не содержит валидный `status:` заголовок: "
-                        f"{current_stage_id} -> {stage_status_path}"
-                    )
-                    current_ts_attempt.result = "failed"
-                    current_ts_attempt.reason = failure_reason
-                    ts_exec.result = "failed"
-                    ts_exec.reason = failure_reason
-                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
-            current_ts_attempt.result = "completed"
-            if completion_reason:
-                current_ts_attempt.reason = completion_reason
-            if current_stage_is_final:
-                return None, None, True
-
-            next_stage_index = current_stage_index + 1
-            if enforce_stage_artifacts and current_stage_id == "review":
-                status_ok, stage_status, _stage_status_reason, _stage_status_path = parse_stage_artifact_status(
-                    stage_id=current_stage_id,
-                    bundle=artifact_bundle,
-                )
-                if status_ok and stage_status == "needs_changes":
-                    feedback_iteration_count += 1
-                    if feedback_iteration_count > SDLC_FEEDBACK_MAX_ITERATIONS:
-                        failure_reason = "sdlc_feedback_limit_exceeded"
-                        log_event(
-                            self.log_path,
-                            "ERROR",
-                            "sdlc feedback iteration limit exceeded",
-                            task_id=current_task_id,
-                            stage_id=current_stage_id,
-                            stage_index=current_stage_index + 1,
-                            stage_total=len(stage_specs),
-                            feedback_iteration_count=feedback_iteration_count,
-                            max_feedback_iterations=SDLC_FEEDBACK_MAX_ITERATIONS,
-                        )
-                        _logger.error("❌ SDLC feedback loop превысил лимит итераций.")
-                        ts_exec.result = "failed"
-                        ts_exec.reason = failure_reason
-                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
-                    if implementation_stage_index is None:
-                        failure_reason = "sdlc_feedback_missing_implementation_stage"
-                        log_event(
-                            self.log_path,
-                            "ERROR",
-                            "sdlc feedback loop requested but implementation stage missing",
-                            task_id=current_task_id,
-                            stage_id=current_stage_id,
-                            stage_index=current_stage_index + 1,
-                            stage_total=len(stage_specs),
-                        )
-                        _logger.error("❌ SDLC feedback loop не может вернуться: отсутствует stage `implementation`.")
-                        ts_exec.result = "failed"
-                        ts_exec.reason = failure_reason
-                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
-                    next_stage_index = implementation_stage_index
-                    log_event(
-                        self.log_path,
-                        "INFO",
-                        "sdlc feedback loop requested by review verdict",
-                        task_id=current_task_id,
-                        stage_id=current_stage_id,
-                        stage_index=current_stage_index + 1,
-                        stage_total=len(stage_specs),
-                        next_stage_id=stage_specs[next_stage_index].stage_id,
-                        next_stage_index=next_stage_index + 1,
-                        feedback_iteration_count=feedback_iteration_count,
-                        max_feedback_iterations=SDLC_FEEDBACK_MAX_ITERATIONS,
-                    )
-            if enforce_stage_artifacts and current_stage_id == "testing":
-                status_ok, stage_status, _stage_status_reason, _stage_status_path = parse_stage_artifact_status(
-                    stage_id=current_stage_id,
-                    bundle=artifact_bundle,
-                )
-                if status_ok and stage_status == "fail":
-                    failure_reason = "testing_failed"
-                    log_event(
-                        self.log_path,
-                        "ERROR",
-                        "testing stage reported failure verdict",
-                        task_id=current_task_id,
-                        stage_id=current_stage_id,
-                        stage_index=current_stage_index + 1,
-                        stage_total=len(stage_specs),
-                    )
-                    _logger.error("❌ Testing stage завершился с verdict `status: fail`.")
-                    ts_exec.result = "failed"
-                    ts_exec.reason = failure_reason
-                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
-            log_event(
-                self.log_path,
-                "INFO",
-                "sdlc stage completed",
-                task_id=current_task_id,
-                stage_id=current_stage_id,
-                stage_index=current_stage_index + 1,
-                stage_total=len(stage_specs),
-                next_stage_index=(next_stage_index + 1) if next_stage_index is not None else None,
-                completion_reason=completion_reason or "monitor_completed",
-            )
-            return None, next_stage_index, False
+        def _complete_stage(**kwargs) -> tuple[Optional[TaskExecutionResult], Optional[int], bool]:
+            return self._complete_stage_impl(ctx, **kwargs)
 
         while stage_index < len(stage_specs):
             stage_spec = stage_specs[stage_index]
@@ -1772,6 +1385,425 @@ class TaskExecutionEngine:
         ts_exec.result = "failed"
         ts_exec.reason = "no_final_stage_completion"
         return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="no_final_stage_completion")
+
+    def _finalize_completed_impl(self, ctx: _ExecutionContext, current_task_id: str, current_task_text: str, current_tag: str, monitor) -> TaskExecutionResult:
+        request = ctx.request
+        effective_agent_output_log_path = ctx.effective_agent_output_log_path
+        timeline_id = ctx.timeline_id
+        ts_exec = ctx.ts_exec
+        restart_count = ctx.restart_count
+        base_backlog_path = ctx.base_backlog_path
+        runtime_backlog_path = ctx.runtime_backlog_path
+
+        commit_completed = False
+        log_event(self.log_path, "INFO", "task completed", task_id=current_task_id)
+        raw_summary_text = monitor.get_summary_text()
+        raw_lines = raw_summary_text.splitlines() if raw_summary_text else []
+        cleaned_lines = clean_summary_lines(raw_lines)
+        if _is_fragmented_summary_lines(cleaned_lines):
+            summary_text = _normalize_fragmented_summary_text("\n".join(cleaned_lines))
+        else:
+            summary_text = "\n".join(cleaned_lines[-request.timing.summary_lines :])
+        tokens = monitor.metrics.tokens_total if monitor.metrics.tokens_total is not None else "-"
+        files_edited = monitor.metrics.files_edited if monitor.metrics.files_edited is not None else "-"
+        _logger.info(
+            f"[orc] completed stats tokens={tokens} lines={monitor.metrics.total_lines} "
+            f"commands={monitor.metrics.command_count} files_edited={files_edited}"
+        )
+        _update_completion_stats(
+            monitor=monitor,
+            task_id=current_task_id,
+            task_path=request.task_path,
+            workdir=request.workdir,
+            log_path=self.log_path,
+        )
+        debug_log(
+            "H8",
+            "orc_core/task_execution.py:execute:summary",
+            "summary prepared",
+            {
+                "summary_len": len(summary_text),
+                "summary_lines": summary_text.count("\n") + 1 if summary_text else 0,
+            },
+        )
+        # Kanban session manager handles its own notifications
+        prompt_vars = SafeDict(
+            task_text=current_task_text,
+            task_id=current_task_id,
+            backlog=request.backlog_arg,
+            workspace=request.workdir,
+        )
+        force_commit_for_quit_after_task = bool((not request.commit_phase) and is_quit_after_task_requested())
+        should_run_commit_phase = bool(request.commit_phase or force_commit_for_quit_after_task)
+        if force_commit_for_quit_after_task:
+            log_event(
+                self.log_path,
+                "INFO",
+                "commit phase forced by quit-after-task request",
+                task_id=current_task_id,
+            )
+            _logger.info("[orc] commit phase: forced by QUIT AFTER TASK")
+        if should_run_commit_phase and not _run_commit_phase(
+            self.worker,
+            request,
+            prompt_vars,
+            current_task_id,
+            current_tag,
+            self.log_path,
+            effective_agent_output_log_path,
+            timeline_id,
+            restart_count,
+        ):
+            _logger.error("❌ Commit phase failed. Stop to avoid accumulating uncommitted changes.")
+            ts_exec.result = "failed"
+            ts_exec.reason = "commit_phase_failed"
+            return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="commit_phase_failed")
+        if should_run_commit_phase:
+            commit_completed = True
+
+        if request.integrate_to_main:
+            with timeline_step(
+                timeline_id=timeline_id,
+                task_id=current_task_id,
+                step="main_integration",
+                location="orc_core/task_execution.py:TaskExecutionEngine.execute",
+                attempt=restart_count + 1,
+                data={"branch": request.main_branch},
+            ) as ts_integ:
+                if not has_commits_ahead_of_branch(request.workdir, request.main_branch, self.log_path):
+                    log_event(
+                        self.log_path,
+                        "INFO",
+                        "main integration skipped: no task commit ahead of main",
+                        task_id=current_task_id,
+                        branch=request.main_branch,
+                    )
+                    try:
+                        request.task_path.unlink(missing_ok=True)
+                        delete_runtime_state_file(request.task_path, self.log_path, reason="task_completed")
+                    except OSError:
+                        pass
+                    ts_integ.result = "skipped"
+                    ts_integ.reason = "no_commits_ahead"
+                    return TaskExecutionResult(status=TaskExecutionStatus.COMPLETED, committed=commit_completed)
+                try:
+                    commit_sha = get_head_commit(request.workdir)
+                except Exception as exc:
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "cannot resolve task commit sha before main integration",
+                        task_id=current_task_id,
+                        error=str(exc),
+                    )
+                    _logger.error("❌ Не удалось определить commit задачи для переноса в main.")
+                    ts_integ.result = "failed"
+                    ts_integ.reason = "integration_commit_sha_failed"
+                    ts_exec.result = "failed"
+                    ts_exec.reason = "integration_commit_sha_failed"
+                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="integration_commit_sha_failed")
+
+                integration = integrate_commit_into_main(
+                    base_workdir=request.base_workdir,
+                    commit_sha=commit_sha,
+                    task_id=current_task_id,
+                    log_path=self.log_path,
+                    main_branch=request.main_branch,
+                )
+                if not integration.ok and integration.conflict:
+                    merge_prompt_vars = SafeDict(
+                        task_text=current_task_text,
+                        task_id=current_task_id,
+                        backlog=request.backlog_arg,
+                        workspace=request.base_workdir,
+                    )
+                    if not run_merge_expert_phase(
+                        self.worker,
+                        request,
+                        merge_prompt_vars,
+                        current_task_id,
+                        current_tag,
+                        self.log_path,
+                        effective_agent_output_log_path,
+                        timeline_id,
+                        restart_count,
+                    ):
+                        ts_integ.result = "failed"
+                        ts_integ.reason = "merge_expert_phase_failed"
+                        ts_exec.result = "failed"
+                        ts_exec.reason = "merge_expert_phase_failed"
+                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="merge_expert_phase_failed")
+                    integration = integrate_commit_into_main(
+                        base_workdir=request.base_workdir,
+                        commit_sha=commit_sha,
+                        task_id=current_task_id,
+                        log_path=self.log_path,
+                        main_branch=request.main_branch,
+                    )
+                if not integration.ok:
+                    failure_kind = classify_main_integration_error(integration.error)
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "failed to integrate task commit into main",
+                        task_id=current_task_id,
+                        commit_sha=commit_sha,
+                        integration_failure_kind=failure_kind,
+                        error=integration.error[:500],
+                    )
+                    _logger.error(f"❌ Не удалось перенести commit в {request.main_branch}: {integration.error}")
+                    ts_integ.result = "failed"
+                    ts_integ.reason = f"main_integration_failed:{failure_kind}"
+                    ts_exec.result = "failed"
+                    ts_exec.reason = f"main_integration_failed:{failure_kind}"
+                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="main_integration_failed")
+        # Kanban mode uses _board sentinel — card state is the source of truth, skip backlog invariant
+        if base_backlog_path.name != "_board" and not base_backlog_path.is_dir():
+            try:
+                from .task_source import MarkdownTaskSource
+
+                base_done = MarkdownTaskSource(base_backlog_path).is_task_done(current_task_id)
+                runtime_done = False
+                if runtime_backlog_path != base_backlog_path:
+                    runtime_done = MarkdownTaskSource(runtime_backlog_path).is_task_done(current_task_id)
+                if runtime_done and not base_done:
+                    if _should_defer_base_backlog_sync_to_integration(
+                        integrate_to_main=request.integrate_to_main,
+                        base_backlog_path=base_backlog_path,
+                        runtime_backlog_path=runtime_backlog_path,
+                    ):
+                        log_event(
+                            self.log_path,
+                            "ERROR",
+                            "backlog invariant violated after main integration: task marked done only in runtime worktree backlog",
+                            task_id=current_task_id,
+                            base_backlog_path=str(base_backlog_path),
+                            runtime_backlog_path=str(runtime_backlog_path),
+                            integrate_to_main=request.integrate_to_main,
+                        )
+                        debug_log(
+                            "MI2",
+                            "orc_core/task_execution.py:TaskExecutionEngine.execute",
+                            "base backlog was not updated by integrated commit",
+                            {
+                                "task_id": current_task_id,
+                                "base_backlog_path": str(base_backlog_path),
+                                "runtime_backlog_path": str(runtime_backlog_path),
+                            },
+                        )
+                        _logger.error(
+                            "❌ После успешной main integration backlog в base не отмечен как done. "
+                            "Значит, отметка попала не в task commit, а пыталась догнаться позже."
+                        )
+                        ts_exec.result = "failed"
+                        ts_exec.reason = "worktree_not_integrated_to_base"
+                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="worktree_not_integrated_to_base")
+                    synced = _sync_done_task_from_runtime_to_base(
+                        task_id=current_task_id,
+                        base_backlog_path=base_backlog_path,
+                        runtime_backlog_path=runtime_backlog_path,
+                        log_path=self.log_path,
+                    )
+                    if not synced:
+                        # Sync can fail due to race with concurrent cherry-pick
+                        # (conflict markers in base BACKLOG.md). This is not fatal:
+                        # the integration step will cherry-pick the worktree commit
+                        # (which includes the done mark) into base anyway.
+                        log_event(
+                            self.log_path,
+                            "WARN",
+                            "backlog sync to base failed (likely race with concurrent integration); "
+                            "integration step will reconcile",
+                            task_id=current_task_id,
+                            base_backlog_path=str(base_backlog_path),
+                            runtime_backlog_path=str(runtime_backlog_path),
+                        )
+            except Exception as exc:
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "failed to validate backlog invariant after completion",
+                    task_id=current_task_id,
+                    error=str(exc),
+                    base_backlog_path=str(base_backlog_path),
+                    runtime_backlog_path=str(runtime_backlog_path),
+                )
+        # Clean up task state files (previously done by stop hook)
+        try:
+            request.task_path.unlink(missing_ok=True)
+            delete_runtime_state_file(request.task_path, self.log_path, reason="task_completed")
+        except OSError:
+            pass
+        return TaskExecutionResult(status=TaskExecutionStatus.COMPLETED, committed=commit_completed)
+
+    def _complete_stage_impl(
+        self,
+        ctx: _ExecutionContext,
+        *,
+        current_task_id: str,
+        current_task_text: str,
+        current_tag: str,
+        current_monitor,
+        current_stage_id: str,
+        current_stage_index: int,
+        current_stage_is_final: bool,
+        current_attempt_number: int,
+        current_ts_attempt,
+        completion_reason: str = "",
+    ) -> tuple[Optional[TaskExecutionResult], Optional[int], bool]:
+        enforce_stage_artifacts = ctx.enforce_stage_artifacts
+        stage_specs = ctx.stage_specs
+        artifact_bundle = ctx.artifact_bundle
+        implementation_stage_index = ctx.implementation_stage_index
+        ts_exec = ctx.ts_exec
+
+        if enforce_stage_artifacts:
+            artifact_ok, artifact_reason, artifact_path = validate_stage_artifact_output(
+                stage_id=current_stage_id,
+                bundle=artifact_bundle,
+            )
+            if not artifact_ok:
+                failure_reason = f"stage_artifact_{current_stage_id}_{artifact_reason}"
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "sdlc stage artifact validation failed",
+                    task_id=current_task_id,
+                    stage_id=current_stage_id,
+                    stage_index=current_stage_index + 1,
+                    stage_total=len(stage_specs),
+                    artifact_path=str(artifact_path),
+                    artifact_reason=artifact_reason,
+                )
+                _logger.error(
+                    "❌ SDLC stage завершился без валидного артефакта: "
+                    f"{current_stage_id} -> {artifact_path}"
+                )
+                current_ts_attempt.result = "failed"
+                current_ts_attempt.reason = failure_reason
+                ts_exec.result = "failed"
+                ts_exec.reason = failure_reason
+                return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
+        if enforce_stage_artifacts and current_stage_id in {"review", "testing"}:
+            status_ok, stage_status, stage_status_reason, stage_status_path = parse_stage_artifact_status(
+                stage_id=current_stage_id,
+                bundle=artifact_bundle,
+            )
+            if not status_ok:
+                failure_reason = f"stage_artifact_{current_stage_id}_{stage_status_reason}"
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "sdlc stage status parsing failed",
+                    task_id=current_task_id,
+                    stage_id=current_stage_id,
+                    stage_index=current_stage_index + 1,
+                    stage_total=len(stage_specs),
+                    artifact_path=str(stage_status_path),
+                    artifact_reason=stage_status_reason,
+                    artifact_status=stage_status,
+                )
+                _logger.error(
+                    "❌ SDLC stage артефакт не содержит валидный `status:` заголовок: "
+                    f"{current_stage_id} -> {stage_status_path}"
+                )
+                current_ts_attempt.result = "failed"
+                current_ts_attempt.reason = failure_reason
+                ts_exec.result = "failed"
+                ts_exec.reason = failure_reason
+                return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
+        current_ts_attempt.result = "completed"
+        if completion_reason:
+            current_ts_attempt.reason = completion_reason
+        if current_stage_is_final:
+            return None, None, True
+
+        next_stage_index = current_stage_index + 1
+        if enforce_stage_artifacts and current_stage_id == "review":
+            status_ok, stage_status, _stage_status_reason, _stage_status_path = parse_stage_artifact_status(
+                stage_id=current_stage_id,
+                bundle=artifact_bundle,
+            )
+            if status_ok and stage_status == "needs_changes":
+                ctx.feedback_iteration_count += 1
+                if ctx.feedback_iteration_count > SDLC_FEEDBACK_MAX_ITERATIONS:
+                    failure_reason = "sdlc_feedback_limit_exceeded"
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "sdlc feedback iteration limit exceeded",
+                        task_id=current_task_id,
+                        stage_id=current_stage_id,
+                        stage_index=current_stage_index + 1,
+                        stage_total=len(stage_specs),
+                        feedback_iteration_count=ctx.feedback_iteration_count,
+                        max_feedback_iterations=SDLC_FEEDBACK_MAX_ITERATIONS,
+                    )
+                    _logger.error("❌ SDLC feedback loop превысил лимит итераций.")
+                    ts_exec.result = "failed"
+                    ts_exec.reason = failure_reason
+                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
+                if implementation_stage_index is None:
+                    failure_reason = "sdlc_feedback_missing_implementation_stage"
+                    log_event(
+                        self.log_path,
+                        "ERROR",
+                        "sdlc feedback loop requested but implementation stage missing",
+                        task_id=current_task_id,
+                        stage_id=current_stage_id,
+                        stage_index=current_stage_index + 1,
+                        stage_total=len(stage_specs),
+                    )
+                    _logger.error("❌ SDLC feedback loop не может вернуться: отсутствует stage `implementation`.")
+                    ts_exec.result = "failed"
+                    ts_exec.reason = failure_reason
+                    return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
+                next_stage_index = implementation_stage_index
+                log_event(
+                    self.log_path,
+                    "INFO",
+                    "sdlc feedback loop requested by review verdict",
+                    task_id=current_task_id,
+                    stage_id=current_stage_id,
+                    stage_index=current_stage_index + 1,
+                    stage_total=len(stage_specs),
+                    next_stage_id=stage_specs[next_stage_index].stage_id,
+                    next_stage_index=next_stage_index + 1,
+                    feedback_iteration_count=ctx.feedback_iteration_count,
+                    max_feedback_iterations=SDLC_FEEDBACK_MAX_ITERATIONS,
+                )
+        if enforce_stage_artifacts and current_stage_id == "testing":
+            status_ok, stage_status, _stage_status_reason, _stage_status_path = parse_stage_artifact_status(
+                stage_id=current_stage_id,
+                bundle=artifact_bundle,
+            )
+            if status_ok and stage_status == "fail":
+                failure_reason = "testing_failed"
+                log_event(
+                    self.log_path,
+                    "ERROR",
+                    "testing stage reported failure verdict",
+                    task_id=current_task_id,
+                    stage_id=current_stage_id,
+                    stage_index=current_stage_index + 1,
+                    stage_total=len(stage_specs),
+                )
+                _logger.error("❌ Testing stage завершился с verdict `status: fail`.")
+                ts_exec.result = "failed"
+                ts_exec.reason = failure_reason
+                return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason=failure_reason), None, False
+        log_event(
+            self.log_path,
+            "INFO",
+            "sdlc stage completed",
+            task_id=current_task_id,
+            stage_id=current_stage_id,
+            stage_index=current_stage_index + 1,
+            stage_total=len(stage_specs),
+            next_stage_index=(next_stage_index + 1) if next_stage_index is not None else None,
+            completion_reason=completion_reason or "monitor_completed",
+        )
+        return None, next_stage_index, False
 
     async def execute_async(self, request: TaskExecutionRequest) -> TaskExecutionResult:
         return await asyncio.to_thread(self.execute, request)
