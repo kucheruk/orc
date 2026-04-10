@@ -12,27 +12,15 @@ from .state_paths import role_settings_path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = BASE_DIR / "prompts"
-DEFAULT_PROMPT_PATH = PROMPTS_DIR / "default.txt"
-CONTINUE_PROMPT_PATH = PROMPTS_DIR / "continue.txt"
 COMMIT_PROMPT_PATH = PROMPTS_DIR / "commit.txt"
 MERGE_EXPERT_PROMPT_PATH = PROMPTS_DIR / "merge_expert.txt"
 
-ROLE_ANALYSIS_PLANNING = "analysis_planning"
-ROLE_DESIGN = "design"
-ROLE_SUPERVISOR = "supervisor"
 ROLE_CODER = "coder"
-ROLE_CODE_REVIEW = "code_review"
-ROLE_TESTER = "tester"
 ROLE_HANDOFF = "handoff"
 ROLE_MERGE_EXPERT = "merge_expert"
 
 ALL_ROLE_IDS = (
-    ROLE_ANALYSIS_PLANNING,
-    ROLE_DESIGN,
-    ROLE_SUPERVISOR,
     ROLE_CODER,
-    ROLE_CODE_REVIEW,
-    ROLE_TESTER,
     ROLE_HANDOFF,
     ROLE_MERGE_EXPERT,
 )
@@ -66,50 +54,12 @@ class RoleResolvedConfig:
 class RoleProfileRegistry:
     def __init__(self) -> None:
         self._definitions: dict[str, RoleDefinition] = {
-            ROLE_ANALYSIS_PLANNING: RoleDefinition(
-                role_id=ROLE_ANALYSIS_PLANNING,
-                title="Исследование и планирование",
-                default_enabled=False,
-                can_toggle_enabled=False,
-                default_prompt_text="(legacy role — not used in kanban mode)",
-            ),
-            ROLE_SUPERVISOR: RoleDefinition(
-                role_id=ROLE_SUPERVISOR,
-                title="Супервизор",
-                default_enabled=False,
-                can_toggle_enabled=False,
-                default_prompt_text=(
-                    "Роль: супервизор.\n"
-                    "Разбери backlog, предложи порядок выполнения и параллелизацию без конфликтов."
-                ),
-            ),
-            ROLE_DESIGN: RoleDefinition(
-                role_id=ROLE_DESIGN,
-                title="Дизайн решения",
-                default_enabled=False,
-                can_toggle_enabled=False,
-                default_prompt_text="(legacy role — not used in kanban mode)",
-            ),
             ROLE_CODER: RoleDefinition(
                 role_id=ROLE_CODER,
                 title="Кодер",
                 default_enabled=True,
                 can_toggle_enabled=True,
-                default_prompt_path=DEFAULT_PROMPT_PATH,
-            ),
-            ROLE_CODE_REVIEW: RoleDefinition(
-                role_id=ROLE_CODE_REVIEW,
-                title="Код-ревью",
-                default_enabled=False,
-                can_toggle_enabled=False,
-                default_prompt_text="(legacy role — not used in kanban mode)",
-            ),
-            ROLE_TESTER: RoleDefinition(
-                role_id=ROLE_TESTER,
-                title="Тестировщик",
-                default_enabled=False,
-                can_toggle_enabled=False,
-                default_prompt_text="(legacy role — not used in kanban mode)",
+                default_prompt_text="(kanban mode — model config only)",
             ),
             ROLE_HANDOFF: RoleDefinition(
                 role_id=ROLE_HANDOFF,
@@ -235,11 +185,6 @@ class RoleProfileRegistry:
             model=model,
             prompt=prompt,
         )
-
-    def resolve_continue_prompt(self, cli_continue_prompt_path: str = "") -> str:
-        path_value = str(cli_continue_prompt_path).strip()
-        path = Path(path_value) if path_value else CONTINUE_PROMPT_PATH
-        return self.load_prompt(path)
 
     def _require_definition(self, role_id: str) -> RoleDefinition:
         if role_id not in self._definitions:

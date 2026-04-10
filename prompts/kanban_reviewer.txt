@@ -10,6 +10,8 @@ File: `{card_path}`
 {card_content}
 ```
 
+{worktree_context}
+
 ## Reference Documents
 - Technical Specification: `TECHSPEC.md`
 - Agent Rules: `AGENTS.md`
@@ -76,13 +78,7 @@ Advisory notes (non-blocking):
 - Do NOT require refactoring of working code that meets the DoD.
 - If the coder addressed previous feedback items and marked them [x], verify the fix exists in code before re-raising.
 
-## Feedback Loop Awareness
-
-Check `loop_count` in the card frontmatter. If loop_count > 0, previous rounds of feedback exist in section 4. Read them carefully:
-- **Previous feedback may be outdated.** Always verify current state yourself — run `ls`, `find`, `cat`. Never repeat old claims without re-checking.
-- If the coder already addressed an item and it's marked [x], verify in code and move on.
-- If you're raising the same issue again, explain specifically what's still wrong — don't just re-state it.
-- If loop_count >= 2, be extra critical of your own feedback: is this REALLY a blocker, or are you and the coder going in circles over something minor?
+{feedback_loop}
 
 ## Output Contract
 Update the card file with your review feedback or approval.

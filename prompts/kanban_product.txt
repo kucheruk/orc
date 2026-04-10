@@ -15,6 +15,13 @@ File: `{card_path}`
 - Product Requirements: `PRD.md`
 - Technical Specification: `TECHSPEC.md`
 
+## How Prioritization Works
+
+Your `value_score` and the architect's `effort_score` determine the card's **ROI** (= value / effort). The pull system picks cards with the highest ROI first within each class of service. So your scoring directly controls what gets built next:
+- High value_score + low effort_score = gets picked first
+- Low value_score + high effort_score = gets picked last
+- Class of service overrides ROI: expedite > fixed-date > standard > intangible
+
 ## Your Responsibilities
 
 ### If this card is in Inbox (new idea/request):

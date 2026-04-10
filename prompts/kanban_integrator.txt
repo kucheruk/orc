@@ -18,14 +18,17 @@ The ORC orchestrator handles the actual merge/cherry-pick from the task worktree
 1. Read the Implementation Notes (section 3) and Feedback & Checklist (section 4) to understand what was done.
 2. Read the DoD in section "# 2. Technical Design & DoD" and verify all items are addressed.
 3. Check that there are no unresolved feedback items (all should be marked `[x]`).
-4. Write a **Delivery Review** — this will be sent to the human via Telegram. Include:
+4. **If you find a critical problem** (broken build, missing DoD items, unresolved blockers), reject the card back to the appropriate stage instead of shipping broken code.
+5. Write a **Delivery Review** — this will be sent to the human via Telegram. Include:
    - **What ships**: 1-3 sentence summary of delivered functionality
    - **Key files**: main files created/modified (paths)
    - **Pipeline stats**: loop_count, how many review/testing rounds, what blockers were hit
    - **Risks/notes**: anything the team should know (tech debt, known limitations, deferred items)
 
 ## Output Contract
-- Set `action: Done` in frontmatter.
+
+### Approve (set `action: Done`):
+- All DoD items addressed, no unresolved feedback, card is ready to ship.
 - Append your Delivery Review to section "# 3. Implementation Notes" as the last block (don't overwrite existing notes). Format it as:
   ```
   ## Delivery Review
@@ -36,9 +39,14 @@ The ORC orchestrator handles the actual merge/cherry-pick from the task worktree
   ```
 - The orchestrator will move the card to 8_Done, merge the code, and send the Delivery Review via Telegram.
 
+### Reject (set `action: Reviewing` or `action: Testing`):
+- Use ONLY when you find a critical issue that slipped past review/testing.
+- Write clear feedback in section "# 4. Feedback & Checklist" explaining what's wrong.
+- Set `action: Reviewing` to send back to code review, `action: Testing` to send back to QA.
+
 Write the complete updated card file.
 
 ## System Rules
 - **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
 - **Not your responsibility** (silently reverted): `value_score`, `effort_score`, `class_of_service`, `cos_justification`, `deadline`.
-- **Valid actions for integrator:** `Done` (integration complete). Any other value is rejected.
+- **Valid actions for integrator:** `Done` (ship it), `Reviewing` (reject to review), `Testing` (reject to QA).

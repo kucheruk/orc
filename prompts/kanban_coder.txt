@@ -10,6 +10,8 @@ File: `{card_path}`
 {card_content}
 ```
 
+{worktree_context}
+
 ## Reference Documents
 - Technical Specification: `TECHSPEC.md`
 - Agent Rules: `AGENTS.md`

@@ -27,6 +27,28 @@ _PROMPTS_DIR = _BASE_DIR / "prompts"
 ROLE_TEAMLEAD = "teamlead"
 ROLE_TEAMLEAD_TRIAGE = "teamlead_triage"
 
+# ── Shared prompt blocks (DRY) ────────────────────────────────────
+
+_WORKTREE_CONTEXT = (
+    "## Worktree Isolation\n"
+    "You are working in an **isolated git worktree**, not the main repository. "
+    "Your changes will be merged to main automatically at the Handoff stage. "
+    "Do NOT run `git push` or try to merge to main yourself."
+)
+
+_FEEDBACK_LOOP_BLOCK = (
+    "## Feedback Loop Awareness\n\n"
+    "Check `loop_count` in the card frontmatter. If > 0:\n"
+    "- Read previous feedback rounds in section 4.\n"
+    "- **Previous feedback may be outdated.** Always verify current state yourself "
+    "— run `ls`, `find`, `cat`. Never repeat old claims without re-checking.\n"
+    "- If the coder already addressed an item and it's marked [x], verify in code and move on.\n"
+    "- If you're raising the same issue again, explain specifically what's still wrong "
+    "— don't just re-state it.\n"
+    "- If loop_count >= 2, be extra critical of your own feedback: is this REALLY a blocker, "
+    "or are you and the coder going in circles over something minor?"
+)
+
 _PROMPT_FILES: dict[str, str] = {
     ROLE_PRODUCT: "kanban_product.txt",
     ROLE_ARCHITECT: "kanban_architect.txt",
@@ -64,6 +86,8 @@ def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard") -> str:
         card_stage=card.stage,
         card_action=card.action,
         loop_count=str(card.loop_count),
+        worktree_context=_WORKTREE_CONTEXT,
+        feedback_loop=_FEEDBACK_LOOP_BLOCK,
     ))
 
 

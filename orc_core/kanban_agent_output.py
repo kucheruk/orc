@@ -43,7 +43,7 @@ _VALID_TRANSITIONS: dict[str, dict[str, set[str]]] = {
         "Testing": {Action.CODING, Action.INTEGRATING},
     },
     "integrator": {
-        "Integrating": {Action.DONE},
+        "Integrating": {Action.DONE, Action.REVIEWING, Action.TESTING},
     },
     "teamlead": {
         "Arbitration": {Action.CODING, Action.REVIEWING, Action.TESTING, Action.BLOCKED, Action.PRODUCT, Action.ARCHITECT},
@@ -64,6 +64,9 @@ _FORWARD_MOVES: dict[tuple[str, str], str] = {
     ("5_Review", Action.TESTING): "6_Testing",       # reviewer approves for testing
     ("6_Testing", Action.INTEGRATING): "7_Handoff",
     ("7_Handoff", Action.DONE): "8_Done",
+    # Integrator reject paths
+    ("7_Handoff", Action.REVIEWING): "5_Review",
+    ("7_Handoff", Action.TESTING): "6_Testing",
 }
 
 
@@ -145,7 +148,9 @@ def process_agent_result(
             _logger.info("Cannot move %s to %s: unmet dependencies, staying in %s",
                           updated.id, new_stage, card.stage)
         elif new_stage and board.has_wip_room(new_stage):
-            board.move_card(updated, new_stage, reason=f"{role}: {old_action} -> {new_action}")
+            is_backward = STAGE_ORDER.get(new_stage, 0) < STAGE_ORDER.get(card.stage, 0)
+            board.move_card(updated, new_stage, allow_backward=is_backward,
+                            reason=f"{role}: {old_action} -> {new_action}")
             # Ensure action is Done when card reaches 8_Done
             if new_stage == "8_Done" and updated.action != Action.DONE:
                 updated.action = Action.DONE

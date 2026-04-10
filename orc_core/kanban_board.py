@@ -31,7 +31,7 @@ class KanbanBoard:
 
     def __init__(self, tasks_dir: Path) -> None:
         self._tasks_dir = tasks_dir
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._cards: list[KanbanCard] = []
         self._wip_limits: dict[str, int] = dict(DEFAULT_WIP_LIMITS)
         self._card_locks: dict[str, threading.Lock] = {}
@@ -55,6 +55,7 @@ class KanbanBoard:
                 self._read_index(stage_dir, stage)
                 self._read_cards(stage_dir, stage)
             self._recompute_roi()
+            self._apply_deferred_moves()
             self._last_stage_mtimes = self._scan_stage_mtimes()
 
     def _is_fresh(self) -> bool:
@@ -179,6 +180,23 @@ class KanbanBoard:
             return [c for c in self._cards
                     if c.action == "Blocked" and not c.assigned_agent
                     and c.stage != "8_Done"]
+
+    def _apply_deferred_moves(self) -> None:
+        """Move cards whose action doesn't match their stage (stuck after restart)."""
+        _EXPECTED_STAGE = {
+            ("6_Testing", "Integrating"): "7_Handoff",
+            ("7_Handoff", "Done"): "8_Done",
+            ("4_Coding", "Reviewing"): "5_Review",
+            ("5_Review", "Testing"): "6_Testing",
+        }
+        for card in list(self._cards):
+            if card.assigned_agent:
+                continue
+            target = _EXPECTED_STAGE.get((card.stage, card.action))
+            if target and self.has_wip_room(target):
+                _logger.info("Deferred move: %s %s → %s (action=%s)",
+                             card.id, card.stage, target, card.action)
+                self.move_card(card, target, reason=f"deferred: {card.action}")
 
     def detect_wip_deadlock(self) -> str:
         """Detect WIP deadlock conditions. Returns diagnostic string or '' if no deadlock.

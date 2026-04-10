@@ -7,14 +7,9 @@ from pathlib import Path
 
 from orc_core.model_selector import DEFAULT_MODEL
 from orc_core.role_config import (
-    ROLE_ANALYSIS_PLANNING,
-    ROLE_CODE_REVIEW,
     ROLE_CODER,
-    ROLE_DESIGN,
     ROLE_HANDOFF,
     ROLE_MERGE_EXPERT,
-    ROLE_SUPERVISOR,
-    ROLE_TESTER,
     RoleProfileRegistry,
 )
 
@@ -35,64 +30,19 @@ class RoleProfileRegistryTest(unittest.TestCase):
         self.assertEqual(resolved.model, "sonnet-4.5")
         self.assertEqual(resolved.prompt, "custom coder prompt")
 
-    def test_non_toggle_role_ignores_enabled_override(self) -> None:
+    def test_role_defaults_match_expected_enabled_and_toggleability(self) -> None:
         registry = RoleProfileRegistry()
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry.update_override(tmpdir, ROLE_SUPERVISOR, enabled=True, model="gpt-5.3-codex")
-            resolved = registry.resolve_role(tmpdir, ROLE_SUPERVISOR)
-
-        self.assertFalse(resolved.enabled)
-        self.assertEqual(resolved.model, "gpt-5.3-codex")
-
-    def test_sdlc_defaults_match_expected_enabled_and_toggleability(self) -> None:
-        registry = RoleProfileRegistry()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            planning = registry.resolve_role(tmpdir, ROLE_ANALYSIS_PLANNING)
-            design = registry.resolve_role(tmpdir, ROLE_DESIGN)
-            review = registry.resolve_role(tmpdir, ROLE_CODE_REVIEW)
-            testing = registry.resolve_role(tmpdir, ROLE_TESTER)
             handoff = registry.resolve_role(tmpdir, ROLE_HANDOFF)
             coder = registry.resolve_role(tmpdir, ROLE_CODER)
+            merge_expert = registry.resolve_role(tmpdir, ROLE_MERGE_EXPERT)
 
-        self.assertFalse(planning.enabled)
-        self.assertFalse(planning.can_toggle_enabled)  # legacy role
-        self.assertFalse(design.enabled)
-        self.assertFalse(design.can_toggle_enabled)  # legacy role
-        self.assertFalse(review.enabled)
-        self.assertFalse(review.can_toggle_enabled)  # legacy role
-        self.assertFalse(testing.enabled)
-        self.assertFalse(testing.can_toggle_enabled)  # legacy role
         self.assertTrue(coder.enabled)
         self.assertTrue(coder.can_toggle_enabled)
         self.assertTrue(handoff.enabled)
         self.assertFalse(handoff.can_toggle_enabled)
-
-    def test_update_override_roundtrip_for_planning_and_review(self) -> None:
-        registry = RoleProfileRegistry()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            registry.update_override(
-                tmpdir,
-                ROLE_ANALYSIS_PLANNING,
-                enabled=False,
-                model="sonnet-4.5",
-                prompt="custom planning prompt",
-            )
-            registry.update_override(
-                tmpdir,
-                ROLE_CODE_REVIEW,
-                enabled=False,
-                model="o3",
-                prompt="custom review prompt",
-            )
-            planning = registry.resolve_role(tmpdir, ROLE_ANALYSIS_PLANNING)
-            review = registry.resolve_role(tmpdir, ROLE_CODE_REVIEW)
-
-        self.assertFalse(planning.enabled)
-        self.assertEqual(planning.model, "sonnet-4.5")
-        self.assertEqual(planning.prompt, "custom planning prompt")
-        self.assertFalse(review.enabled)
-        self.assertEqual(review.model, "o3")
-        self.assertEqual(review.prompt, "custom review prompt")
+        self.assertFalse(merge_expert.enabled)
+        self.assertFalse(merge_expert.can_toggle_enabled)
 
     def test_resolve_role_priority_cli_override_then_saved_then_default(self) -> None:
         registry = RoleProfileRegistry()
@@ -115,7 +65,8 @@ class RoleProfileRegistryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             resolved = registry.resolve_role(tmpdir, ROLE_CODER)
         self.assertEqual(resolved.model, DEFAULT_MODEL)
-        self.assertIn("Роль: эксперт-программист", resolved.prompt)
+        # ROLE_CODER is config-only in kanban mode — no prompt file
+        self.assertIn("kanban mode", resolved.prompt)
 
     def test_resolve_merge_expert_role_uses_prompt_file_by_default(self) -> None:
         registry = RoleProfileRegistry()
