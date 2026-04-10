@@ -138,9 +138,8 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
             self.assertEqual(state["workspace_root"], str(base_dir))
             self.assertEqual(int(state.get("restart_count", -1)), 2)
 
-        self.assertEqual(send_telegram_message_mock.call_count, 1)
-        start_message, _ = send_telegram_message_mock.call_args[0]
-        self.assertIn("Старт задачи", start_message)
+        # Telegram notifications removed — kanban session manager handles them
+        self.assertEqual(send_telegram_message_mock.call_count, 0)
 
     @patch("orc_core.task_execution._cleanup_monitor_processes")
     @patch("orc_core.task_execution.wait_for_completion", return_value="stalled")
