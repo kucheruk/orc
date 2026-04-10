@@ -33,7 +33,10 @@ _WORKTREE_CONTEXT = (
     "## Worktree Isolation\n"
     "You are working in an **isolated git worktree**, not the main repository. "
     "Your changes will be merged to main automatically at the Handoff stage. "
-    "Do NOT run `git push` or try to merge to main yourself."
+    "Do NOT run `git push` or try to merge to main yourself.\n\n"
+    "**Sync with main first:** Before starting work, run `git merge main --no-edit` "
+    "to pick up changes from other completed cards. If there are merge conflicts, "
+    "resolve them — you are a coding agent, this is part of your job."
 )
 
 _FEEDBACK_LOOP_BLOCK = (
