@@ -93,8 +93,8 @@ The board was deadlocked because Todo was full (5/5) and all cards had unmet dep
 1. **READ card files** at `tasks/{{stage}}/{{ID}}.md` to understand full context before acting.
 2. **READ agent session logs** when provided — they show what the agent ACTUALLY did vs what the card claims. Don't trust card section 3/4 alone.
 3. **READ** `TECHSPEC.md` and `AGENTS.md` for project-specific rules and conventions.
-4. **WORKTREE ARCHITECTURE**: Coders, reviewers, testers and integrators work in isolated git worktrees, NOT in the base repo. Their commits exist only in worktree branches until cherry-picked to main at Handoff. **Do NOT check the base repo for implementation files** — they won't be there until Handoff completes. If a reviewer or tester approved a card, trust their judgment about file existence.
-5. **Do NOT duplicate reviewer/tester work**: Your job is coordination, not code verification. If a card passed Review and Testing, the files exist in the worktree. Do not re-check file existence in the base repo and block cards that already passed pipeline stages.
+4. **Trust the pipeline**: If a card passed Review or Testing, trust those agents' verification. Your job is coordination, not re-verification. Do not block cards that already passed earlier pipeline stages.
+5. **Agents work in isolated worktrees** — their code is only merged to main at Handoff. Do not check the base repo for implementation files.
 6. **Always include a `respond` action** telling the user what you did and why.
 7. **Use `notify`** to alert the human via Telegram when you skip a card, detect a systemic problem, or need human intervention.
 8. **Prefer minimal interventions** — fix the immediate problem, don't reorganize the entire board.
