@@ -63,7 +63,6 @@ class KanbanBoard:
                 self._read_index(stage_dir, stage)
                 self._read_cards(stage_dir, stage)
             self._recompute_roi()
-            self._apply_deferred_moves()
             self._last_stage_mtimes = self._scan_stage_mtimes()
 
     def _is_fresh(self) -> bool:
@@ -196,6 +195,12 @@ class KanbanBoard:
             (STAGE_HANDOFF, "Done"): STAGE_DONE,
             (STAGE_CODING, "Reviewing"): STAGE_REVIEW,
             (STAGE_REVIEW, "Testing"): STAGE_TESTING,
+            # Integrator reject paths
+            (STAGE_HANDOFF, "Reviewing"): STAGE_REVIEW,
+            (STAGE_HANDOFF, "Testing"): STAGE_TESTING,
+            # Tester/reviewer bounce-back
+            (STAGE_TESTING, "Coding"): STAGE_CODING,
+            (STAGE_REVIEW, "Coding"): STAGE_CODING,
         }
         for card in list(self._cards):
             if card.assigned_agent:
@@ -204,7 +209,9 @@ class KanbanBoard:
             if target and self.has_wip_room(target):
                 _logger.info("Deferred move: %s %s → %s (action=%s)",
                              card.id, card.stage, target, card.action)
-                self.move_card(card, target, reason=f"deferred: {card.action}")
+                is_backward = STAGE_ORDER.get(target, 0) < STAGE_ORDER.get(card.stage, 0)
+                self.move_card(card, target, allow_backward=is_backward,
+                               reason=f"deferred: {card.action}")
 
     def detect_wip_deadlock(self) -> str:
         """Detect WIP deadlock conditions. Returns diagnostic string or '' if no deadlock.

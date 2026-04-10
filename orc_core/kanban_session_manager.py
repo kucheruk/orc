@@ -518,6 +518,7 @@ class KanbanSessionManager:
         try:
             while self._should_continue(slot):
                 self._distributor.refresh()
+                self._distributor.board._apply_deferred_moves()
                 if incident is not None:
                     # ── Incident mode: process state machine ──
                     incident = self._process_incident(slot, incident)
