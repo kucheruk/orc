@@ -40,6 +40,7 @@ You MUST update the card file with:
 Write the complete updated card file.
 
 ## System Rules
-- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`, `value_score`, `class_of_service`. Changes to these are silently reverted by the system.
+- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
+- **Not your responsibility** (silently reverted): `value_score`, `class_of_service`, `cos_justification`, `deadline` — these are set by the Product Manager.
 - **Valid actions for architect:** `Product` (send back for prioritization). Any other value is rejected.
 - **WIP limits:** If Todo is full, the card stays in Estimate until space opens up.

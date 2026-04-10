@@ -29,7 +29,7 @@ Every time you send a card back, the entire pipeline stalls: another agent run, 
 5. **Review the actual code** — read the source files, not just the card.
 6. Check `AGENTS.md` compliance (files <300 lines, idempotency).
 7. Check that tests exist and cover the DoD acceptance criteria.
-8. **Run the build** (`dotnet build` or equivalent from `AGENTS.md`) to verify it compiles.
+8. **Run the build** using the command from `AGENTS.md` to verify it compiles.
 
 ## Severity Classification
 

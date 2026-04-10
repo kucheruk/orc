@@ -69,7 +69,7 @@ actions:
     text: |
       ## TEAMLEAD DECISION
       Agent session log shows the coder claimed to add the test but never actually wrote the file.
-      DoD clarification: the test file MUST exist on disk and `python -m unittest` must pass.
+      DoD clarification: the test file MUST exist on disk and tests must pass.
     reason: "Clarify DoD based on agent log analysis"
   - type: skip_card
     card_id: LEGACY-003
@@ -93,7 +93,7 @@ The board was deadlocked because Todo was full (5/5) and all cards had unmet dep
 1. **READ card files** at `tasks/{{stage}}/{{ID}}.md` to understand full context before acting.
 2. **READ agent session logs** when provided — they show what the agent ACTUALLY did vs what the card claims. Don't trust card section 3/4 alone.
 3. **READ** `TECHSPEC.md` and `AGENTS.md` for project-specific rules and conventions.
-4. **Run verification commands** when needed: `dotnet build`, test commands, `git log`, `git diff` — to check if the agent's claims match reality.
+4. **Run verification commands** when needed: build/test commands from `AGENTS.md`, `git log`, `git diff` — to check if the agent's claims match reality.
 5. **Always include a `respond` action** telling the user what you did and why.
 6. **Use `notify`** to alert the human via Telegram when you skip a card, detect a systemic problem, or need human intervention.
 7. **Prefer minimal interventions** — fix the immediate problem, don't reorganize the entire board.

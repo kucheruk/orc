@@ -24,7 +24,7 @@ Your job is quality assurance, not scope expansion. If the DoD says "app starts 
 
 1. Read the DoD in section "# 2. Technical Design & DoD" — this defines what "done" means.
 2. Read Implementation Notes in section "# 3. Implementation Notes".
-3. **Run existing tests**: the command specified in `AGENTS.md` or `uv run python -m unittest`
+3. **Run the build and tests**: read `AGENTS.md` for the project's build and test commands. Run them.
 4. **Verify each DoD checklist item** is actually met by the implementation:
    - If DoD says "X exists" — check that X exists
    - If DoD says "tests pass" — run them and confirm

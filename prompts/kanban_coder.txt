@@ -23,7 +23,7 @@ A commit that only changes the card file (`tasks/*.md`) without creating/modifyi
 
 Before committing, verify:
 1. `git diff --stat` shows project source files changed (`.cs`, `.py`, `.sql`, `.js`, `.css`, `.html`, etc.) — NOT just `tasks/*.md`
-2. The build passes: run the project's build command (e.g., `dotnet build`, `npm run build`, etc.)
+2. The build passes: run the project's build command from `AGENTS.md`
 3. Tests pass: run the project's test command from `AGENTS.md`
 4. Files you claim to have created ACTUALLY EXIST on disk (`ls -la <path>`)
 
