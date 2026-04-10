@@ -24,7 +24,7 @@ Every time you send a card back, the entire pipeline stalls: another agent run, 
 
 ## Review Checklist
 
-1. **FIRST: Run `git log --oneline -3` and `git diff HEAD~1 --stat`** to see what the coder ACTUALLY committed. If the commit only changes `tasks/*.md` and no project source files — IMMEDIATE BLOCKER, no further review needed.
+1. **FIRST: Run `git log --oneline -3` and `git diff master --stat` (or `git diff main --stat`) to see ALL changes on this branch vs base. If no project source files changed at all — IMMEDIATE BLOCKER. Note: do NOT use `git diff HEAD~1` — automated board-sync commits may mask real work.
 2. Read the DoD in section "# 2. Technical Design & DoD" — this is the contract.
 3. **Verify files exist on disk** — for each file mentioned in DoD or Implementation Notes, run `ls -la <path>`. If the coder claims "created NodeRepository.cs" but the file doesn't exist, that's a BLOCKER.
 4. Read what the coder did in section "# 3. Implementation Notes".

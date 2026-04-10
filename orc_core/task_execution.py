@@ -129,6 +129,25 @@ class TaskExecutionResult:
     committed: bool = False
 
 
+@dataclass
+class _ExecutionContext:
+    """Mutable shared state passed between extracted methods of _execute_inner."""
+    request: TaskExecutionRequest
+    task_id: str
+    task_text: str
+    timeline_id: str
+    ts_exec: object  # timeline step context manager
+    effective_agent_output_log_path: str
+    base_backlog_path: Path
+    runtime_backlog_path: Path
+    restart_count: int = 0
+    stage_specs: list = field(default_factory=list)
+    artifact_bundle: object = None
+    enforce_stage_artifacts: bool = False
+    implementation_stage_index: Optional[int] = None
+    feedback_iteration_count: int = 0
+
+
 class TaskWorker(Protocol):
     def launch(
         self,
@@ -666,6 +685,22 @@ def run_merge_expert_phase(
         prompt_vars=prompt_vars, task_id=task_id, tag=tag, log_path=log_path,
         agent_output_log_path=agent_output_log_path, timeline_id=timeline_id, attempt=attempt,
     )
+
+
+def _should_retry_after_missing_stage_artifact(
+    *,
+    stage_failure: TaskExecutionResult,
+    monitor_result: str,
+    current_stage_id: str,
+    retry_budget_left: int,
+) -> bool:
+    if retry_budget_left <= 0:
+        return False
+    if monitor_result != TaskCompletionStatus.PROCESS_EXITED:
+        return False
+    if stage_failure.status != TaskExecutionStatus.FAILED:
+        return False
+    return stage_failure.reason.startswith(f"stage_artifact_{current_stage_id}_")
 
 
 class TaskExecutionEngine:
@@ -1315,21 +1350,6 @@ class TaskExecutionEngine:
                 completion_reason=completion_reason or "monitor_completed",
             )
             return None, next_stage_index, False
-
-        def _should_retry_after_missing_stage_artifact(
-            *,
-            stage_failure: TaskExecutionResult,
-            monitor_result: str,
-            current_stage_id: str,
-            retry_budget_left: int,
-        ) -> bool:
-            if retry_budget_left <= 0:
-                return False
-            if monitor_result != TaskCompletionStatus.PROCESS_EXITED:
-                return False
-            if stage_failure.status != TaskExecutionStatus.FAILED:
-                return False
-            return stage_failure.reason.startswith(f"stage_artifact_{current_stage_id}_")
 
         while stage_index < len(stage_specs):
             stage_spec = stage_specs[stage_index]
