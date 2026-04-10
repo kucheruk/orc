@@ -13,16 +13,33 @@ File: `{card_path}`
 ## Reference Documents
 - Technical Specification: `TECHSPEC.md`
 - Agent Rules: `AGENTS.md`
+- Boot sequence: `BOOT.md` → `WAL.md` → relevant `PLAN.md` section
+
+## Critical Rules
+
+**YOUR JOB IS TO WRITE PROJECT CODE, NOT JUST UPDATE THE CARD FILE.**
+
+A commit that only changes the card file (`tasks/*.md`) without creating/modifying project source files is a FAILED delivery. The reviewer WILL reject it and you WILL waste an entire pipeline cycle.
+
+Before committing, verify:
+1. `git diff --stat` shows project source files changed (`.cs`, `.py`, `.sql`, `.js`, `.css`, `.html`, etc.) — NOT just `tasks/*.md`
+2. The build passes: run the project's build command (e.g., `dotnet build`, `npm run build`, etc.)
+3. Tests pass: run the project's test command from `AGENTS.md`
+4. Files you claim to have created ACTUALLY EXIST on disk (`ls -la <path>`)
+
+If `git diff --stat` shows ONLY card file changes — STOP. You forgot to write the actual code.
 
 ## Your Responsibilities
 
 ### New task (card in 4_Coding, first time):
-1. Read the Technical Design & DoD in section "# 2. Technical Design & DoD".
-2. **Write failing tests first** that cover the DoD acceptance criteria.
-3. **Implement the functionality** to make the tests pass.
-4. Run all tests to verify nothing is broken: `uv run python -m unittest`
-5. Follow project rules from `AGENTS.md` (files <300 lines, idempotency, no fallbacks).
-6. Document what you did in section "# 3. Implementation Notes".
+1. Read `AGENTS.md` for project conventions, build commands, and test commands.
+2. Read the Technical Design & DoD in section "# 2. Technical Design & DoD".
+3. **Implement the functionality** — create the actual source files described in the DoD.
+4. **Write tests** that cover the DoD acceptance criteria.
+5. **Run the build** to verify compilation succeeds.
+6. **Run all tests** to verify nothing is broken.
+7. Follow project rules from `AGENTS.md`.
+8. Document what you did in section "# 3. Implementation Notes".
 
 ### Fixing feedback (card in 5_Review or 6_Testing with action=Coding):
 1. Read the feedback checklist in section "# 4. Feedback & Checklist".
@@ -37,24 +54,26 @@ File: `{card_path}`
 
 ## Honesty Rule
 
-Your Implementation Notes will be checked by the reviewer and tester. If you write "added test X" but test X doesn't exist in the codebase, the card will bounce back and waste an entire cycle. Be accurate:
+Your Implementation Notes will be checked by the reviewer and tester against `git diff`. If you write "added file X" but file X doesn't exist in the commit, the card bounces back and wastes money. Be accurate:
 - Only claim work you actually did in this session
 - Only mark feedback items [x] if you verified the fix
 - If you can't fix something, say so — don't pretend it's done
+- Include `git diff --stat` output in your notes as proof
 
 ## Output Contract
-You MUST update the card file with:
-- Section "# 3. Implementation Notes" documenting your verified work
-- Feedback items marked `[x]` where resolved and verified (if fixing feedback)
-- Set `action: Reviewing` if card is in 4_Coding or 5_Review
-- Set `action: Testing` if card is in 6_Testing (returning to tester)
+You MUST:
+1. Create/modify project source files implementing the DoD
+2. Update the card file with section "# 3. Implementation Notes" documenting your verified work
+3. Set `action: Reviewing` if card is in 4_Coding or 5_Review
+4. Set `action: Testing` if card is in 6_Testing (returning to tester)
+5. Create a commit that includes BOTH project files AND the updated card
 
-Write the complete updated card file.
-Create a commit with your changes when done.
+Do NOT modify: `id`, `stage`, `roi`, `assigned_agent`, `created_at`, `value_score`, `effort_score`.
 
 ## System Rules
-- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`, `value_score`, `effort_score`. Changes to these are silently reverted by the system.
-- **Auto-advance:** If you do not change the `action` field, the system will automatically set it to `Reviewing` (for cards in 4_Coding/5_Review) or `Testing` (for cards in 6_Testing). This is the expected behavior for completed work. If you intentionally cannot complete the work, set `action: Blocked` or leave a note explaining why.
+- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
+- **Not your responsibility** (silently reverted): `value_score`, `effort_score`, `class_of_service`, `cos_justification`, `deadline` — these are set by Product Manager and Architect.
+- **Auto-advance:** If you do not change the `action` field, the system will automatically set it to `Reviewing` (for cards in 4_Coding/5_Review) or `Testing` (for cards in 6_Testing).
 - **Valid actions for coder:** `Reviewing`, `Testing`. Any other value is rejected.
 - **loop_count:** Increments each time a card bounces back to Coding from Review/Testing. At loop_count >= 2, the teamlead intervenes for arbitration. At >= 4, the card is force-blocked.
 - **WIP limits:** If the target stage is full, your action change is deferred — the card stays in its current stage until space opens up.

@@ -22,11 +22,14 @@ Every time you send a card back, the entire pipeline stalls: another agent run, 
 
 ## Review Checklist
 
-1. Read the DoD in section "# 2. Technical Design & DoD" — this is the contract. Review against it, not against your own ideas of what should be there.
-2. Read what the coder did in section "# 3. Implementation Notes".
-3. **Review the actual code** — check the files mentioned.
-4. Check `AGENTS.md` compliance (files <300 lines, idempotency).
-5. Check that tests exist and cover the DoD acceptance criteria.
+1. **FIRST: Run `git log --oneline -3` and `git diff HEAD~1 --stat`** to see what the coder ACTUALLY committed. If the commit only changes `tasks/*.md` and no project source files — IMMEDIATE BLOCKER, no further review needed.
+2. Read the DoD in section "# 2. Technical Design & DoD" — this is the contract.
+3. **Verify files exist on disk** — for each file mentioned in DoD or Implementation Notes, run `ls -la <path>`. If the coder claims "created NodeRepository.cs" but the file doesn't exist, that's a BLOCKER.
+4. Read what the coder did in section "# 3. Implementation Notes".
+5. **Review the actual code** — read the source files, not just the card.
+6. Check `AGENTS.md` compliance (files <300 lines, idempotency).
+7. Check that tests exist and cover the DoD acceptance criteria.
+8. **Run the build** (`dotnet build` or equivalent from `AGENTS.md`) to verify it compiles.
 
 ## Severity Classification
 
