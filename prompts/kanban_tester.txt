@@ -72,6 +72,7 @@ Write feedback as:
 
 Check `loop_count` in the frontmatter. If > 0:
 - Read previous test feedback rounds in section 4.
+- **WARNING: Previous feedback may be outdated.** Earlier rounds may say "files absent" because agents ran without worktree access. Always verify current state yourself — run `ls`, `find`, `cat` on the actual files. Do NOT copy-paste old "files absent" claims without checking.
 - Verify the coder actually fixed what was reported — check the code, don't trust notes alone.
 - If loop_count >= 2, ask yourself: am I sending back for a real DoD gap, or am I adding new requirements each round? If the latter, approve and note it as advisory.
 

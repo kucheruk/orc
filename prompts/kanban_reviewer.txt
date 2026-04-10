@@ -79,6 +79,7 @@ Advisory notes (non-blocking):
 ## Feedback Loop Awareness
 
 Check `loop_count` in the card frontmatter. If loop_count > 0, previous rounds of feedback exist in section 4. Read them carefully:
+- **WARNING: Previous feedback may be outdated.** Earlier rounds may claim "files absent" because agents ran without worktree access. Always verify current state yourself — run `ls`, `find`, `cat` on the actual files. Do NOT repeat old "files absent" claims without checking.
 - If the coder already addressed an item and it's marked [x], verify in code and move on.
 - If you're raising the same issue again, explain specifically what's still wrong — don't just re-state it.
 - If loop_count >= 2, be extra critical of your own feedback: is this REALLY a blocker, or are you and the coder going in circles over something minor?
