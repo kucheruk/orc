@@ -649,14 +649,15 @@ class KanbanSessionManager:
                                   task_id=card.id)
                         self._escalate(refreshed)
                     elif needs_esc:
-                        # Escalation threshold reached but teamlead still "resolved" —
-                        # force-block to stop infinite arbitration cycles
-                        refreshed.action = Action.BLOCKED.value
-                        self._distributor.board.save_card(refreshed)
-                        log_event(self.log_path, "WARN",
-                                  "force-blocking after escalation threshold",
-                                  task_id=card.id, loop_count=refreshed.loop_count)
-                        self._escalate(refreshed)
+                        # Escalation threshold reached — but if teamlead resolved it
+                        # and card is progressing through pipeline (Review/Testing),
+                        # let it continue rather than force-blocking.
+                        self._arbitrated_at_loop[card.id] = card.loop_count
+                        self._mark_state_dirty()
+                        log_event(self.log_path, "INFO",
+                                  "escalation threshold reached but teamlead resolved — allowing progress",
+                                  task_id=card.id, loop_count=refreshed.loop_count,
+                                  action=refreshed.action, stage=refreshed.stage)
                     else:
                         # Resolved — record arbitration point, do NOT reset loop_count
                         self._arbitrated_at_loop[card.id] = card.loop_count
