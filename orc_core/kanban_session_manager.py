@@ -720,6 +720,7 @@ class KanbanSessionManager:
         if starvation and not deadlock:
             all_dep_blocked = all(
                 "unmet deps" in line or "action=Blocked" in line
+                or "no matching role" in line
                 for line in starvation.split(";") if line.strip()
             )
             if all_dep_blocked:
