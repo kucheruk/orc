@@ -1187,11 +1187,44 @@ class KanbanSessionManager:
         if became_expedite:
             lines.append(f"  EXPEDITE: {card.cos_justification or 'no reason'}")
 
-        # Add progress
+        # For Done cards — extract delivery summary from card body
+        if is_done:
+            summary = self._extract_card_summary(card)
+            if summary:
+                lines.append(f"\n{summary}")
+
         done, _ip, total = self._distributor.get_progress()
-        lines.append(f"  Progress: {done}/{total}")
+        lines.append(f"\nProgress: {done}/{total}")
 
         send_telegram_message("\n".join(lines), self.log_path, orc_root=Path(self.workdir))
+
+    @staticmethod
+    def _extract_card_summary(card: KanbanCard) -> str:
+        """Extract last implementation/integration note block from card body."""
+        body = card.body or ""
+        # Find section 3 content
+        in_section3 = False
+        section3_lines: list[str] = []
+        for line in body.splitlines():
+            if line.startswith("# 3."):
+                in_section3 = True
+                continue
+            if in_section3 and line.startswith("# "):
+                break
+            if in_section3:
+                section3_lines.append(line)
+        if not section3_lines:
+            return ""
+        # Take last non-empty paragraph (integrator's summary is appended last)
+        text = "\n".join(section3_lines).strip()
+        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        if not paragraphs:
+            return ""
+        last = paragraphs[-1]
+        # Truncate for telegram readability
+        if len(last) > 500:
+            last = last[:497] + "..."
+        return last
 
     # ── Request builder ──────────────────────────────────────────
 

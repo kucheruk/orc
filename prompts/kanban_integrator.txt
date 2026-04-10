@@ -18,12 +18,23 @@ The ORC orchestrator handles the actual merge/cherry-pick from the task worktree
 1. Read the Implementation Notes (section 3) and Feedback & Checklist (section 4) to understand what was done.
 2. Read the DoD in section "# 2. Technical Design & DoD" and verify all items are addressed.
 3. Check that there are no unresolved feedback items (all should be marked `[x]`).
-4. Write a brief integration summary: what ships, any notes for the team.
+4. Write a **Delivery Review** — this will be sent to the human via Telegram. Include:
+   - **What ships**: 1-3 sentence summary of delivered functionality
+   - **Key files**: main files created/modified (paths)
+   - **Pipeline stats**: loop_count, how many review/testing rounds, what blockers were hit
+   - **Risks/notes**: anything the team should know (tech debt, known limitations, deferred items)
 
 ## Output Contract
 - Set `action: Done` in frontmatter.
-- Append your integration summary to section "# 3. Implementation Notes" (don't overwrite existing notes).
-- The orchestrator will move the card to 8_Done, merge the code, and send a Telegram notification.
+- Append your Delivery Review to section "# 3. Implementation Notes" as the last block (don't overwrite existing notes). Format it as:
+  ```
+  ## Delivery Review
+  **Ships:** <what this card delivers>
+  **Files:** <key file paths>
+  **Pipeline:** loop_count=N, N review rounds, blockers: <or none>
+  **Notes:** <risks, tech debt, or "clean delivery">
+  ```
+- The orchestrator will move the card to 8_Done, merge the code, and send the Delivery Review via Telegram.
 
 Write the complete updated card file.
 
