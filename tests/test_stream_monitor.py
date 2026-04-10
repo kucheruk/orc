@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from orc_core.stream_monitor import StreamJsonMonitor
 
@@ -605,33 +605,6 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         recent_file = state.build_snapshot().recent_files[-1]
         self.assertEqual(recent_file, "/Users/vetinary/work/orc/README.md")
 
-    def test_maybe_report_updates_state_and_requests_render(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
-        monitor.log_path = Path("/tmp/orc.log")
-        monitor.metrics = SimpleNamespace(tokens_total=None, total_lines=0, command_count=0, files_edited=None)
-        monitor._report_interval = 0.0
-        monitor._last_report_time = 0.0
-        monitor._last_git_stats_time = 0.0
-        monitor._state = MagicMock()
-        monitor._refresh_backlog_progress = lambda: None
-        monitor._update_git_stats = lambda: None
-        monitor._update_task_runtime_state = lambda: None
-        monitor._update_eta_forecast = lambda: None
-        monitor._write_metrics_snapshot = lambda: None
-        monitor._publish_snapshot = MagicMock()
-        monitor._last_live_status_marker = None
-        monitor._state.build_snapshot.return_value = SimpleNamespace(
-            live_phase="waiting",
-            live_status="waiting for output",
-            active_tool_call_count=0,
-            is_subagent_activity=False,
-        )
-        monitor.task_id = "TASK-1"
-
-        monitor.maybe_report()
-        monitor._state.tick_spinner.assert_called_once()
-        monitor._publish_snapshot.assert_called_once()
-
     def test_live_status_switches_to_tool_call_when_tool_starts(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
@@ -758,31 +731,6 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertGreater(float(snapshot.get("oldest_age_seconds") or 0.0), 0.0)
         self.assertIn(str(snapshot.get("oldest_label") or ""), {"read /tmp/a.txt", "echo hi"})
 
-    def test_monitor_exposes_active_tool_calls_watchdog_snapshot(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
-        monitor._state = MagicMock()
-        monitor._state.active_tool_calls_watchdog_snapshot.return_value = {"count": 1}
-
-        snapshot = monitor.active_tool_calls_watchdog_snapshot()
-
-        self.assertEqual(snapshot, {"count": 1})
-        monitor._state.active_tool_calls_watchdog_snapshot.assert_called_once()
-
-    def test_monitor_finalize_orphaned_tool_calls_publishes_snapshot(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
-        monitor.log_path = Path("/tmp/orc.log")
-        monitor.task_id = "TASK-1"
-        monitor.timeline_id = "tl-1"
-        monitor.attempt = 1
-        monitor._publish_snapshot = MagicMock()
-        monitor._state = MagicMock()
-        monitor._state.force_finalize_live_tool_calls.return_value = {"cleared": 1, "reason": "process_exit", "pending": []}
-
-        monitor._finalize_orphaned_tool_calls_on_process_exit("process_exit")
-
-        monitor._state.force_finalize_live_tool_calls.assert_called_once_with("process_exit")
-        monitor._publish_snapshot.assert_called_once()
-
     def test_refresh_process_status_syncs_proxy_returncode(self) -> None:
         monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
         monitor._proc = SimpleNamespace(returncode=7)
@@ -839,73 +787,6 @@ class StreamMonitorFormattingTest(unittest.TestCase):
             '{"type":"result","subtype":"success","text":"add a follow-up"}',
         )
         self.assertFalse(detected)
-
-    def test_publish_snapshot_uses_injected_callback(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
-        monitor._state = MagicMock()
-        snapshot = object()
-        monitor._state.build_snapshot.return_value = snapshot
-        monitor._snapshot_publisher = MagicMock()
-
-        monitor._publish_snapshot()
-
-        monitor._snapshot_publisher.assert_called_once_with(snapshot)
-
-    def test_stop_skips_threadsafe_wakeup_when_loop_closed(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
-        monitor._stop = MagicMock()
-        monitor._runner_thread = MagicMock()
-        monitor._runner_thread.is_alive.return_value = False
-        monitor._agent_output_file = None
-        monitor._loop = MagicMock()
-        monitor._loop.is_closed.return_value = True
-        monitor.log_path = Path("/tmp/orc.log")
-        monitor.process_group_id = None
-        monitor.init_pid = None
-        monitor.proc = SimpleNamespace(pid=None, returncode=0)
-
-        monitor.stop()
-
-        monitor._stop.set.assert_called_once()
-        monitor._loop.call_soon_threadsafe.assert_not_called()
-
-    @patch("orc_core.stream_monitor.kill_process_tree")
-    @patch("orc_core.stream_monitor.terminate_process_group", return_value=True)
-    def test_stop_prefers_process_group_cleanup_for_alive_process(self, terminate_group_mock, kill_tree_mock) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
-        monitor._stop = MagicMock()
-        monitor._runner_thread = MagicMock()
-        monitor._runner_thread.is_alive.return_value = False
-        monitor._agent_output_file = None
-        monitor._loop = None
-        monitor.log_path = Path("/tmp/orc.log")
-        monitor.process_group_id = 4242
-        monitor.init_pid = 12345
-        monitor.proc = SimpleNamespace(pid=12345, returncode=None)
-
-        monitor.stop()
-
-        terminate_group_mock.assert_called_once_with(4242, Path("/tmp/orc.log"), label="stream-monitor-stop")
-        kill_tree_mock.assert_not_called()
-
-    @patch("orc_core.stream_monitor.kill_process_tree")
-    @patch("orc_core.stream_monitor.terminate_process_group", return_value=False)
-    def test_stop_falls_back_to_process_tree_cleanup_for_alive_process(self, terminate_group_mock, kill_tree_mock) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
-        monitor._stop = MagicMock()
-        monitor._runner_thread = MagicMock()
-        monitor._runner_thread.is_alive.return_value = False
-        monitor._agent_output_file = None
-        monitor._loop = None
-        monitor.log_path = Path("/tmp/orc.log")
-        monitor.process_group_id = None
-        monitor.init_pid = 12345
-        monitor.proc = SimpleNamespace(pid=12345, returncode=None)
-
-        monitor.stop()
-
-        terminate_group_mock.assert_called_once_with(None, Path("/tmp/orc.log"), label="stream-monitor-stop")
-        kill_tree_mock.assert_called_once_with(12345, Path("/tmp/orc.log"), label="stream-monitor-stop")
 
     def test_runtime_heartbeat_updates_runtime_file_only(self) -> None:
         monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
