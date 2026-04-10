@@ -16,11 +16,8 @@ INTEGRATION_SAFE_UNTRACKED_EXACT = {
     ".cursor/hooks.json",
     ".cursor/hooks/orc_before_submit.py",
     ".cursor/hooks/orc_hook_lib.py",
-    ".cursor/hooks/orc_pre_tool_use.py",
     ".cursor/hooks/orc_stop.py",
     ".cursor/orc-stop-request.json",
-    ".cursor/orc-task.json",
-    ".cursor/orc-task-runtime.json",
 }
 
 

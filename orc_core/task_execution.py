@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 from .atomic_io import write_json_atomic
 from .failure_reasons import build_main_integration_preflight_reason
-from .hooks import update_task_restart_count, update_task_stage_metadata, write_task_file
+from .hooks import update_task_restart_count, write_task_file
 from .logging import debug_log, log_event, timeline_instant, timeline_step
 from .notify import send_telegram_message
 from .process import (
@@ -1598,15 +1598,6 @@ class TaskExecutionEngine:
             stage_id = (stage_spec.stage_id or f"stage_{stage_index + 1}").strip()
             stage_model = (stage_spec.model or request.models.model).strip() or request.models.model
             stage_is_final = stage_index == (len(stage_specs) - 1)
-            if request.task_path.exists():
-                update_task_stage_metadata(
-                    request.task_path,
-                    self.log_path,
-                    stage_id=stage_id,
-                    stage_index=stage_index,
-                    stage_total=len(stage_specs),
-                    is_final=stage_is_final,
-                )
             prompt_vars = SafeDict(
                 task_text=task_text,
                 task_id=task_id,

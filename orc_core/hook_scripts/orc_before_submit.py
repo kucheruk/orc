@@ -61,22 +61,6 @@ def main() -> int:
         lib.log_event(log_path, "INFO", "beforeSubmitPrompt: conversation_id unchanged")
     if task_changed:
         lib.write_json(task_file, task)
-
-    if not task.get("start_notified"):
-        backlog_path = task.get("backlog_path")
-        task_id = task.get("task_id") or ""
-        total, done = (0, 0)
-        if backlog_path:
-            try:
-                total, done = lib.parse_backlog_counts(Path(backlog_path))
-            except Exception as exc:
-                lib.log_event(log_path, "ERROR", "start: backlog parse failed", error=str(exc))
-        stats = lib.load_stats(base_workspace)
-        stats = lib.ensure_started(stats, done)
-        task["start_notified"] = True
-        lib.write_json(task_file, task)
-        lib.save_stats(base_workspace, stats)
-        lib.log_event(log_path, "INFO", "start: tracked", task_id=task_id)
     return 0
 
 

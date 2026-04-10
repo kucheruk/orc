@@ -80,10 +80,8 @@ class WorktreeFlowTest(unittest.TestCase):
                 ".cursor/hooks.json\n"
                 ".cursor/hooks/orc_before_submit.py\n"
                 ".cursor/hooks/orc_hook_lib.py\n"
-                ".cursor/hooks/orc_pre_tool_use.py\n"
                 ".cursor/hooks/orc_stop.py\n"
-                ".cursor/orc-task.json\n"
-                ".cursor/orc-task-runtime.json\n"
+                ".cursor/orc-stop-request.json\n"
                 ".orc/run/raw-stream/task.log\n",
                 "",
                 0,
@@ -120,7 +118,7 @@ class WorktreeFlowTest(unittest.TestCase):
     @patch("orc_core.worktree_flow.run_git")
     def test_integrate_commit_ignores_runtime_tracked_before_integration(self, git_mock) -> None:
         git_mock.side_effect = [
-            (True, " M .cursor/orc-task-runtime.json\n", "", 0),  # tracked runtime artifact
+            (True, " M .cursor/orc-stop-request.json\n", "", 0),  # tracked runtime artifact
             (True, "", "", 0),  # untracked list clean
             (True, "", "", 0),  # show-ref main
             (True, "", "", 0),  # checkout main
@@ -164,7 +162,7 @@ class WorktreeFlowTest(unittest.TestCase):
     def test_integrate_commit_handles_collapsed_cursor_status_entry(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, "?? .cursor/\n", "", 0),  # tracked status (unexpected collapsed entry)
-            (True, ".cursor/orc-task.json\n.orc/run/raw-stream/task.log\n", "", 0),  # untracked expanded
+            (True, ".cursor/orc-stop-request.json\n.orc/run/raw-stream/task.log\n", "", 0),  # untracked expanded
             (True, "", "", 0),  # show-ref main
             (True, "", "", 0),  # checkout main
             (True, "", "", 0),  # merge-base --is-ancestor
@@ -211,7 +209,7 @@ class WorktreeFlowTest(unittest.TestCase):
         )
         git_mock.side_effect = [
             (False, "", "contains modified files", 128),  # regular remove failed
-            (True, "?? .cursor/orc-task.json\n?? .cursor/orc-task-runtime.json\n", "", 0),  # status in worktree
+            (True, "?? .cursor/orc-stop-request.json\n?? .orc/some-file.log\n", "", 0),  # status in worktree
             (True, "", "", 0),  # force remove succeeded
             (True, "", "", 0),  # prune
             (True, "", "", 0),  # branch -D

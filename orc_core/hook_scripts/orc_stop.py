@@ -81,30 +81,11 @@ def main() -> int:
         lib.log_event(log_path, "ERROR", "stop: missing backlog_path/task_id")
         return 0
     status = data.get("status")
-    stage_id = str(task.get("sdlc_stage_id") or "").strip()
-    stage_is_final = bool(task.get("sdlc_stage_is_final")) if stage_id else True
-    if status == "completed" and not stage_is_final:
-        lib.log_event(
-            log_path,
-            "INFO",
-            "stop: completed intermediate sdlc stage; skip backlog completion",
-            task_id=task_id,
-            stage_id=stage_id,
-        )
-        return 0
-    already_done = False
     if status != "completed":
-        try:
-            already_done = lib.is_task_marked(Path(backlog_path), task_id)
-        except Exception as exc:
-            lib.log_event(log_path, "ERROR", "stop: failed to read backlog", error=str(exc))
-            already_done = False
-        if not already_done:
-            lib.log_event(log_path, "INFO", "stop: status not completed")
-            return 0
-        lib.log_event(log_path, "WARN", "stop: status not completed but task already marked", task_id=task_id, status=status)
+        lib.log_event(log_path, "INFO", "stop: status not completed")
+        return 0
 
-    if status == "completed" and not lib.git_has_changes(script_repo, log_path):
+    if not lib.git_has_changes(script_repo, log_path):
         created_at = str(task.get("created_at") or "").strip()
         if lib.git_has_recent_commit(script_repo, created_at, log_path):
             lib.log_event(log_path, "INFO", "stop: recent commit detected; proceeding", task_id=task_id)

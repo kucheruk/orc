@@ -76,7 +76,6 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             stored = json.loads(task_path.read_text(encoding="utf-8"))
             self.assertEqual(stored.get("conversation_id"), "conv-123")
-            self.assertTrue((base_dir / "state" / "stats.json").exists())
 
     def test_stop_marks_base_backlog_done_via_orc_task_file_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
