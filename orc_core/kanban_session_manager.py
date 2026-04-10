@@ -549,6 +549,9 @@ class KanbanSessionManager:
                 # ── Priority 4: card arbitration (looping / blocked cards) ──
                 self._teamlead_arbitrate(slot, sid)
 
+                # ── Priority 5: auto-commit card state to keep base repo clean ──
+                self._auto_commit_cards()
+
                 if not self._distributor.has_remaining_work():
                     self.publisher._emit("system", "", f"{sid} teamlead: no remaining work")
                     break
@@ -1225,6 +1228,31 @@ class KanbanSessionManager:
         if len(last) > 500:
             last = last[:497] + "..."
         return last
+
+    # ── Auto-commit card state ──────────────────────────────────
+
+    _AUTO_COMMIT_INTERVAL = 120.0  # seconds between auto-commits
+    _last_auto_commit = 0.0
+
+    def _auto_commit_cards(self) -> None:
+        """Periodically git-add+commit tasks/ directory to keep base repo clean."""
+        now = time.time()
+        if now - self._last_auto_commit < self._AUTO_COMMIT_INTERVAL:
+            return
+        self._last_auto_commit = now
+        try:
+            from .worktree_flow import run_git
+            wd = self.workdir
+            # Check if there are changes in tasks/
+            ok, stdout, _, _ = run_git(wd, ["git", "status", "--porcelain", "tasks/"])
+            if not ok or not stdout.strip():
+                return
+            run_git(wd, ["git", "add", "tasks/"])
+            run_git(wd, ["git", "add", ".gitignore"])
+            run_git(wd, ["git", "commit", "-m", "chore: sync kanban board state"])
+            log_event(self.log_path, "INFO", "auto-committed card state")
+        except Exception as exc:
+            log_event(self.log_path, "WARN", "auto-commit failed", error=str(exc))
 
     # ── Request builder ──────────────────────────────────────────
 

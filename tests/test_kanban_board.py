@@ -146,7 +146,7 @@ class TestMoveCard(unittest.TestCase):
     def test_move_right(self):
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, _ = _make_board(tmp)
-            _add_card(tasks_dir, KanbanCard(id="M-1", stage="4_Coding", action="Reviewing"))
+            _add_card(tasks_dir, KanbanCard(id="M-1", stage="4_Coding", action="Coding"))
             board = KanbanBoard(tasks_dir)
             card = board.card_by_id("M-1")
             board.move_card(card, "5_Review")
@@ -238,7 +238,7 @@ class TestCallbackWarnings(unittest.TestCase):
     def test_move_callback_error_does_not_crash(self):
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, _ = _make_board(tmp)
-            _add_card(tasks_dir, KanbanCard(id="CB-1", stage="4_Coding", action="Reviewing"))
+            _add_card(tasks_dir, KanbanCard(id="CB-1", stage="4_Coding", action="Coding"))
             board = KanbanBoard(tasks_dir)
             board.on_move = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
 
