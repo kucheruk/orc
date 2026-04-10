@@ -330,31 +330,6 @@ class KanbanScreen(Screen[None]):
             except Exception:
                 pass
 
-    # ── Compatibility methods (called by OrcApp for session events) ──
-
-    def add_session(self, session_id: str) -> None:
-        pass
-
-    async def remove_session(self, session_id: str) -> None:
-        pass
-
-    def update_session(self, session_id: str, snapshot) -> None:
-        pass
-
-    def mark_session_failed(self, session_id: str) -> None:
-        pass
-
-    def mark_session_closing(self, session_id: str) -> None:
-        pass
-
-    def set_task_body(self, session_id: str, body: str) -> None:
-        pass
-
-    def set_global_status(self, text: str) -> None:
-        pass
-
-    def set_quit_after_task_requested(self, requested: bool) -> None:
-        pass
 
 
 def _parse_command(text: str):

@@ -34,9 +34,6 @@ RATE_LIMIT_MAX_BACKOFF_SECONDS = 240.0
 
 # ── Display constants ───────────────────────────────────────────
 
-DETAIL_LEVELS = {0: "full", 1: "full", 2: "medium", 3: "compact"}
-DETAIL_LEVEL_DEFAULT = "minimal"
-
 REASONING_LINES_FULL = 9
 REASONING_LINES_MEDIUM = 5
 REASONING_LINES_COMPACT = 3

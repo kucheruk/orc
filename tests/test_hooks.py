@@ -4,6 +4,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -49,7 +50,7 @@ class HooksStopBehaviorTest(unittest.TestCase):
             env = os.environ.copy()
             env["ORC_TELEGRAM_DISABLE"] = "1"
             result = subprocess.run(
-                ["python3", str(stop_path)],
+                [sys.executable, str(stop_path)],
                 cwd=tmpdir,
                 env=env,
                 input=json.dumps(payload),
@@ -93,7 +94,7 @@ class HooksStopBehaviorTest(unittest.TestCase):
             env = os.environ.copy()
             env["ORC_TELEGRAM_DISABLE"] = "1"
             result = subprocess.run(
-                ["python3", str(stop_path)],
+                [sys.executable, str(stop_path)],
                 cwd=tmpdir,
                 env=env,
                 input=json.dumps(payload),
@@ -129,7 +130,7 @@ class HooksStopBehaviorTest(unittest.TestCase):
             env = os.environ.copy()
             env["ORC_TELEGRAM_DISABLE"] = "1"
             result = subprocess.run(
-                ["python3", str(stop_path)],
+                [sys.executable, str(stop_path)],
                 cwd=tmpdir,
                 env=env,
                 input=json.dumps(payload),

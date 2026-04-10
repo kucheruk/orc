@@ -18,34 +18,3 @@ class OrchestratorFinished(Message):
         self.exit_code = int(exit_code)
         self.error_text = error_text
         super().__init__()
-
-
-class SessionAdded(Message):
-    def __init__(self, session_id: str) -> None:
-        self.session_id = session_id
-        super().__init__()
-
-
-class SessionRemoved(Message):
-    def __init__(self, session_id: str) -> None:
-        self.session_id = session_id
-        super().__init__()
-
-
-class SessionFailed(Message):
-    def __init__(self, session_id: str) -> None:
-        self.session_id = session_id
-        super().__init__()
-
-
-class SessionClosing(Message):
-    def __init__(self, session_id: str) -> None:
-        self.session_id = session_id
-        super().__init__()
-
-
-class TaskBodyUpdated(Message):
-    def __init__(self, session_id: str, body: str) -> None:
-        self.session_id = session_id
-        self.body = body
-        super().__init__()

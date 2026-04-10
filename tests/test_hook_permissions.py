@@ -4,6 +4,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -38,7 +39,7 @@ class PreToolUsePermissionsTest(unittest.TestCase):
         env["ORC_BASE_WORKSPACE"] = str(workspace)
         env["ORC_TASK_FILE"] = str(task_path)
         result = subprocess.run(
-            ["python3", str(script_path)],
+            [sys.executable, str(script_path)],
             cwd=workspace,
             env=env,
             input=json.dumps(payload),

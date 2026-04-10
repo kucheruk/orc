@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from .atomic_io import write_json_atomic, write_text_atomic
-from .backlog import Task
+from .task_source import Task
 from .logging import log_event, now_iso
 from .session_state import write_cursor_task_shim
 from .state_paths import active_task_path, cursor_task_shim_path
