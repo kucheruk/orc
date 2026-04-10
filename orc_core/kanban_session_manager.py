@@ -438,8 +438,9 @@ class KanbanSessionManager:
             task = Task(task_id=card.id, text=card.title or card.id, done=False)
             slot.task = task
             self.publisher._emit("system", card.id, f"{card.id} launching {role} agent...")
+            commit_phase = bool(getattr(self.args, "commit_phase", True)) and assignment.needs_worktree
             result = self.engine.execute(self._make_request(task, prompt, wd, sid,
-                                                            assignment.needs_worktree, 1800.0))
+                                                            commit_phase, 1800.0))
             if result and result.status == "completed":
                 elapsed = time.time() - task_start
                 old_stage = card.stage
