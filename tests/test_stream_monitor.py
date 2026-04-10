@@ -393,7 +393,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                 "arguments": {
                     "command": (
                         "python "
-                        "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/scripts/run.py"
+                        "/tmp/fake-project/.orc/worktrees/CORE-005-20260305-110504/scripts/run.py"
                     )
                 },
             }
@@ -414,7 +414,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                 "tool_call": {
                     "readToolCall": {
                         "args": {
-                            "path": "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/src/main.py",
+                            "path": "/tmp/fake-project/.orc/worktrees/CORE-005-20260305-110504/src/main.py",
                         }
                     }
                 },
@@ -436,7 +436,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                     "globToolCall": {
                         "args": {
                             "globPattern": "ADR/*.md",
-                            "targetDirectory": "/Users/vetinary/work/nadmozg",
+                            "targetDirectory": "/tmp/other-project",
                         }
                     }
                 },
@@ -445,7 +445,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         command = state.build_snapshot().recent_commands[-1]
         self.assertIn("glob ADR/*.md", command)
-        self.assertIn("/Users/vetinary/work/nadmozg", command)
+        self.assertIn("/tmp/other-project", command)
 
     def test_tool_call_glob_replaces_worktree_prefix_in_target_directory(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
@@ -459,7 +459,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                     "globToolCall": {
                         "args": {
                             "globPattern": "**/*.py",
-                            "targetDirectory": "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/src",
+                            "targetDirectory": "/tmp/fake-project/.orc/worktrees/CORE-005-20260305-110504/src",
                         }
                     }
                 },
@@ -483,7 +483,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                     "grepToolCall": {
                         "args": {
                             "pattern": "class\\s+SafeJsonExtensions",
-                            "path": "/Users/vetinary/work/nadmozg/src",
+                            "path": "/tmp/other-project/src",
                         }
                     }
                 },
@@ -492,7 +492,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         command = state.build_snapshot().recent_commands[-1]
         self.assertIn('grep "class\\s+SafeJsonExtensions"', command)
-        self.assertIn("/Users/vetinary/work/nadmozg/src", command)
+        self.assertIn("/tmp/other-project/src", command)
 
     def test_tool_call_grep_replaces_worktree_prefix_in_path(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
@@ -506,7 +506,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                     "grepToolCall": {
                         "args": {
                             "pattern": "main\\(",
-                            "path": "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/src",
+                            "path": "/tmp/fake-project/.orc/worktrees/CORE-005-20260305-110504/src",
                         }
                     }
                 },
@@ -552,7 +552,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                 "tool_call": {
                     "customToolCall": {
                         "args": {
-                            "path": "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/file.txt",
+                            "path": "/tmp/fake-project/.orc/worktrees/CORE-005-20260305-110504/file.txt",
                         }
                     }
                 },
@@ -574,7 +574,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                 "tool_call": {
                     "readToolCall": {
                         "args": {
-                            "path": "/Users/vetinary/work/bobot/.orc/worktrees/CORE-005-20260305-110504/src/module.py",
+                            "path": "/tmp/fake-project/.orc/worktrees/CORE-005-20260305-110504/src/module.py",
                         }
                     }
                 },
@@ -595,7 +595,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                 "tool_call": {
                     "readToolCall": {
                         "args": {
-                            "path": "/Users/vetinary/work/orc/README.md",
+                            "path": "/tmp/orc-repo/README.md",
                         }
                     }
                 },
@@ -603,7 +603,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         )
 
         recent_file = state.build_snapshot().recent_files[-1]
-        self.assertEqual(recent_file, "/Users/vetinary/work/orc/README.md")
+        self.assertEqual(recent_file, "/tmp/orc-repo/README.md")
 
     def test_live_status_switches_to_tool_call_when_tool_starts(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState

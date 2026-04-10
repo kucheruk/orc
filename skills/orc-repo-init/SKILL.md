@@ -187,7 +187,7 @@ Dependency graph: BE-001 → BE-002 → BE-003, BE-004
    cd <orc-repo> && uv tool install --editable .
 
 2. Launch the kanban board:
-   orc --mode kanban --workspace <project-path>
+   orc --workspace <project-path>
 
    This starts a virtual team of 7 AI roles:
    Product → Architect → Coder → Reviewer → Tester → Integrator
@@ -202,9 +202,9 @@ Dependency graph: BE-001 → BE-002 → BE-003, BE-004
 
 ## Optional: choose backend and model
 
-   orc --mode kanban --workspace . --backend claude --model claude-sonnet-4-6
-   orc --mode kanban --workspace . --backend cursor
-   orc --mode kanban --workspace . --backend codex
+   orc --workspace . --backend claude --model claude-sonnet-4-6
+   orc --workspace . --backend cursor
+   orc --workspace . --backend codex
 
 Backends: cursor (default), claude, codex
 ```

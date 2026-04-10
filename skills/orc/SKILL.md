@@ -9,24 +9,19 @@ description: >
   task cards, backlog preparation, slicing specs into tasks, "nарезать задачи",
   "подготовить проект под orc", "канбан", "бэклог", "тикеты", init-kanban,
   or wants to create/manage task cards in the tasks/ folder structure.
-  Also use when user asks about ORC modes (orc/orcs/kanban), card format,
+  Also use when user asks about ORC, kanban board, card format,
   WIP limits, pull system, roles, or board workflow.
 ---
 
 # ORC Orchestrator Skill
 
-ORC is an AI orchestrator with three modes:
-- **orc** — single agent, sequential tasks from BACKLOG.md
-- **orcs** — up to 4 parallel agents with AI conflict analysis
-- **kanban** — virtual team of 7 AI roles on a pull-based kanban board
-
-This skill focuses on the **kanban model** — preparing projects and managing the board.
+ORC is an AI orchestrator: a virtual team of 7 AI roles on a pull-based kanban board with WIP limits, dependency management, and automated escalation.
 
 ## Quick Reference
 
 ```
 orc --init-kanban --workspace .   # create tasks/ folder structure
-orc --mode kanban --workspace .   # run kanban orchestrator
+orc --workspace .                 # run orchestrator
 ```
 
 ---
@@ -48,8 +43,7 @@ project/
 │   └── 8_Done/               # completed, .gitkeep
 ├── PRD.md                    # product requirements (optional, used by Product role)
 ├── TECHSPEC.md               # technical spec (optional, used by Architect/Coder)
-├── AGENTS.md                 # agent rules (recommended)
-└── BACKLOG.md                # only needed for orc/orcs modes, NOT kanban
+└── AGENTS.md                 # agent rules (recommended)
 ```
 
 ### Creating the Board Structure
@@ -278,7 +272,7 @@ This is the standard entry point and should be used unless the user explicitly a
 3. Slice into tasks, write cards into `tasks/1_Inbox/` with `action: Product`, `stage: 1_Inbox`
 4. Each card's `# 1. Product Requirements` section quotes/references the relevant spec section
 5. Leave `value_score: 0`, `effort_score: 0` — the Product and Architect AI roles will fill these as the card flows through Inbox → Estimate → Todo
-6. Run `orc --mode kanban` — the AI team takes over: Product scores value, Architect designs and estimates, then the card enters the coding pipeline with full context
+6. Run `orc` — the AI team takes over: Product scores value, Architect designs and estimates, then the card enters the coding pipeline with full context
 
 ### Pattern B: Skip pipeline → Todo (exception, only on explicit request)
 
@@ -288,18 +282,9 @@ Use only when the user explicitly asks to skip Product/Architect evaluation, or 
 2. Write cards into `tasks/3_Todo/` with `action: Coding`, `stage: 3_Todo`
 3. You must fill `value_score` and `effort_score` yourself (needed for ROI prioritization)
 4. You must fill sections 1 and 2 of the card body completely (requirements + technical design + DoD)
-5. Run `orc --mode kanban`
+5. Run `orc`
 
-### Pattern C: Existing BACKLOG.md → convert to kanban cards
-
-When migrating from orc/orcs mode:
-
-1. Read BACKLOG.md, parse each `- [ ] TASK-ID description` line
-2. Create a card for each open task in `tasks/1_Inbox/`
-3. Copy task description into `# 1. Product Requirements`
-4. Preserve the original task ID
-
-### Pattern D: Add tasks to a running board
+### Pattern C: Add tasks to a running board
 
 While kanban is running, you can add tasks via TUI input or by creating files in `tasks/1_Inbox/`. Use the next available ID (check existing cards to find the highest number).
 
@@ -335,21 +320,7 @@ Source: PRD.md, requirement REQ-042
 
 ---
 
-## 7. ORC Modes Comparison
-
-| | orc | orcs | kanban |
-|---|---|---|---|
-| Sessions | 1 | up to 4 | up to 4 |
-| Task source | BACKLOG.md | BACKLOG.md | tasks/ folders |
-| Distribution | Sequential | AI conflict analysis | Pull right-to-left |
-| Roles | Coder only (+ optional review/test) | Coder only (+ optional) | 7 specialized roles |
-| Quality gates | Optional | Optional | Built-in (review + test loops) |
-| Human input | Minimal | Minimal | /unblock for blocked cards |
-| Best for | Simple task lists | Parallel independent tasks | Complex projects needing design/review/test |
-
----
-
-## 8. Running ORC
+## 7. Running ORC
 
 ```bash
 # Install (from orc repo)
@@ -358,14 +329,14 @@ cd <orc-repo> && uv tool install --editable .
 # Initialize kanban board in target project
 orc --init-kanban --workspace /path/to/project
 
-# Start kanban mode
-orc --mode kanban --workspace /path/to/project
+# Start orchestrator
+orc --workspace /path/to/project
 
 # With specific model
-orc --mode kanban --workspace /path/to/project --model claude-sonnet-4-6
+orc --workspace /path/to/project --model claude-sonnet-4-6
 
 # With more/fewer parallel workers
-orc --mode kanban --workspace /path/to/project --max-sessions 2
+orc --workspace /path/to/project --max-sessions 2
 
 # Test Telegram notifications
 orc --telegram-test
