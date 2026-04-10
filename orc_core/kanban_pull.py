@@ -150,6 +150,6 @@ def _try_stage_with_forward_wip(
     """Try to pick a card, but only if the next stage has WIP room."""
     card = board.pick_best(stage, action)
     if card and board.has_wip_room(forward_stage):
-        needs_wt = role in (ROLE_CODER, ROLE_TESTER)
+        needs_wt = role in (ROLE_CODER, ROLE_TESTER, ROLE_REVIEWER)
         return WorkAssignment(card=card, role=role, needs_worktree=needs_wt)
     return None
