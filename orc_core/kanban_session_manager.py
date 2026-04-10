@@ -500,7 +500,7 @@ class KanbanSessionManager:
 
     # ── Teamlead thread ──────────────────────────────────────────
 
-    _HEALTH_CHECK_INTERVAL = 60.0  # seconds between proactive health checks
+    _HEALTH_CHECK_INTERVAL = 300.0  # seconds between proactive health checks
 
     def _run_teamlead(self, slot: SessionSlot) -> None:
         sid = slot.session_id
@@ -714,6 +714,18 @@ class KanbanSessionManager:
                     starvation = diag
         if not deadlock and not starvation:
             return False
+        # Don't burn tokens on starvation caused purely by unmet deps —
+        # teamlead can't resolve dependency chains, only workers completing
+        # tasks can.  Only invoke AI for deadlocks or mixed starvation.
+        if starvation and not deadlock:
+            all_dep_blocked = all(
+                "unmet deps" in line or "action=Blocked" in line
+                for line in starvation.split(";") if line.strip()
+            )
+            if all_dep_blocked:
+                log_event(self.log_path, "INFO", "health check: dep-only starvation, skipping AI",
+                          session_id=sid)
+                return False
         diagnostic = ""
         if deadlock:
             diagnostic += f"DEADLOCK: {deadlock}\n"

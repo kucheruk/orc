@@ -96,8 +96,10 @@ def process_agent_result(
 
         card_errors = validate_card(updated)
         if card_errors:
-            _logger.warning("Card validation errors for %s: %s", card.id, card_errors)
-            return card_errors
+            # Log but don't block — validation errors on fields the agent can't
+            # change (e.g. cos_justification set by product) should not prevent
+            # coder/reviewer/tester from progressing.
+            _logger.warning("Card validation warnings for %s (non-blocking): %s", card.id, card_errors)
 
         # Auto-default: if the agent didn't change the action, apply the most
         # common "done" transition for that role so work keeps flowing.

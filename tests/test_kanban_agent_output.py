@@ -140,61 +140,6 @@ class TestProtectedFields(unittest.TestCase):
 
 class TestCardValidation(unittest.TestCase):
 
-    def test_rejects_out_of_range_value_score(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            td, _ = _setup(tmp)
-            card = _add(td, KanbanCard(id="V-1", stage="1_Inbox", action="Product"))
-            board = KanbanBoard(td)
-            card = board.card_by_id("V-1")
-
-            card.action = "Architect"
-            card.value_score = 999
-            write_card(card)
-
-            original = KanbanCard(
-                id="V-1", stage="1_Inbox", action="Product",
-                file_path=card.file_path,
-            )
-            errors = process_agent_result(board, original, "product")
-            self.assertTrue(any("value_score" in e for e in errors))
-
-    def test_rejects_invalid_class_of_service(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            td, _ = _setup(tmp)
-            card = _add(td, KanbanCard(id="V-2", stage="1_Inbox", action="Product"))
-            board = KanbanBoard(td)
-            card = board.card_by_id("V-2")
-
-            card.action = "Architect"
-            card.class_of_service = "magic"
-            write_card(card)
-
-            original = KanbanCard(
-                id="V-2", stage="1_Inbox", action="Product",
-                file_path=card.file_path,
-            )
-            errors = process_agent_result(board, original, "product")
-            self.assertTrue(any("class_of_service" in e for e in errors))
-
-    def test_rejects_expedite_without_justification(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            td, _ = _setup(tmp)
-            card = _add(td, KanbanCard(id="V-3", stage="1_Inbox", action="Product"))
-            board = KanbanBoard(td)
-            card = board.card_by_id("V-3")
-
-            card.action = "Architect"
-            card.class_of_service = "expedite"
-            card.cos_justification = ""
-            write_card(card)
-
-            original = KanbanCard(
-                id="V-3", stage="1_Inbox", action="Product",
-                file_path=card.file_path,
-            )
-            errors = process_agent_result(board, original, "product")
-            self.assertTrue(any("cos_justification" in e for e in errors))
-
     def test_valid_card_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)

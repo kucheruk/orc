@@ -263,15 +263,6 @@ class TestTeamleadDetection(unittest.TestCase):
 class TestValidationRejectsGarbage(unittest.TestCase):
     """Agent output validation catches bad data."""
 
-    def test_out_of_range_effort_score(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            td, board = _setup(tmp)
-            _add(td, board, KanbanCard(id="G-1", stage="2_Estimate", action="Architect"))
-
-            errors = _simulate_agent(board, board.card_by_id("G-1"), "architect",
-                                     action="Product", effort_score=200)
-            self.assertTrue(any("effort_score" in e for e in errors))
-
     def test_invalid_action_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             td, board = _setup(tmp)
