@@ -2,7 +2,10 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import atexit
 import asyncio
+import os
+import signal
 import sys
 import traceback
 from datetime import datetime
@@ -13,14 +16,9 @@ from .agent_preflight import AgentNotInstalledError, ensure_agent_installed
 from .backend import SUPPORTED_BACKENDS, get_backend
 from .failure_reasons import format_known_failure_message
 from .gitignore_guard import validate_workspace_gitignore
-from .logging import (
-    ORC_LOG_NAME,
-    emit_crash_stdout_payload,
-    init_debug_logging,
-    install_crash_handlers,
-    log_event,
-    set_log_context,
-)
+from .logging import ORC_LOG_NAME, log_event, set_log_context
+from .debug_log import init_debug_logging
+from .crash_handler import emit_crash_stdout_payload, install_crash_handlers
 from .model_selector import (
     DEFAULT_MODEL,
     ModelSelectionError,
@@ -110,7 +108,25 @@ def _failure_message(reason: str) -> str:
     return "ORC завершился с ошибкой без детали причины. Проверьте лог ORC."
 
 
+def _atexit_kill_group() -> None:
+    """Kill our entire process group on exit so no children survive."""
+    # Ignore signals to prevent recursive handler invocation
+    for sig_name in ("SIGTERM", "SIGHUP", "SIGQUIT", "SIGABRT", "SIGINT"):
+        sig = getattr(signal, sig_name, None)
+        if sig:
+            try:
+                signal.signal(sig, signal.SIG_IGN)
+            except Exception:
+                pass
+    try:
+        os.killpg(os.getpgrp(), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
 def main() -> int:
+    os.setpgrp()  # ORC becomes process group leader
+    atexit.register(_atexit_kill_group)
     args = build_parser().parse_args()
     role_registry = RoleProfileRegistry()
     workdir = str(Path(args.workspace).resolve())

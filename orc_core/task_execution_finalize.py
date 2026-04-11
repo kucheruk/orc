@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Optional
 
 from .git_helpers import classify_main_integration_error, has_commits_ahead_of_branch
-from .logging import debug_log, log_event, timeline_step
+from .logging import log_event
+from .debug_log import debug_log
+from .timeline import timeline_step
 from .quit_signal import is_quit_after_task_requested
 from .stage_artifacts import parse_stage_artifact_status, validate_stage_artifact_output
 from .task_agent_phases import run_commit_phase, run_merge_expert_phase

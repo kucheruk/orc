@@ -20,7 +20,8 @@ from .git_helpers import (
     runtime_artifact_paths_from_porcelain_lines as _runtime_artifact_paths_from_porcelain_lines,
 )
 from .task_execution_types import TaskCompletionStatus, TaskExecutionStatus
-from .logging import log_event, timeline_step
+from .logging import log_event
+from .timeline import timeline_step
 from .process import (
     ORPHAN_SWEEP_COMMAND_MARKERS,
     build_process_tree,

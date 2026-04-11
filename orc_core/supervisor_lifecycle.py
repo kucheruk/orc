@@ -9,8 +9,10 @@ from typing import Callable, Optional
 
 import psutil
 
-from .kanban_constants import TaskCompletionStatus
-from .logging import debug_log, debug_mode_log, log_event, timeline_instant
+from .task_execution_types import TaskCompletionStatus
+from .logging import log_event
+from .debug_log import debug_log, debug_mode_log
+from .timeline import timeline_instant
 from .notify import send_telegram_message
 from .process import is_pid_alive
 from .task_state import delete_runtime_state_file

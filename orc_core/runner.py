@@ -6,7 +6,9 @@ import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping, Optional
 
-from .logging import debug_log, log_event, now_ms, timeline_instant
+from .logging import log_event, now_ms
+from .debug_log import debug_log
+from .timeline import timeline_instant
 from .process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
 from .process_groups import terminate_process_group
 from .stream_monitor import StreamJsonMonitor

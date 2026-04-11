@@ -9,15 +9,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import orc_core.crash_handler as crash_handler_module
 import orc_core.logging as logging_module
-from orc_core.logging import (
+from orc_core.crash_handler import (
     build_crash_stdout_payload,
     emit_crash_stdout_payload,
-    init_debug_logging,
     install_crash_handlers,
-    log_event,
     report_fatal_exception,
-    set_log_context,
+)
+from orc_core.debug_log import init_debug_logging
+from orc_core.logging import log_event, set_log_context
+from orc_core.timeline import (
     timeline_instant,
     timeline_step,
     timeline_step_finished,
@@ -97,14 +99,13 @@ class CrashStdoutPayloadTest(unittest.TestCase):
 
 class CrashHandlersTest(unittest.TestCase):
     def setUp(self) -> None:
-        logging_module._cfg.crash_handlers_installed = False
-        logging_module._FAULT_HANDLER_STREAM = None
+        crash_handler_module._cfg.crash_handlers_installed = False
 
     def test_report_fatal_exception_logs_and_emits_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "orc.log"
             workspace = str(Path(tmpdir))
-            with patch("orc_core.logging.emit_crash_stdout_payload") as emit_mock:
+            with patch("orc_core.crash_handler.emit_crash_stdout_payload") as emit_mock:
                 emit_mock.return_value = {
                     "event": "orc_crash_report",
                     "entrypoint": "orc_core.cli_app:main",
@@ -138,9 +139,10 @@ class CrashHandlersTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "orc.log"
             workspace = str(Path(tmpdir))
-            old_sys_hook = logging_module.sys.excepthook
-            old_thread_hook = logging_module.threading.excepthook
-            with patch("orc_core.logging.faulthandler.enable") as fault_mock:
+            old_sys_hook = crash_handler_module.sys.excepthook
+            old_thread_hook = crash_handler_module.threading.excepthook
+            with patch("orc_core.crash_handler.faulthandler.enable") as fault_mock, \
+                 patch("orc_core.crash_handler.signal.signal"):
                 install_crash_handlers(
                     entrypoint="orc_core.cli_app:main",
                     phase="main",
@@ -148,27 +150,27 @@ class CrashHandlersTest(unittest.TestCase):
                     log_path=log_path,
                 )
             try:
-                self.assertIsNot(logging_module.sys.excepthook, old_sys_hook)
-                self.assertIsNot(logging_module.threading.excepthook, old_thread_hook)
+                self.assertIsNot(crash_handler_module.sys.excepthook, old_sys_hook)
+                self.assertIsNot(crash_handler_module.threading.excepthook, old_thread_hook)
                 self.assertTrue(fault_mock.called)
-                with patch("orc_core.logging.report_fatal_exception") as report_mock:
+                with patch("orc_core.crash_handler.report_fatal_exception") as report_mock:
                     exc = RuntimeError("boom")
                     tb_obj = exc.__traceback__
-                    logging_module.sys.excepthook(type(exc), exc, tb_obj)
+                    crash_handler_module.sys.excepthook(type(exc), exc, tb_obj)
                     self.assertTrue(report_mock.called)
             finally:
-                logging_module.sys.excepthook = old_sys_hook
-                logging_module.threading.excepthook = old_thread_hook
+                crash_handler_module.sys.excepthook = old_sys_hook
+                crash_handler_module.threading.excepthook = old_thread_hook
 
     def test_install_crash_handlers_signal_handler_reports_and_exits(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "orc.log"
             workspace = str(Path(tmpdir))
-            old_sys_hook = logging_module.sys.excepthook
-            old_thread_hook = logging_module.threading.excepthook
-            with patch("orc_core.logging.signal.signal") as signal_mock, patch(
-                "orc_core.logging.report_fatal_exception"
-            ) as report_mock:
+            old_sys_hook = crash_handler_module.sys.excepthook
+            old_thread_hook = crash_handler_module.threading.excepthook
+            with patch("orc_core.crash_handler.signal.signal") as signal_mock, patch(
+                "orc_core.crash_handler.report_fatal_exception"
+            ) as report_mock, patch("orc_core.crash_handler.os.killpg"):
                 install_crash_handlers(
                     entrypoint="orc_core.cli_app:main",
                     phase="main",
@@ -178,16 +180,16 @@ class CrashHandlersTest(unittest.TestCase):
                 self.assertTrue(signal_mock.called)
                 registered = None
                 for call in signal_mock.call_args_list:
-                    if call.args and call.args[0] == logging_module.signal.SIGTERM:
+                    if call.args and call.args[0] == crash_handler_module.signal.SIGTERM:
                         registered = call.args[1]
                         break
                 self.assertIsNotNone(registered)
                 with self.assertRaises(SystemExit) as exit_ctx:
-                    registered(logging_module.signal.SIGTERM, None)
-                self.assertEqual(exit_ctx.exception.code, 128 + int(logging_module.signal.SIGTERM))
+                    registered(crash_handler_module.signal.SIGTERM, None)
+                self.assertEqual(exit_ctx.exception.code, 128 + int(crash_handler_module.signal.SIGTERM))
                 self.assertTrue(report_mock.called)
-            logging_module.sys.excepthook = old_sys_hook
-            logging_module.threading.excepthook = old_thread_hook
+            crash_handler_module.sys.excepthook = old_sys_hook
+            crash_handler_module.threading.excepthook = old_thread_hook
 
 
 class TimelineDebugLogTest(unittest.TestCase):

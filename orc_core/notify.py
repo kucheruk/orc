@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
+from typing import Protocol
 
-from .logging import ORC_ROOT, debug_log, log_event
+from .logging import ORC_ROOT, log_event
+from .debug_log import debug_log
 from .telegram import post_telegram_message, resolve_telegram_credentials, truncate_telegram_message
+
+
+class Notifier(Protocol):
+    """Abstraction for sending notifications."""
+
+    def send(self, message: str) -> None: ...
 
 # Cache telegram availability to avoid repeated credential lookups.
 # None = not checked yet, True = available, False = unavailable.
@@ -75,3 +85,14 @@ def send_telegram_message(message: str, log_path: Path, *, orc_root: Path | None
         "telegram sent",
         {"response": data},
     )
+
+
+class TelegramNotifier:
+    """Concrete Notifier implementation backed by Telegram."""
+
+    def __init__(self, log_path: Path, orc_root: Path | None = None) -> None:
+        self._log_path = log_path
+        self._orc_root = orc_root
+
+    def send(self, message: str) -> None:
+        send_telegram_message(message, self._log_path, orc_root=self._orc_root)

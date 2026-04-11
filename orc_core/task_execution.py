@@ -20,7 +20,9 @@ from .atomic_io import write_json_atomic
 from .failure_reasons import build_main_integration_preflight_reason
 from .git_helpers import classify_main_integration_error
 from .hooks import update_task_restart_count, write_task_file
-from .logging import debug_log, log_event, timeline_instant, timeline_step
+from .logging import log_event
+from .debug_log import debug_log
+from .timeline import timeline_instant, timeline_step
 from .quit_signal import is_stop_requested
 from .session_state import save_active_session, save_session_manifest
 from .task_execution_types import TaskCompletionStatus, TaskExecutionStatus

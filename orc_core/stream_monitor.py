@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, Mapping, Optional, TextIO
 
 from .atomic_io import write_json_atomic
-from .logging import log_event, now_ms, timeline_instant
+from .logging import log_event, now_ms
+from .timeline import timeline_instant
 from .process import kill_process_tree
 from .process_groups import resolve_process_group_id, subprocess_group_spawn_kwargs, terminate_process_group
 from .state_paths import active_task_path, metrics_path, stats_path
