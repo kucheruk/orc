@@ -51,7 +51,7 @@ from .session_types import (
     SlotStatus,
     next_session_id,
 )
-from .stream_monitor_state import MonitorSnapshot
+from .monitor_types import MonitorSnapshot
 from .task_execution import TaskExecutionEngine
 from .worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
 

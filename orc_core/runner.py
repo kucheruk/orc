@@ -12,7 +12,7 @@ from .timeline import timeline_instant
 from .process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
 from .process_groups import terminate_process_group
 from .stream_monitor import StreamJsonMonitor
-from .stream_monitor_state import MonitorSnapshot
+from .monitor_types import MonitorSnapshot
 
 if TYPE_CHECKING:
     from .backend import Backend

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Optional, Protocol
 
-from .stream_monitor_state import MetricsStore
+from .monitor_types import MetricsStore
 
 
 class ProcessProxy(Protocol):

@@ -8,7 +8,7 @@ from textual import work
 from textual.app import App
 
 from .quit_signal import clear_stop_request, request_stop, toggle_quit_after_task
-from .stream_monitor_state import MonitorSnapshot
+from .monitor_types import MonitorSnapshot
 from .tui.kanban_messages import (
     BoardUpdated,
     InboxCardRequested,

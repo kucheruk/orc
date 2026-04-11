@@ -18,7 +18,8 @@ from .timeline import timeline_instant
 from .process import kill_process_tree
 from .process_groups import resolve_process_group_id, subprocess_group_spawn_kwargs, terminate_process_group
 from .state_paths import active_task_path, metrics_path, stats_path
-from .stream_monitor_state import MonitorSnapshot, StreamMonitorState
+from .monitor_types import MonitorSnapshot
+from .stream_monitor_state import StreamMonitorState
 from .task_state import init_runtime_payload, load_runtime_payload, runtime_state_path
 from .task_source import MarkdownTaskSource
 

@@ -4,7 +4,7 @@
 import unittest
 from unittest.mock import MagicMock
 
-from orc_core.stream_monitor_state import MetricsStore, MonitorSnapshot
+from orc_core.monitor_types import MetricsStore, MonitorSnapshot
 from orc_core.tui.messages import OrchestratorFinished, SnapshotUpdated
 from orc_core.tui_app import OrcApp
 

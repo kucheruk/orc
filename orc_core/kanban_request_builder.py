@@ -11,7 +11,7 @@ from typing import Callable, Optional
 from .backend import Backend
 from .state_paths import parallel_task_path
 from .state_paths import run_root as state_run_root
-from .stream_monitor_state import MonitorSnapshot
+from .monitor_types import MonitorSnapshot
 from .task_execution_types import ModelConfig, TaskExecutionRequest, TemplateConfig, TimingConfig
 from .task_source import Task
 

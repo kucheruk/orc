@@ -11,7 +11,7 @@ from .kanban_snapshot import JournalEntry, KanbanBoardSnapshot, build_board_snap
 
 if TYPE_CHECKING:
     from .kanban_board import KanbanBoard
-    from .stream_monitor_state import MonitorSnapshot
+    from .monitor_types import MonitorSnapshot
 
 
 class KanbanPublisher:

@@ -33,7 +33,7 @@ from .role_config import (
     ROLE_MERGE_EXPERT,
     RoleProfileRegistry,
 )
-from .stream_monitor_state import MonitorSnapshot
+from .monitor_types import MonitorSnapshot
 from .task_execution import TaskExecutionEngine
 from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn
