@@ -115,24 +115,20 @@ class IncidentManager:
 
     def process_incident(self, slot: SessionSlot, incident: Incident) -> Optional[Incident]:
         """Process one step of the incident state machine."""
-        phase = incident.phase
-
-        if phase == IncidentPhase.SCALE_DOWN:
-            return self._incident_scale_down(incident)
-        if phase == IncidentPhase.TRIAGE:
-            return self._incident_triage(slot, incident)
-        if phase == IncidentPhase.INJECT_FIX:
-            return self._incident_inject_fix(incident)
-        if phase == IncidentPhase.WAIT_FOR_FIX:
-            return self._incident_wait_for_fix(incident)
-        if phase == IncidentPhase.SCALE_UP:
-            return self._incident_scale_up(incident)
-        if phase == IncidentPhase.NOTIFY_HUMAN:
-            return self._incident_notify_human(incident)
-
-        log_event(self.log_path, "ERROR", "unknown incident phase",
-                  incident_id=incident.id, phase=str(phase))
-        return None
+        _PHASE_DISPATCH = {
+            IncidentPhase.SCALE_DOWN: lambda: self._incident_scale_down(incident),
+            IncidentPhase.TRIAGE: lambda: self._incident_triage(slot, incident),
+            IncidentPhase.INJECT_FIX: lambda: self._incident_inject_fix(incident),
+            IncidentPhase.WAIT_FOR_FIX: lambda: self._incident_wait_for_fix(incident),
+            IncidentPhase.SCALE_UP: lambda: self._incident_scale_up(incident),
+            IncidentPhase.NOTIFY_HUMAN: lambda: self._incident_notify_human(incident),
+        }
+        handler = _PHASE_DISPATCH.get(incident.phase)
+        if handler is None:
+            log_event(self.log_path, "ERROR", "unknown incident phase",
+                      incident_id=incident.id, phase=str(incident.phase))
+            return None
+        return handler()
 
     # ── Phase handlers ───────────────────────────────────────────
 
