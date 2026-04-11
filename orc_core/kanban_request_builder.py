@@ -12,7 +12,7 @@ from .backend import Backend
 from .state_paths import parallel_task_path
 from .state_paths import run_root as state_run_root
 from .stream_monitor_state import MonitorSnapshot
-from .task_execution import ModelConfig, TaskExecutionRequest, TemplateConfig, TimingConfig
+from .task_execution_types import ModelConfig, TaskExecutionRequest, TemplateConfig, TimingConfig
 from .task_source import Task
 
 

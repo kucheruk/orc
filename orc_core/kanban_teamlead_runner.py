@@ -9,12 +9,14 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from .kanban_card import KanbanCard
-from .kanban_constants import Action, TaskExecutionStatus
+from .kanban_constants import Action
+from .task_execution_types import TaskExecutionStatus
 from .kanban_distributor import KanbanDistributor
 from .kanban_incident_manager import IncidentManager
+from .kanban_protocols import DirectiveSource, RunnerLifecycle, RunnerNotifier, RunnerStateManager
 from .kanban_publisher import KanbanPublisher
 from .kanban_roles import build_teamlead_prompt
 from .logging import log_event
@@ -52,12 +54,10 @@ class KanbanTeamleadRunner:
         incident_mgr: IncidentManager,
         slots_lock: threading.Lock,
         arbitrated_at_loop: dict[str, int],
-        make_request_fn: Callable,
-        mark_state_dirty_fn: Callable[[], None],
-        send_telegram_fn: Callable[[str], None],
-        should_continue_fn: Callable[[SessionSlot], bool],
-        pop_directive_fn: Callable[[], Optional[str]],
-        sleep_fn: Callable[[float], None],
+        lifecycle: RunnerLifecycle,
+        notifier: RunnerNotifier,
+        state_manager: RunnerStateManager,
+        directives: DirectiveSource,
     ) -> None:
         self._workdir = workdir
         self._log_path = log_path
@@ -67,12 +67,10 @@ class KanbanTeamleadRunner:
         self._incident_mgr = incident_mgr
         self._slots_lock = slots_lock
         self._arbitrated_at_loop = arbitrated_at_loop
-        self._make_request = make_request_fn
-        self._mark_state_dirty = mark_state_dirty_fn
-        self._send_telegram = send_telegram_fn
-        self._should_continue = should_continue_fn
-        self._pop_directive = pop_directive_fn
-        self._sleep_fn = sleep_fn
+        self._lifecycle = lifecycle
+        self._notifier = notifier
+        self._state_manager = state_manager
+        self._directives = directives
 
         self._last_health_check: float = 0.0
         self._consecutive_health_checks: int = 0
@@ -86,7 +84,7 @@ class KanbanTeamleadRunner:
         self._publisher._emit("system", "", f"{sid} teamlead started, monitoring board...")
         incident: Optional[Incident] = None
         try:
-            while self._should_continue(slot):
+            while self._lifecycle.should_continue(slot):
                 self._distributor.refresh()
                 self._distributor.board._apply_deferred_moves()
                 if incident is not None:
@@ -94,13 +92,13 @@ class KanbanTeamleadRunner:
                     if incident is None:
                         self._publisher._emit("incident", "",
                                                "Incident resolved, resuming normal operations")
-                    self._sleep_fn(2.0)
+                    self._lifecycle.sleep(2.0)
                     if is_quit_after_task_requested():
                         self._publisher._emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
                         break
                     continue
 
-                directive = self._pop_directive()
+                directive = self._directives.pop_directive()
                 if directive:
                     self.directive(slot, sid, directive)
                     continue
@@ -132,7 +130,7 @@ class KanbanTeamleadRunner:
                 if not self._distributor.has_remaining_work():
                     self._publisher._emit("system", "", f"{sid} teamlead: no remaining work")
                     break
-                self._sleep_fn(5.0)
+                self._lifecycle.sleep(5.0)
                 if is_quit_after_task_requested():
                     self._publisher._emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
                     break
@@ -178,7 +176,7 @@ class KanbanTeamleadRunner:
         task = Task(task_id=card.id, text=f"[TL] {card.title}", done=False)
         slot.task = task
         try:
-            result = self._engine.execute(self._make_request(task, prompt, self._workdir,
+            result = self._engine.execute(self._state_manager.make_request(task, prompt, self._workdir,
                                                               sid, False, 600.0))
             if result and result.status == TaskExecutionStatus.COMPLETED:
                 self.process_decision(dec_path)
@@ -196,21 +194,21 @@ class KanbanTeamleadRunner:
                         self.escalate(refreshed)
                     elif needs_esc:
                         self._arbitrated_at_loop[card.id] = card.loop_count
-                        self._mark_state_dirty()
+                        self._state_manager.mark_dirty()
                         log_event(self._log_path, "INFO",
                                   "escalation threshold reached but teamlead resolved — allowing progress",
                                   task_id=card.id, loop_count=refreshed.loop_count,
                                   action=refreshed.action, stage=refreshed.stage)
                     else:
                         self._arbitrated_at_loop[card.id] = card.loop_count
-                        self._mark_state_dirty()
+                        self._state_manager.mark_dirty()
                         self._publisher._emit("arbitration", card.id,
                                                f"{card.id} teamlead resolved → {refreshed.action} "
                                                f"(loop_count={refreshed.loop_count})")
         finally:
             slot.task = None
             self._distributor.release_card(card.id)
-        self._sleep_fn(3.0)
+        self._lifecycle.sleep(3.0)
 
     # ── Directive handling ──────────────────────────────────────
 
@@ -228,12 +226,12 @@ class KanbanTeamleadRunner:
         task = Task(task_id="tl-directive", text=f"[TL] {directive_text[:40]}", done=False)
         slot.task = task
         try:
-            result = self._engine.execute(self._make_request(task, prompt, self._workdir,
+            result = self._engine.execute(self._state_manager.make_request(task, prompt, self._workdir,
                                                               sid, False, 600.0))
             self.process_decision(dec_path)
         finally:
             slot.task = None
-        self._sleep_fn(2.0)
+        self._lifecycle.sleep(2.0)
 
     # ── Health check ────────────────────────────────────────────
 
@@ -287,12 +285,12 @@ class KanbanTeamleadRunner:
         task = Task(task_id="tl-health", text="[TL] Board health check", done=False)
         slot.task = task
         try:
-            result = self._engine.execute(self._make_request(task, prompt, self._workdir,
+            result = self._engine.execute(self._state_manager.make_request(task, prompt, self._workdir,
                                                               sid, False, 600.0))
             self.process_decision(dec_path)
         finally:
             slot.task = None
-        self._sleep_fn(3.0)
+        self._lifecycle.sleep(3.0)
         return True
 
     # ── Decision file executor ──────────────────────────────────
@@ -326,11 +324,11 @@ class KanbanTeamleadRunner:
         card.action = "Blocked"
         self._distributor.board.save_card(card)
         self._arbitrated_at_loop[card.id] = card.loop_count
-        self._mark_state_dirty()
+        self._state_manager.mark_dirty()
         msg = (f"ESCALATION: Task {card.id} ({card.title}) blocked. "
                f"Loop count: {card.loop_count}. Stage: {card.stage}.")
         self._publisher.log_escalate(card.id, msg)
-        self._send_telegram(
+        self._notifier.send_telegram(
             f"\U0001f6a8 {card.id} BLOCKED\n"
             f"  {card.title}\n"
             f"  Stage: {card.stage}, loops: {card.loop_count}\n"

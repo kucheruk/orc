@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from orc_core import git_helpers
-from orc_core.kanban_constants import IntegrationErrorKind
+from orc_core.failure_reasons import IntegrationErrorKind
 
 
 class GitStatusPorcelainTest(unittest.TestCase):

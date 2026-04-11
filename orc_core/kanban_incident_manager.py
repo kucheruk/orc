@@ -15,8 +15,8 @@ from .kanban_constants import (
     STAGE_HANDOFF,
     STAGE_REVIEW,
     Action,
-    TaskExecutionStatus,
 )
+from .task_execution_types import TaskExecutionStatus
 from .logging import log_event
 from .notify import send_telegram_message
 from .quit_signal import is_stop_requested
@@ -37,6 +37,8 @@ from .teamlead_incident import (
     fallback_decision,
     parse_incident_decision,
 )
+
+from .kanban_protocols import RunnerStateManager, SessionController
 
 if TYPE_CHECKING:
     import threading
@@ -65,9 +67,8 @@ class IncidentManager:
         workdir: str,
         max_sessions: int,
         sleep_fn: Callable[[float], None],
-        make_request_fn: Callable,
-        add_session_fn: Callable[[], str | None],
-        remove_session_fn: Callable[[str], None],
+        state_manager: RunnerStateManager,
+        session_controller: SessionController,
     ) -> None:
         self._distributor = distributor
         self.publisher = publisher
@@ -79,9 +80,8 @@ class IncidentManager:
         self.workdir = workdir
         self.max_sessions = max_sessions
         self.sleep_fn = sleep_fn
-        self._make_request = make_request_fn
-        self._add_session = add_session_fn
-        self._remove_session = remove_session_fn
+        self._state_manager = state_manager
+        self._session_controller = session_controller
 
         self._incident_counter: int = 0
         self._handled_crash_slots: set[str] = set()
@@ -166,7 +166,7 @@ class IncidentManager:
         slot.task = task
 
         self.publisher.log_incident(incident.id, "Running AI triage agent...")
-        result = self.engine.execute(self._make_request(task, prompt, self.workdir, sid, False, 600.0))
+        result = self.engine.execute(self._state_manager.make_request(task, prompt, self.workdir, sid, False, 600.0))
 
         try:
             if result and result.status == TaskExecutionStatus.COMPLETED and decision_path.exists():
@@ -356,7 +356,7 @@ class IncidentManager:
 
         removed_ids = []
         for s in to_remove:
-            self._remove_session(s.session_id)
+            self._session_controller.remove_session(s.session_id)
             removed_ids.append(s.session_id)
         return original_count, removed_ids
 
@@ -386,7 +386,7 @@ class IncidentManager:
         for _ in range(to_add):
             if is_stop_requested():
                 break
-            sid = self._add_session()
+            sid = self._session_controller.add_session()
             if sid:
                 new_ids.append(sid)
             self.sleep_fn(STAGGER_DELAY_SECONDS)

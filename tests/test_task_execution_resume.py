@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.task_execution import (
+from orc_core.task_execution import TaskExecutionEngine
+from orc_core.task_execution_types import (
     ModelConfig,
-    TaskExecutionEngine,
     TaskExecutionRequest,
     TemplateConfig,
     TimingConfig,
@@ -58,12 +58,6 @@ class _FakeWorker:
 
 
 class TaskExecutionResumeStateTest(unittest.TestCase):
-    def setUp(self):
-        self._tg_patcher = patch("orc_core.task_execution.send_telegram_message")
-        self._tg_mock = self._tg_patcher.start()
-
-    def tearDown(self):
-        self._tg_patcher.stop()
     def _request(self, tmpdir: str) -> TaskExecutionRequest:
         root = Path(tmpdir)
         backlog_path = root / "BACKLOG.md"
@@ -109,7 +103,7 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
             agent_output_log_path=None,
         )
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
     @patch("orc_core.task_execution.write_task_file")
@@ -132,7 +126,7 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
     @patch("orc_core.task_execution.write_task_file")

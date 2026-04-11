@@ -8,14 +8,15 @@ import logging
 import threading
 import time
 import traceback
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Protocol
+from typing import Optional
 
+from .integration_manager import IntegrationManager
 from .kanban_agent_output import process_agent_result
-from .kanban_card import KanbanCard
-from .kanban_constants import STAGE_DONE, Action, TaskExecutionStatus
+from .kanban_constants import STAGE_DONE, STAGE_HANDOFF, Action
+from .task_execution_types import TaskExecutionStatus
 from .kanban_distributor import KanbanDistributor
+from .kanban_protocols import CompletionNotifier, RunnerLifecycle, RunnerStateManager
 from .kanban_pull import WorkAssignment
 from .kanban_publisher import KanbanPublisher
 from .kanban_roles import build_prompt
@@ -27,26 +28,6 @@ from .task_source import Task
 from .worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
 
 _logger = logging.getLogger(__name__)
-
-
-class WorkerLifecycle(Protocol):
-    """Controls worker thread lifecycle."""
-    def should_continue(self, slot: SessionSlot) -> bool: ...
-    def sleep(self, seconds: float) -> None: ...
-
-
-class WorkerNotifier(Protocol):
-    """Sends notifications about task outcomes."""
-    def send_telegram(self, message: str) -> None: ...
-    def notify_completion(self, card: KanbanCard, role: str, old_stage: str,
-                          old_action: str, old_cos: str, elapsed: float) -> None: ...
-
-
-class WorkerStateManager(Protocol):
-    """Manages state persistence and request building."""
-    def mark_dirty(self) -> None: ...
-    def make_request(self, task: Task, prompt: str, workdir: str,
-                     session_id: str, commit_phase: bool, ttl: float) -> object: ...
 
 
 class KanbanWorkerRunner:
@@ -69,9 +50,10 @@ class KanbanWorkerRunner:
         card_fail_counts: dict[str, int],
         completed_tasks: list[str],
         failed_tasks: list[str],
-        lifecycle: WorkerLifecycle,
-        notifier: WorkerNotifier,
-        state_manager: WorkerStateManager,
+        lifecycle: RunnerLifecycle,
+        notifier: CompletionNotifier,
+        state_manager: RunnerStateManager,
+        integrator: IntegrationManager,
     ) -> None:
         self._workdir = workdir
         self._log_path = log_path
@@ -88,6 +70,7 @@ class KanbanWorkerRunner:
         self._lifecycle = lifecycle
         self._notifier = notifier
         self._state_manager = state_manager
+        self._integrator = integrator
 
     # ── Main loop ───────────────────────────────────────────────
 
@@ -190,11 +173,26 @@ class KanbanWorkerRunner:
                 del self._card_fail_counts[card.id]
                 self._state_manager.mark_dirty()
         finally:
+            # Integrate worktree commits into main before cleanup
+            if worktree and card.stage == STAGE_DONE:
+                task_obj = slot.task or Task(task_id=card.id, text=card.title or card.id, done=True)
+                integrated = self._integrator.integrate(slot, task_obj, worktree.worktree_path)
+                if integrated:
+                    with self._worktree_lock:
+                        cleanup_task_worktree(worktree, self._log_path)
+                else:
+                    log_event(self._log_path, "WARN", "integration failed, keeping worktree",
+                              task_id=card.id, worktree=worktree.worktree_path)
+                    self._publisher._emit("escalate", card.id,
+                                           f"{card.id} cherry-pick to {self._main_branch} failed; "
+                                           f"card moved back to Handoff")
+                    board = self._distributor.board
+                    card.action = Action.INTEGRATING
+                    board.move_card(card, STAGE_HANDOFF, allow_backward=True,
+                                    reason="cherry-pick failed")
+                    board.save_card(card)
             slot.task = None
             self._distributor.release_card(card.id)
-            if worktree and card.stage == STAGE_DONE:
-                with self._worktree_lock:
-                    cleanup_task_worktree(worktree, self._log_path)
 
     # ── Failure tracking ────────────────────────────────────────
 

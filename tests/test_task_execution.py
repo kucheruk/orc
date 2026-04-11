@@ -12,14 +12,17 @@ from unittest.mock import patch
 
 import orc_core.task_execution
 import orc_core.task_execution as task_execution
-from orc_core.task_execution import (
+import orc_core.task_execution_finalize as task_execution_finalize
+from orc_core.task_agent_phases import run_commit_phase
+from orc_core.task_execution import TaskExecutionEngine
+from orc_core.task_execution_types import (
     ModelConfig,
-    TaskExecutionEngine,
     TaskExecutionRequest,
     TaskStageSpec,
     TemplateConfig,
     TimingConfig,
 )
+from orc_core.text_parse import SafeDict
 from orc_core.stage_artifacts import build_stage_artifact_bundle
 from orc_core.task_source import Task
 
@@ -138,12 +141,6 @@ class _FailingWorker:
 
 
 class TaskExecutionEngineTest(unittest.TestCase):
-    def setUp(self):
-        self._tg_patcher = patch("orc_core.task_execution.send_telegram_message")
-        self._tg_mock = self._tg_patcher.start()
-
-    def tearDown(self):
-        self._tg_patcher.stop()
     def _request(
         self,
         tmpdir: str,
@@ -199,7 +196,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             agent_output_log_path=None,
         )
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -215,9 +212,9 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.reason, "model_unavailable")
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -234,7 +231,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 2)
         self.assertIn("Ты перестал выдавать результат", retry_prompt)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
@@ -266,7 +263,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertIn("agent_attempt", recorded_steps)
         self.assertIn("wait_for_completion", recorded_steps)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -293,8 +290,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.task_execution._run_commit_phase", return_value=True)
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution_finalize.run_commit_phase", return_value=True)
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -329,7 +326,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 1)
         run_commit_phase.assert_called_once()
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -345,8 +342,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.reason, "max_restarts_exceeded")
         self.assertEqual(worker.launch_calls, 2)
 
-    @patch("orc_core.task_execution._run_commit_phase", return_value=False)
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution_finalize.run_commit_phase", return_value=False)
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
@@ -360,9 +357,9 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.reason, "commit_phase_failed")
 
-    @patch("orc_core.task_execution.is_quit_after_task_requested", return_value=True)
-    @patch("orc_core.task_execution._run_commit_phase", return_value=True)
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution_finalize.is_quit_after_task_requested", return_value=True)
+    @patch("orc_core.task_execution_finalize.run_commit_phase", return_value=True)
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
@@ -385,9 +382,9 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertTrue(result.committed)
         run_commit_phase.assert_called_once()
 
-    @patch("orc_core.task_execution.is_quit_after_task_requested", return_value=True)
-    @patch("orc_core.task_execution._run_commit_phase", return_value=False)
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution_finalize.is_quit_after_task_requested", return_value=True)
+    @patch("orc_core.task_execution_finalize.run_commit_phase", return_value=False)
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
@@ -404,7 +401,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.reason, "commit_phase_failed")
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
     @patch("orc_core.task_execution.write_task_file")
@@ -426,7 +423,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
     @patch("orc_core.task_execution.write_task_file")
@@ -458,7 +455,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertIsNone(launch_kwargs["resume_prompt"])
         write_task_file.assert_called_once()
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
@@ -490,7 +487,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(wait_for_completion.call_args.kwargs.get("elapsed_before_start"), 0.0)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
@@ -519,7 +516,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(wait_for_completion.call_args.kwargs.get("elapsed_before_start"), 42.5)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -543,7 +540,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(worker.launch_kwargs[0]["resume_prompt"], "continue")
         self.assertIn("Ты превысил лимит времени", worker.launch_kwargs[1]["resume_prompt"])
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="waiting_for_input")
@@ -561,9 +558,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.delay_seconds, 7.0)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.wait_for_completion", return_value="waiting_for_input")
-    @patch("orc_core.task_execution.send_telegram_message")
     def test_waiting_for_input_resume_restores_restart_count_and_fails_on_budget(self, *_mocks) -> None:
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
@@ -584,9 +580,9 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 1)
         self.assertEqual(int(state_after.get("restart_count", -1)), 2)
 
-    @patch("orc_core.task_execution.kill_process_tree")
-    @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")
-    @patch("orc_core.task_execution._git_status_porcelain")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
+    @patch("orc_core.task_agent_phases.wait_for_process_exit", return_value="completed")
+    @patch("orc_core.task_agent_phases._git_status_porcelain")
     def test_commit_phase_fails_when_tracked_leftovers_and_fallback_disabled(
         self,
         git_status_mock,
@@ -600,10 +596,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=False)
-            ok = task_execution._run_commit_phase(
+            ok = run_commit_phase(
                 worker=worker,
                 request=request,
-                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                prompt_vars=SafeDict(task_id="TASK-001", task_text="test task"),
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
@@ -614,10 +610,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertFalse(ok)
 
-    @patch("orc_core.task_execution.kill_process_tree")
-    @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")
-    @patch("orc_core.task_execution._attempt_autocommit_fallback", return_value=True)
-    @patch("orc_core.task_execution._git_status_porcelain")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
+    @patch("orc_core.task_agent_phases.wait_for_process_exit", return_value="completed")
+    @patch("orc_core.task_agent_phases._attempt_autocommit_fallback", return_value=True)
+    @patch("orc_core.task_agent_phases._git_status_porcelain")
     def test_commit_phase_uses_fallback_when_enabled_and_succeeds(
         self,
         git_status_mock,
@@ -633,10 +629,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=True)
-            ok = task_execution._run_commit_phase(
+            ok = run_commit_phase(
                 worker=worker,
                 request=request,
-                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                prompt_vars=SafeDict(task_id="TASK-001", task_text="test task"),
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
@@ -648,10 +644,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertTrue(ok)
         fallback_mock.assert_called_once()
 
-    @patch("orc_core.task_execution.kill_process_tree")
-    @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")
-    @patch("orc_core.task_execution._attempt_autocommit_fallback", return_value=False)
-    @patch("orc_core.task_execution._git_status_porcelain")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
+    @patch("orc_core.task_agent_phases.wait_for_process_exit", return_value="completed")
+    @patch("orc_core.task_agent_phases._attempt_autocommit_fallback", return_value=False)
+    @patch("orc_core.task_agent_phases._git_status_porcelain")
     def test_commit_phase_fails_when_enabled_fallback_fails(
         self,
         git_status_mock,
@@ -666,10 +662,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=True)
-            ok = task_execution._run_commit_phase(
+            ok = run_commit_phase(
                 worker=worker,
                 request=request,
-                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                prompt_vars=SafeDict(task_id="TASK-001", task_text="test task"),
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
@@ -681,9 +677,9 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertFalse(ok)
         fallback_mock.assert_called_once()
 
-    @patch("orc_core.task_execution.kill_process_tree")
-    @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")
-    @patch("orc_core.task_execution._git_status_porcelain")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
+    @patch("orc_core.task_agent_phases.wait_for_process_exit", return_value="completed")
+    @patch("orc_core.task_agent_phases._git_status_porcelain")
     def test_commit_phase_passes_progress_arguments_to_worker_launch(self, git_status_mock, *_mocks) -> None:
         worker = _FakeWorker()
         git_status_mock.side_effect = [(True, " M tracked.py\n"), (True, "")]
@@ -691,10 +687,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=False)
             request = replace(request, progress_done=3, progress_total=9)
-            ok = task_execution._run_commit_phase(
+            ok = run_commit_phase(
                 worker=worker,
                 request=request,
-                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                prompt_vars=SafeDict(task_id="TASK-001", task_text="test task"),
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
@@ -708,9 +704,9 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(worker.launch_kwargs[0]["progress_done"], 3)
         self.assertEqual(worker.launch_kwargs[0]["progress_total"], 9)
 
-    @patch("orc_core.task_execution.kill_process_tree")
-    @patch("orc_core.task_execution.wait_for_process_exit", return_value="completed")
-    @patch("orc_core.task_execution._git_status_porcelain")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
+    @patch("orc_core.task_agent_phases.wait_for_process_exit", return_value="completed")
+    @patch("orc_core.task_agent_phases._git_status_porcelain")
     def test_commit_phase_ignores_runtime_artifact_leftovers(self, git_status_mock, *_mocks) -> None:
         worker = _FakeWorker()
         git_status_mock.side_effect = [
@@ -720,10 +716,10 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=False)
-            ok = task_execution._run_commit_phase(
+            ok = run_commit_phase(
                 worker=worker,
                 request=request,
-                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                prompt_vars=SafeDict(task_id="TASK-001", task_text="test task"),
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
@@ -734,16 +730,16 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertTrue(ok)
 
-    @patch("orc_core.task_execution._git_status_porcelain", return_value=(True, " M tracked.py\n"))
+    @patch("orc_core.task_agent_phases._git_status_porcelain", return_value=(True, " M tracked.py\n"))
     def test_commit_phase_launch_failure_returns_false_not_exception(self, *_mocks) -> None:
         worker = _FailingWorker()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir, commit_phase=True, allow_fallback_commits=False)
-            ok = task_execution._run_commit_phase(
+            ok = run_commit_phase(
                 worker=worker,
                 request=request,
-                prompt_vars=task_execution.SafeDict(task_id="TASK-001", task_text="test task"),
+                prompt_vars=SafeDict(task_id="TASK-001", task_text="test task"),
                 task_id="TASK-001",
                 tag="tag",
                 log_path=Path(tmpdir) / ".orc" / "orc.log",
@@ -754,7 +750,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertFalse(ok)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
@@ -771,11 +767,11 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertTrue(isinstance(launch_path, str) and launch_path.endswith(".log"))
         self.assertIn(".orc/run/raw-stream/", launch_path)
 
-    @patch("orc_core.task_execution.integrate_commit_into_main")
+    @patch("orc_core.task_execution_finalize.integrate_commit_into_main")
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=False)
-    @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution_finalize.has_commits_ahead_of_branch", return_value=False)
+    @patch("orc_core.task_execution_finalize.get_head_commit", return_value="abc123")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
@@ -790,14 +786,14 @@ class TaskExecutionEngineTest(unittest.TestCase):
             result = engine.execute(request)
 
         self.assertEqual(result.status, "completed")
-        task_execution.integrate_commit_into_main.assert_not_called()
+        task_execution_finalize.integrate_commit_into_main.assert_not_called()
 
-    @patch("orc_core.task_execution.run_merge_expert_phase", return_value=True)
-    @patch("orc_core.task_execution.integrate_commit_into_main")
+    @patch("orc_core.task_execution_finalize.run_merge_expert_phase", return_value=True)
+    @patch("orc_core.task_execution_finalize.integrate_commit_into_main")
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution_finalize.has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution_finalize.get_head_commit", return_value="abc123")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
@@ -806,7 +802,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         *_mocks,
     ) -> None:
         task_execution.preflight_main_integration.return_value = SimpleNamespace(ok=True, error="")
-        task_execution.integrate_commit_into_main.side_effect = [
+        task_execution_finalize.integrate_commit_into_main.side_effect = [
             SimpleNamespace(ok=False, conflict=True, error="conflict"),
             SimpleNamespace(ok=True, conflict=False, error=""),
         ]
@@ -819,11 +815,11 @@ class TaskExecutionEngineTest(unittest.TestCase):
             result = engine.execute(request)
 
         self.assertEqual(result.status, "completed")
-        self.assertEqual(task_execution.integrate_commit_into_main.call_count, 2)
-        task_execution.run_merge_expert_phase.assert_called_once()
+        self.assertEqual(task_execution_finalize.integrate_commit_into_main.call_count, 2)
+        task_execution_finalize.run_merge_expert_phase.assert_called_once()
 
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     def test_execute_fails_fast_when_main_integration_preflight_fails(self, *_mocks) -> None:
@@ -846,11 +842,11 @@ class TaskExecutionEngineTest(unittest.TestCase):
         )
         self.assertEqual(worker.launch_calls, 0)
 
-    @patch("orc_core.task_execution.integrate_commit_into_main")
+    @patch("orc_core.task_execution_finalize.integrate_commit_into_main")
     @patch("orc_core.task_execution.preflight_main_integration")
-    @patch("orc_core.task_execution.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.task_execution.get_head_commit", return_value="abc123")
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_execution_finalize.has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.task_execution_finalize.get_head_commit", return_value="abc123")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
@@ -859,7 +855,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         *_mocks,
     ) -> None:
         task_execution.preflight_main_integration.return_value = SimpleNamespace(ok=True, error="")
-        task_execution.integrate_commit_into_main.return_value = SimpleNamespace(
+        task_execution_finalize.integrate_commit_into_main.return_value = SimpleNamespace(
             ok=False,
             conflict=False,
             error="checkout main failed: branch is locked",
@@ -880,7 +876,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
             request = replace(request, integrate_to_main=True)
-            with patch("orc_core.task_execution.timeline_step", side_effect=_tracking_timeline_step):
+            with patch("orc_core.task_execution.timeline_step", side_effect=_tracking_timeline_step), \
+                 patch("orc_core.task_execution_finalize.timeline_step", side_effect=_tracking_timeline_step):
                 result = engine.execute(request)
 
         self.assertEqual(result.status, "failed")
@@ -892,7 +889,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         ]
         self.assertIn("main_integration_failed:checkout_failed", reasons)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -940,7 +937,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             ],
         )
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -963,7 +960,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.reason, "model_unavailable")
         self.assertEqual(worker.launch_calls, 2)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -985,7 +982,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.reason, "stage_artifact_design_missing")
         self.assertEqual(worker.launch_calls, 2)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -1036,7 +1033,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             ],
         )
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -1069,7 +1066,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.reason, "sdlc_feedback_limit_exceeded")
         self.assertEqual(worker.launch_calls, 8)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -1100,7 +1097,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 2)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -1127,7 +1124,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.reason, "stage_artifact_implementation_missing")
         self.assertEqual(worker.launch_calls, 2)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -1170,7 +1167,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertFalse(wait_for_completion.call_args_list[0].kwargs["ignore_initial_backlog_done"])
         self.assertTrue(wait_for_completion.call_args_list[1].kwargs["ignore_initial_backlog_done"])
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
@@ -1206,7 +1203,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(result.reason, "testing_failed")
         self.assertEqual(worker.launch_calls, 3)
 
-    @patch("orc_core.task_execution.kill_process_tree")
+    @patch("orc_core.task_agent_phases.kill_process_tree")
     @patch("orc_core.task_execution.update_task_restart_count")
     @patch("orc_core.task_execution.write_task_file")
     @patch("orc_core.task_execution.wait_for_completion")
