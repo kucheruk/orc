@@ -6,14 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.task_execution import TaskExecutionEngine
-from orc_core.task_execution_types import (
+from orc_core.tasks.task_execution import TaskExecutionEngine
+from orc_core.tasks.task_execution_types import (
     ModelConfig,
     TaskExecutionRequest,
     TemplateConfig,
     TimingConfig,
 )
-from orc_core.task_source import Task
+from orc_core.tasks.task_source import Task
 
 
 class _FakeProc:
@@ -110,9 +110,9 @@ def _request(tmpdir: str) -> TaskExecutionRequest:
     )
 
 class WaitingForInputNoticeTest(unittest.TestCase):
-    @patch("orc_core.task_execution._cleanup_monitor_processes")
-    @patch("orc_core.task_execution.wait_for_completion", return_value="waiting_for_input")
-    @patch("orc_core.task_execution._logger")
+    @patch("orc_core.tasks.task_execution._cleanup_monitor_processes")
+    @patch("orc_core.tasks.task_execution.wait_for_completion", return_value="waiting_for_input")
+    @patch("orc_core.tasks.task_execution._logger")
     def test_waiting_for_input_prints_visible_status(self, logger_mock, *_mocks) -> None:
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))

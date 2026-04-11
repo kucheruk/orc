@@ -12,7 +12,7 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Label
 
-from ...kanban_snapshot import CardSnapshot
+from ...board.kanban_snapshot import CardSnapshot
 
 _SPINNER = "⣾⣽⣻⢿⡿⣟⣯⣷"
 _logger = logging.getLogger(__name__)

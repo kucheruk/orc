@@ -4,7 +4,7 @@
 
 from textual.message import Message
 
-from ..kanban_snapshot import JournalEntry, KanbanBoardSnapshot
+from ..board.kanban_snapshot import JournalEntry, KanbanBoardSnapshot
 
 
 class BoardUpdated(Message):

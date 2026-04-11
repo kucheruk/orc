@@ -5,10 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.kanban_board import KanbanBoard
-from orc_core.kanban_card import KanbanCard, write_card
-from orc_core.kanban_init import init_kanban_board
-from orc_core.kanban_pull import (
+from orc_core.board.kanban_board import KanbanBoard
+from orc_core.board.kanban_card import KanbanCard, write_card
+from orc_core.board.kanban_init import init_kanban_board
+from orc_core.board.kanban_pull import (
     ROLE_ARCHITECT,
     ROLE_CODER,
     ROLE_INTEGRATOR,

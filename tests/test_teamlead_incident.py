@@ -9,10 +9,10 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from orc_core.kanban_board import KanbanBoard
-from orc_core.kanban_card import KanbanCard, write_card
-from orc_core.kanban_init import init_kanban_board
-from orc_core.teamlead_incident import (
+from orc_core.board.kanban_board import KanbanBoard
+from orc_core.board.kanban_card import KanbanCard, write_card
+from orc_core.board.kanban_init import init_kanban_board
+from orc_core.agents.teamlead_incident import (
     DECISION_FILENAME,
     FIX_CARD_PREFIX,
     Incident,
@@ -290,12 +290,12 @@ class TestCreateExpediteCard(unittest.TestCase):
 class TestSessionSlotCrashTraceback(unittest.TestCase):
 
     def test_default_empty(self):
-        from orc_core.session_types import SessionSlot
+        from orc_core.agents.session_types import SessionSlot
         slot = SessionSlot(session_id="s1")
         self.assertEqual(slot.crash_traceback, "")
 
     def test_can_set(self):
-        from orc_core.session_types import SessionSlot
+        from orc_core.agents.session_types import SessionSlot
         slot = SessionSlot(session_id="s1")
         slot.crash_traceback = "Traceback..."
         self.assertEqual(slot.crash_traceback, "Traceback...")
@@ -307,7 +307,7 @@ class TestSessionSlotCrashTraceback(unittest.TestCase):
 class TestPublisherLogIncident(unittest.TestCase):
 
     def test_emits_incident_event(self):
-        from orc_core.kanban_publisher import KanbanPublisher
+        from orc_core.agents.kanban_publisher import KanbanPublisher
         pub = KanbanPublisher()
         events = []
         pub.journal_callback = lambda e: events.append(e)

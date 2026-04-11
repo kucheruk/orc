@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from orc_core.integration_manager import IntegrationContext, IntegrationManager
-from orc_core.session_types import SessionSlot, SlotStatus
-from orc_core.task_source import Task
+from orc_core.git.integration_manager import IntegrationContext, IntegrationManager
+from orc_core.agents.session_types import SessionSlot, SlotStatus
+from orc_core.tasks.task_source import Task
 
 
 def _make_slot(sid: str = "s1") -> SessionSlot:
@@ -40,7 +40,7 @@ class IntegrationContextTest(unittest.TestCase):
 
 
 class IntegrationManagerLockTest(unittest.TestCase):
-    @patch("orc_core.integration_manager.IntegrationManager._execute")
+    @patch("orc_core.git.integration_manager.IntegrationManager._execute")
     def test_integrate_acquires_lock(self, exec_mock) -> None:
         exec_mock.return_value = True
         mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))
@@ -48,7 +48,7 @@ class IntegrationManagerLockTest(unittest.TestCase):
         self.assertTrue(result)
         exec_mock.assert_called_once()
 
-    @patch("orc_core.integration_manager.IntegrationManager._execute")
+    @patch("orc_core.git.integration_manager.IntegrationManager._execute")
     def test_integrate_catches_exception(self, exec_mock) -> None:
         exec_mock.side_effect = RuntimeError("boom")
         mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))
@@ -58,7 +58,7 @@ class IntegrationManagerLockTest(unittest.TestCase):
 
 
 class RecoverStaleGitStateTest(unittest.TestCase):
-    @patch("orc_core.integration_manager.run_git")
+    @patch("orc_core.git.integration_manager.run_git")
     def test_no_abort_when_no_marker_files(self, git_mock) -> None:
         git_mock.return_value = (True, ".git\n", "", 0)  # rev-parse --git-dir
         mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))

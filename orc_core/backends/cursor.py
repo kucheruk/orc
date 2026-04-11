@@ -7,8 +7,8 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from ..agent_preflight import AgentNotInstalledError
-from ..logging import log_event
+from ..cli.agent_preflight import AgentNotInstalledError
+from ..infra.logging import log_event
 
 
 class CursorBackend:
@@ -64,12 +64,12 @@ class CursorBackend:
         return cmd
 
     def setup_hooks(self, workdir: str, log_path: Path) -> None:
-        from ..hooks import ensure_repo_hooks, ensure_repo_hooks_config
+        from ..tasks.hooks import ensure_repo_hooks, ensure_repo_hooks_config
         before_path, stop_path = ensure_repo_hooks(workdir)
         ensure_repo_hooks_config(workdir, before_path, stop_path, log_path)
 
     def get_resume_id(self, workdir: str, log_path: Path) -> Optional[str]:
-        from ..task_state import get_resume_id_from_agent_ls
+        from ..tasks.task_state import get_resume_id_from_agent_ls
         return get_resume_id_from_agent_ls(workdir, log_path)
 
     def default_model(self) -> str:

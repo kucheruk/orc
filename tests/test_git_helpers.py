@@ -6,32 +6,32 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from orc_core import git_helpers
-from orc_core.failure_reasons import IntegrationErrorKind
+from orc_core.git import git_helpers
+from orc_core.infra.failure_reasons import IntegrationErrorKind
 
 
 class GitStatusPorcelainTest(unittest.TestCase):
-    @patch("orc_core.git_helpers.subprocess.run")
+    @patch("orc_core.git.git_helpers.subprocess.run")
     def test_returns_stdout_on_success(self, run_mock) -> None:
         run_mock.return_value = MagicMock(returncode=0, stdout=" M file.py\n?? new.py\n", stderr="")
         ok, output = git_helpers.git_status_porcelain("/tmp/repo", Path("/tmp/orc.log"))
         self.assertTrue(ok)
         self.assertIn("file.py", output)
 
-    @patch("orc_core.git_helpers.subprocess.run")
+    @patch("orc_core.git.git_helpers.subprocess.run")
     def test_returns_false_on_nonzero_exit(self, run_mock) -> None:
         run_mock.return_value = MagicMock(returncode=128, stdout="", stderr="fatal: not a repo")
         ok, output = git_helpers.git_status_porcelain("/tmp/repo", Path("/tmp/orc.log"))
         self.assertFalse(ok)
         self.assertEqual(output, "")
 
-    @patch("orc_core.git_helpers.subprocess.run")
+    @patch("orc_core.git.git_helpers.subprocess.run")
     def test_returns_false_on_timeout(self, run_mock) -> None:
         run_mock.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=20)
         ok, output = git_helpers.git_status_porcelain("/tmp/repo", Path("/tmp/orc.log"))
         self.assertFalse(ok)
 
-    @patch("orc_core.git_helpers.subprocess.run")
+    @patch("orc_core.git.git_helpers.subprocess.run")
     def test_returns_false_on_exception(self, run_mock) -> None:
         run_mock.side_effect = OSError("disk error")
         ok, output = git_helpers.git_status_porcelain("/tmp/repo", Path("/tmp/orc.log"))
@@ -77,7 +77,7 @@ class IsRuntimeArtifactTest(unittest.TestCase):
 
 
 class GitRunTest(unittest.TestCase):
-    @patch("orc_core.git_helpers.subprocess.run")
+    @patch("orc_core.git.git_helpers.subprocess.run")
     def test_success_returns_ok_and_output(self, run_mock) -> None:
         run_mock.return_value = MagicMock(returncode=0, stdout="abc123\n", stderr="")
         ok, stdout, stderr, rc = git_helpers.git_run("/tmp", Path("/tmp/orc.log"), ["git", "rev-parse", "HEAD"], "test")
@@ -85,14 +85,14 @@ class GitRunTest(unittest.TestCase):
         self.assertEqual(stdout, "abc123\n")
         self.assertEqual(rc, 0)
 
-    @patch("orc_core.git_helpers.subprocess.run")
+    @patch("orc_core.git.git_helpers.subprocess.run")
     def test_failure_returns_not_ok(self, run_mock) -> None:
         run_mock.return_value = MagicMock(returncode=1, stdout="", stderr="error")
         ok, stdout, stderr, rc = git_helpers.git_run("/tmp", Path("/tmp/orc.log"), ["git", "status"], "test")
         self.assertFalse(ok)
         self.assertEqual(rc, 1)
 
-    @patch("orc_core.git_helpers.subprocess.run")
+    @patch("orc_core.git.git_helpers.subprocess.run")
     def test_timeout_returns_code_124(self, run_mock) -> None:
         run_mock.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=20)
         ok, stdout, stderr, rc = git_helpers.git_run("/tmp", Path("/tmp/orc.log"), ["git", "status"], "test")
@@ -102,24 +102,24 @@ class GitRunTest(unittest.TestCase):
 
 
 class HasCommitsAheadTest(unittest.TestCase):
-    @patch("orc_core.git_helpers.git_run")
+    @patch("orc_core.git.git_helpers.git_run")
     def test_returns_true_when_commits_ahead(self, git_mock) -> None:
         git_mock.return_value = (True, "3\n", "", 0)
         self.assertTrue(git_helpers.has_commits_ahead_of_branch("/tmp", "main", Path("/tmp/orc.log")))
 
-    @patch("orc_core.git_helpers.git_run")
+    @patch("orc_core.git.git_helpers.git_run")
     def test_returns_false_when_zero_ahead(self, git_mock) -> None:
         git_mock.return_value = (True, "0\n", "", 0)
         self.assertFalse(git_helpers.has_commits_ahead_of_branch("/tmp", "main", Path("/tmp/orc.log")))
 
-    @patch("orc_core.git_helpers.git_run")
+    @patch("orc_core.git.git_helpers.git_run")
     def test_returns_false_on_failure(self, git_mock) -> None:
         git_mock.return_value = (False, "", "error", 1)
         self.assertFalse(git_helpers.has_commits_ahead_of_branch("/tmp", "main", Path("/tmp/orc.log")))
 
 
 class AutocommitFallbackTest(unittest.TestCase):
-    @patch("orc_core.git_helpers.git_run")
+    @patch("orc_core.git.git_helpers.git_run")
     def test_succeeds_when_all_git_commands_pass(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, "", "", 0),   # git add -A
@@ -128,7 +128,7 @@ class AutocommitFallbackTest(unittest.TestCase):
         ]
         self.assertTrue(git_helpers.attempt_autocommit_fallback("/tmp", Path("/tmp/orc.log"), "TASK-1", "Fix bug"))
 
-    @patch("orc_core.git_helpers.git_run")
+    @patch("orc_core.git.git_helpers.git_run")
     def test_returns_true_when_nothing_to_commit(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, "", "", 0),   # git add -A
@@ -136,7 +136,7 @@ class AutocommitFallbackTest(unittest.TestCase):
         ]
         self.assertTrue(git_helpers.attempt_autocommit_fallback("/tmp", Path("/tmp/orc.log"), "TASK-1", ""))
 
-    @patch("orc_core.git_helpers.git_run")
+    @patch("orc_core.git.git_helpers.git_run")
     def test_returns_false_when_add_fails(self, git_mock) -> None:
         git_mock.return_value = (False, "", "error", 1)
         self.assertFalse(git_helpers.attempt_autocommit_fallback("/tmp", Path("/tmp/orc.log"), "TASK-1", ""))

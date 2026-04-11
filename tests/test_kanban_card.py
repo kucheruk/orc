@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.kanban_card import (
+from orc_core.board.kanban_card import (
     KanbanCard,
     new_card_body,
     parse_card,

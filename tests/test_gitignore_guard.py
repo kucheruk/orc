@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.gitignore_guard import validate_workspace_gitignore
+from orc_core.git.gitignore_guard import validate_workspace_gitignore
 
 
 class GitignoreGuardTest(unittest.TestCase):

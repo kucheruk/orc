@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.process import acquire_lock, kill_orphan_project_processes, release_lock
+from orc_core.infra.process import acquire_lock, kill_orphan_project_processes, release_lock
 
 
 class _FakeOrphanProcess:
@@ -57,7 +57,7 @@ class ProcessLockTest(unittest.TestCase):
             self.assertIn("started_at", payload)
             release_lock(lock_path, log_path)
 
-    @patch("orc_core.process.is_pid_alive", return_value=False)
+    @patch("orc_core.infra.process.is_pid_alive", return_value=False)
     def test_acquire_lock_replaces_stale_lock(self, _alive_mock) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -70,7 +70,7 @@ class ProcessLockTest(unittest.TestCase):
             self.assertNotEqual(int(payload.get("pid") or 0), 123)
             release_lock(lock_path, log_path)
 
-    @patch("orc_core.process.is_pid_alive", return_value=True)
+    @patch("orc_core.infra.process.is_pid_alive", return_value=True)
     def test_acquire_lock_fails_when_active_lock_exists(self, _alive_mock) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -95,9 +95,9 @@ class ProcessLockTest(unittest.TestCase):
 
 
 class OrphanSweepTest(unittest.TestCase):
-    @patch("orc_core.process.log_event")
-    @patch("orc_core.process.psutil.wait_procs", return_value=([], []))
-    @patch("orc_core.process.os.getpid", return_value=999_999)
+    @patch("orc_core.infra.process.log_event")
+    @patch("orc_core.infra.process.psutil.wait_procs", return_value=([], []))
+    @patch("orc_core.infra.process.os.getpid", return_value=999_999)
     def test_orphan_sweep_does_not_match_neighbor_prefix_path(self, _pid_mock, _wait_mock, _log_mock) -> None:
         workspace = "/repo/orc"
         neighbor = _FakeOrphanProcess(
@@ -106,7 +106,7 @@ class OrphanSweepTest(unittest.TestCase):
             cwd="/repo/orc_two",
             cmdline=["python3", "/repo/orc_two/.cursor/hooks/orc_stop.py"],
         )
-        with patch("orc_core.process.psutil.process_iter", return_value=[neighbor]):
+        with patch("orc_core.infra.process.psutil.process_iter", return_value=[neighbor]):
             killed = kill_orphan_project_processes(
                 workspace,
                 Path("/tmp/orc.log"),
@@ -116,9 +116,9 @@ class OrphanSweepTest(unittest.TestCase):
         self.assertEqual(killed, [])
         self.assertFalse(neighbor.terminated)
 
-    @patch("orc_core.process.log_event")
-    @patch("orc_core.process.psutil.wait_procs", return_value=([], []))
-    @patch("orc_core.process.os.getpid", return_value=999_999)
+    @patch("orc_core.infra.process.log_event")
+    @patch("orc_core.infra.process.psutil.wait_procs", return_value=([], []))
+    @patch("orc_core.infra.process.os.getpid", return_value=999_999)
     def test_orphan_sweep_matches_workspace_subdirectory(self, _pid_mock, _wait_mock, _log_mock) -> None:
         workspace = "/repo/orc"
         owned = _FakeOrphanProcess(
@@ -127,7 +127,7 @@ class OrphanSweepTest(unittest.TestCase):
             cwd="/repo/orc/.cursor/hooks",
             cmdline=["python3", "/repo/orc/.cursor/hooks/orc_stop.py"],
         )
-        with patch("orc_core.process.psutil.process_iter", return_value=[owned]):
+        with patch("orc_core.infra.process.psutil.process_iter", return_value=[owned]):
             killed = kill_orphan_project_processes(
                 workspace,
                 Path("/tmp/orc.log"),
@@ -137,9 +137,9 @@ class OrphanSweepTest(unittest.TestCase):
         self.assertEqual(killed, [1002])
         self.assertTrue(owned.terminated)
 
-    @patch("orc_core.process.log_event")
-    @patch("orc_core.process.psutil.wait_procs", return_value=([], []))
-    @patch("orc_core.process.os.getpid", return_value=999_999)
+    @patch("orc_core.infra.process.log_event")
+    @patch("orc_core.infra.process.psutil.wait_procs", return_value=([], []))
+    @patch("orc_core.infra.process.os.getpid", return_value=999_999)
     def test_orphan_sweep_matches_by_orc_run_token(self, _pid_mock, _wait_mock, _log_mock) -> None:
         token = "run-token-1"
         token_proc = _FakeOrphanProcess(
@@ -149,7 +149,7 @@ class OrphanSweepTest(unittest.TestCase):
             cmdline=["python3", "worker.py"],
             env={"ORC_RUN_TOKEN": token},
         )
-        with patch("orc_core.process.psutil.process_iter", return_value=[token_proc]):
+        with patch("orc_core.infra.process.psutil.process_iter", return_value=[token_proc]):
             killed = kill_orphan_project_processes(
                 "/repo/orc",
                 Path("/tmp/orc.log"),
@@ -160,9 +160,9 @@ class OrphanSweepTest(unittest.TestCase):
         self.assertEqual(killed, [1003])
         self.assertTrue(token_proc.terminated)
 
-    @patch("orc_core.process.log_event")
-    @patch("orc_core.process.psutil.wait_procs", return_value=([], []))
-    @patch("orc_core.process.os.getpid", return_value=999_999)
+    @patch("orc_core.infra.process.log_event")
+    @patch("orc_core.infra.process.psutil.wait_procs", return_value=([], []))
+    @patch("orc_core.infra.process.os.getpid", return_value=999_999)
     def test_orphan_sweep_does_not_match_token_mismatch(self, _pid_mock, _wait_mock, _log_mock) -> None:
         token_proc = _FakeOrphanProcess(
             pid=1004,
@@ -171,7 +171,7 @@ class OrphanSweepTest(unittest.TestCase):
             cmdline=["python3", "worker.py"],
             env={"ORC_RUN_TOKEN": "another-token"},
         )
-        with patch("orc_core.process.psutil.process_iter", return_value=[token_proc]):
+        with patch("orc_core.infra.process.psutil.process_iter", return_value=[token_proc]):
             killed = kill_orphan_project_processes(
                 "/repo/orc",
                 Path("/tmp/orc.log"),
@@ -182,9 +182,9 @@ class OrphanSweepTest(unittest.TestCase):
         self.assertEqual(killed, [])
         self.assertFalse(token_proc.terminated)
 
-    @patch("orc_core.process.log_event")
-    @patch("orc_core.process.psutil.wait_procs", return_value=([], []))
-    @patch("orc_core.process.os.getpid", return_value=999_999)
+    @patch("orc_core.infra.process.log_event")
+    @patch("orc_core.infra.process.psutil.wait_procs", return_value=([], []))
+    @patch("orc_core.infra.process.os.getpid", return_value=999_999)
     def test_orphan_sweep_does_not_treat_relative_cmdline_as_workspace_path(self, _pid_mock, _wait_mock, _log_mock) -> None:
         workspace = str(Path.cwd())
         foreign = _FakeOrphanProcess(
@@ -193,7 +193,7 @@ class OrphanSweepTest(unittest.TestCase):
             cwd="/tmp/foreign",
             cmdline=["pytest", "-k", "test_something"],
         )
-        with patch("orc_core.process.psutil.process_iter", return_value=[foreign]):
+        with patch("orc_core.infra.process.psutil.process_iter", return_value=[foreign]):
             killed = kill_orphan_project_processes(
                 workspace,
                 Path("/tmp/orc.log"),

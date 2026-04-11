@@ -17,7 +17,7 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Label, ProgressBar, RichLog, Static
 
-from ...session_types import (
+from ...agents.session_types import (
     EVENTS_LINES_FULL,
     EVENTS_LINES_MEDIUM,
     HEADING_MAX_LENGTH,
@@ -39,7 +39,7 @@ from ...session_types import (
     STATUS_TRUNCATE_FULL,
     STATUS_TRUNCATE_MEDIUM,
 )
-from ...stream_monitor_state import MonitorSnapshot
+from ...infra.stream_monitor_state import MonitorSnapshot
 
 
 _STATUS_TRUNCATE = {

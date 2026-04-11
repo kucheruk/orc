@@ -6,11 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.kanban_board import KanbanBoard
-from orc_core.kanban_card import KanbanCard, write_card
-from orc_core.kanban_init import init_kanban_board
-from orc_core.kanban_agent_output import process_agent_result
-from orc_core.kanban_pull import find_next_work, find_teamlead_work
+from orc_core.board.kanban_board import KanbanBoard
+from orc_core.board.kanban_card import KanbanCard, write_card
+from orc_core.board.kanban_init import init_kanban_board
+from orc_core.agents.kanban_agent_output import process_agent_result
+from orc_core.board.kanban_pull import find_next_work, find_teamlead_work
 
 
 def _setup(tmp: str) -> tuple[Path, KanbanBoard]:
@@ -36,7 +36,7 @@ def _simulate_agent(board: KanbanBoard, card: KanbanCard, role: str, **overrides
     assert fresh is not None, f"Card {card.id} not found on board"
 
     # Read card from disk, apply overrides, write back (as the agent would)
-    from orc_core.kanban_card import read_card
+    from orc_core.board.kanban_card import read_card
     disk_card = read_card(fresh.file_path)
     for key, value in overrides.items():
         setattr(disk_card, key, value)
@@ -185,6 +185,17 @@ class TestAutoDefault(unittest.TestCase):
             self.assertEqual(errors, [])
             card = board.card_by_id("AD-3")
             self.assertEqual(card.stage, "7_Handoff")
+
+    def test_integrator_auto_defaults_to_done(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, board = _setup(tmp)
+            _add(td, board, KanbanCard(id="AD-4", stage="7_Handoff", action="Integrating"))
+
+            errors = _simulate_agent(board, board.card_by_id("AD-4"), "integrator")
+            self.assertEqual(errors, [])
+            card = board.card_by_id("AD-4")
+            self.assertEqual(card.stage, "8_Done")
+            self.assertEqual(card.action, "Done")
 
 
 class TestWIPEnforcement(unittest.TestCase):

@@ -5,10 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.kanban_board import KanbanBoard
-from orc_core.kanban_card import KanbanCard, write_card
-from orc_core.kanban_init import init_kanban_board
-from orc_core.kanban_agent_output import process_agent_result
+from orc_core.board.kanban_board import KanbanBoard
+from orc_core.board.kanban_card import KanbanCard, write_card
+from orc_core.board.kanban_init import init_kanban_board
+from orc_core.agents.kanban_agent_output import process_agent_result
 
 
 def _setup(tmp: str) -> tuple[Path, KanbanBoard]:
@@ -165,7 +165,7 @@ class TestCardValidation(unittest.TestCase):
 class TestKanbanTaskSource(unittest.TestCase):
 
     def test_list_tasks(self):
-        from orc_core.kanban_task_source import KanbanTaskSource
+        from orc_core.board.kanban_task_source import KanbanTaskSource
         with tempfile.TemporaryDirectory() as tmp:
             td = init_kanban_board(Path(tmp))
             _add(td, KanbanCard(id="TS-1", stage="4_Coding", action="Coding", title="Code it"))
@@ -178,7 +178,7 @@ class TestKanbanTaskSource(unittest.TestCase):
             self.assertEqual(open_tasks[0].task_id, "TS-1")
 
     def test_is_task_done(self):
-        from orc_core.kanban_task_source import KanbanTaskSource
+        from orc_core.board.kanban_task_source import KanbanTaskSource
         with tempfile.TemporaryDirectory() as tmp:
             td = init_kanban_board(Path(tmp))
             _add(td, KanbanCard(id="TS-3", stage="8_Done", action="Done", title="Finished"))

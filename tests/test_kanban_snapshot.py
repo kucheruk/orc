@@ -6,10 +6,10 @@ import unittest
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from orc_core.kanban_board import KanbanBoard
-from orc_core.kanban_card import KanbanCard, write_card
-from orc_core.kanban_init import init_kanban_board
-from orc_core.kanban_snapshot import (
+from orc_core.board.kanban_board import KanbanBoard
+from orc_core.board.kanban_card import KanbanCard, write_card
+from orc_core.board.kanban_init import init_kanban_board
+from orc_core.board.kanban_snapshot import (
     JournalEntry,
     build_board_snapshot,
 )
@@ -119,7 +119,7 @@ class TestJournalEntry(unittest.TestCase):
 class TestKanbanPublisher(unittest.TestCase):
 
     def test_journal_callback_called(self):
-        from orc_core.kanban_publisher import KanbanPublisher
+        from orc_core.agents.kanban_publisher import KanbanPublisher
         entries: list[JournalEntry] = []
         pub = KanbanPublisher()
         pub.journal_callback = entries.append
@@ -132,7 +132,7 @@ class TestKanbanPublisher(unittest.TestCase):
         self.assertEqual(entries[2].category, "escalate")
 
     def test_no_callback_no_error(self):
-        from orc_core.kanban_publisher import KanbanPublisher
+        from orc_core.agents.kanban_publisher import KanbanPublisher
         pub = KanbanPublisher()
         pub.log_inbox("T-1", "test")  # should not raise
 

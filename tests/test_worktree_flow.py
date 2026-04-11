@@ -5,11 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core import worktree_flow
+from orc_core.git import worktree_flow
 
 
 class WorktreeFlowTest(unittest.TestCase):
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_detect_base_branch_prefers_main_when_exists(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, "refs/heads/main\n", "", 0),
@@ -17,7 +17,7 @@ class WorktreeFlowTest(unittest.TestCase):
         branch = worktree_flow.detect_base_branch("/tmp/repo")
         self.assertEqual(branch, "main")
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_detect_base_branch_falls_back_to_master(self, git_mock) -> None:
         git_mock.side_effect = [
             (False, "", "fatal: bad revision", 128),
@@ -26,7 +26,7 @@ class WorktreeFlowTest(unittest.TestCase):
         branch = worktree_flow.detect_base_branch("/tmp/repo")
         self.assertEqual(branch, "master")
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_cherry_pick_detects_conflict_by_unmerged_files(self, git_mock) -> None:
         git_mock.side_effect = [
             (False, "", "", 1),  # cherry-pick failed, no stderr hint
@@ -37,7 +37,7 @@ class WorktreeFlowTest(unittest.TestCase):
         self.assertTrue(conflict)
         self.assertEqual(error, "")
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_integrate_commit_fails_when_base_repo_dirty(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, " M tracked.py\n", "", 0),  # tracked status
@@ -53,7 +53,7 @@ class WorktreeFlowTest(unittest.TestCase):
         self.assertIn("dirty", result.error)
         self.assertIn("tracked:tracked.py", result.error)
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_integrate_commit_returns_already_integrated(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, "", "", 0),  # tracked status clean
@@ -71,7 +71,7 @@ class WorktreeFlowTest(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.already_integrated)
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_integrate_commit_ignores_runtime_untracked_before_integration(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, "", "", 0),  # tracked status clean
@@ -99,7 +99,7 @@ class WorktreeFlowTest(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.already_integrated)
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_integrate_commit_fails_when_non_runtime_untracked_exists(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, "", "", 0),  # tracked status clean
@@ -115,7 +115,7 @@ class WorktreeFlowTest(unittest.TestCase):
         self.assertIn("dirty", result.error)
         self.assertIn("untracked:notes.txt", result.error)
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_integrate_commit_ignores_runtime_tracked_before_integration(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, " M .cursor/orc-stop-request.json\n", "", 0),  # tracked runtime artifact
@@ -133,7 +133,7 @@ class WorktreeFlowTest(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.already_integrated)
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_integrate_commit_treats_empty_cherry_pick_as_already_integrated(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, "", "", 0),  # tracked status clean
@@ -158,7 +158,7 @@ class WorktreeFlowTest(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.already_integrated)
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_integrate_commit_handles_collapsed_cursor_status_entry(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, "?? .cursor/\n", "", 0),  # tracked status (unexpected collapsed entry)
@@ -176,7 +176,7 @@ class WorktreeFlowTest(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.already_integrated)
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_cleanup_worktree_force_removes_when_only_orc_runtime_dirty(self, git_mock) -> None:
         session = worktree_flow.WorktreeSession(
             base_workdir="/tmp/repo",
@@ -199,7 +199,7 @@ class WorktreeFlowTest(unittest.TestCase):
             ["git", "worktree", "remove", "--force", session.worktree_path],
         )
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_cleanup_worktree_force_removes_when_only_cursor_runtime_dirty(self, git_mock) -> None:
         session = worktree_flow.WorktreeSession(
             base_workdir="/tmp/repo",
@@ -222,7 +222,7 @@ class WorktreeFlowTest(unittest.TestCase):
             ["git", "worktree", "remove", "--force", session.worktree_path],
         )
 
-    @patch("orc_core.worktree_flow.run_git")
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_cleanup_worktree_fails_when_dirty_paths_not_in_orc(self, git_mock) -> None:
         session = worktree_flow.WorktreeSession(
             base_workdir="/tmp/repo",

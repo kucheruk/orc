@@ -6,14 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.task_execution import TaskExecutionEngine
-from orc_core.task_execution_types import (
+from orc_core.tasks.task_execution import TaskExecutionEngine
+from orc_core.tasks.task_execution_types import (
     ModelConfig,
     TaskExecutionRequest,
     TemplateConfig,
     TimingConfig,
 )
-from orc_core.task_source import Task
+from orc_core.tasks.task_source import Task
 
 
 class _FakeProc:
@@ -113,10 +113,10 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
             agent_output_log_path=None,
         )
 
-    @patch("orc_core.task_agent_phases.kill_process_tree")
-    @patch("orc_core.task_execution.update_task_restart_count")
-    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
-    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
+    @patch("orc_core.tasks.task_execution.update_task_restart_count")
+    @patch("orc_core.tasks.task_execution.wait_for_completion", return_value="completed")
+    @patch("orc_core.tasks.task_execution.write_task_file")
     def test_blank_resume_id_auto_drops_and_starts_fresh(self, write_task_file, *_mocks) -> None:
         """Blank conversation_id + restart_count=0 means the task never ran.
         Auto-drop stale state and start fresh instead of failing."""
@@ -136,10 +136,10 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.task_agent_phases.kill_process_tree")
-    @patch("orc_core.task_execution.update_task_restart_count")
-    @patch("orc_core.task_execution.wait_for_completion", return_value="completed")
-    @patch("orc_core.task_execution.write_task_file")
+    @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
+    @patch("orc_core.tasks.task_execution.update_task_restart_count")
+    @patch("orc_core.tasks.task_execution.wait_for_completion", return_value="completed")
+    @patch("orc_core.tasks.task_execution.write_task_file")
     def test_blank_resume_id_with_restarts_auto_drops(self, write_task_file, *_mocks) -> None:
         """Blank conversation_id + restart_count>0: agent was killed before hook
         could write conversation_id. Auto-drop and start fresh."""

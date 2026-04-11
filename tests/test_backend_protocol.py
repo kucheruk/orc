@@ -3,7 +3,7 @@
 
 import unittest
 
-from orc_core.backend import Backend, SUPPORTED_BACKENDS, get_backend
+from orc_core.infra.backend import Backend, SUPPORTED_BACKENDS, get_backend
 from orc_core.backends.cursor import CursorBackend
 from orc_core.backends.claude import ClaudeBackend
 from orc_core.backends.codex import CodexBackend

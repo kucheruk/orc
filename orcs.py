@@ -73,7 +73,7 @@ if __name__ == "__main__":
     project_root = Path(__file__).resolve().parent
     runtime_deps = _runtime_dependency_modules(project_root)
     try:
-        from orc_core.cli_app import main_multi
+        from orc_core.cli.cli_app import main_multi
     except ModuleNotFoundError as exc:
         if exc.name in runtime_deps and os.environ.get("ORC_BOOTSTRAPPED") != "1":
             raise SystemExit(_run_from_orc_project())

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.model_selector import (
+from orc_core.cli.model_selector import (
     DEFAULT_MODEL,
     ModelSelectionError,
     choose_model_interactive,
@@ -46,7 +46,7 @@ class ModelSelectorStateTest(unittest.TestCase):
 
 
 class ModelSelectorCommandTest(unittest.TestCase):
-    @patch("orc_core.model_selector.subprocess.run")
+    @patch("orc_core.cli.model_selector.subprocess.run")
     def test_list_supported_models_parses_non_empty_lines(self, run_mock) -> None:
         run_mock.return_value.returncode = 0
         run_mock.return_value.stdout = "gpt-5.3-codex - GPT 5.3 Codex\nsonnet-4.5 - Sonnet\n\n"
@@ -54,7 +54,7 @@ class ModelSelectorCommandTest(unittest.TestCase):
         models = list_supported_models()
         self.assertEqual(models, ["gpt-5.3-codex", "sonnet-4.5"])
 
-    @patch("orc_core.model_selector.subprocess.run")
+    @patch("orc_core.cli.model_selector.subprocess.run")
     def test_list_supported_models_ignores_ansi_and_non_model_lines(self, run_mock) -> None:
         run_mock.return_value.returncode = 0
         run_mock.return_value.stdout = (
@@ -68,7 +68,7 @@ class ModelSelectorCommandTest(unittest.TestCase):
         models = list_supported_models()
         self.assertEqual(models, ["auto", "gpt-5.3-codex", "composer-1.5"])
 
-    @patch("orc_core.model_selector.subprocess.run")
+    @patch("orc_core.cli.model_selector.subprocess.run")
     def test_list_supported_models_raises_when_empty(self, run_mock) -> None:
         run_mock.return_value.returncode = 0
         run_mock.return_value.stdout = "\n\n"
@@ -76,7 +76,7 @@ class ModelSelectorCommandTest(unittest.TestCase):
         with self.assertRaises(ModelSelectionError):
             list_supported_models()
 
-    @patch("orc_core.model_selector.subprocess.run")
+    @patch("orc_core.cli.model_selector.subprocess.run")
     def test_list_supported_models_raises_on_timeout(self, run_mock) -> None:
         run_mock.side_effect = subprocess.TimeoutExpired(cmd="agent --list-models", timeout=15.0)
         with self.assertRaises(ModelSelectionError):

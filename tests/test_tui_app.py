@@ -4,9 +4,9 @@
 import unittest
 from unittest.mock import MagicMock
 
-from orc_core.monitor_types import MetricsStore, MonitorSnapshot
+from orc_core.infra.monitor_types import MetricsStore, MonitorSnapshot
 from orc_core.tui.messages import OrchestratorFinished, SnapshotUpdated
-from orc_core.tui_app import OrcApp
+from orc_core.cli.tui_app import OrcApp
 
 
 class OrcAppMessageHandlingTest(unittest.TestCase):

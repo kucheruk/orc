@@ -9,8 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from orc_core import cli_app
-from orc_core.cli_app import _failure_message
+from orc_core.cli import cli_app
+from orc_core.cli.cli_app import _failure_message
 
 
 class CliAppParserTest(unittest.TestCase):
@@ -51,9 +51,9 @@ class CliAppFailureMessageTest(unittest.TestCase):
 class CliAppCrashDiagnosticsTest(unittest.TestCase):
     @patch("sys.stderr", new_callable=io.StringIO)
     @patch("sys.stdout", new_callable=io.StringIO)
-    @patch("orc_core.cli_app.ui_error")
-    @patch("orc_core.cli_app.build_parser")
-    @patch("orc_core.cli_app.ensure_agent_installed", side_effect=RuntimeError("boom"))
+    @patch("orc_core.cli.cli_app.ui_error")
+    @patch("orc_core.cli.cli_app.build_parser")
+    @patch("orc_core.cli.cli_app.ensure_agent_installed", side_effect=RuntimeError("boom"))
     def test_main_emits_crash_json_to_stdout_on_unhandled_exception(
         self,
         _ensure_agent_installed_mock,

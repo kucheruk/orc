@@ -9,8 +9,8 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label
 
-from ...kanban_snapshot import CardSnapshot
-from ...stream_monitor_state import MonitorSnapshot
+from ...board.kanban_snapshot import CardSnapshot
+from ...infra.stream_monitor_state import MonitorSnapshot
 from .session_panel import SessionPanel
 
 

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.state_paths import kanban_state_path
+from orc_core.infra.state_paths import kanban_state_path
 
 
 class TestKanbanStatePath(unittest.TestCase):
@@ -21,7 +21,7 @@ class TestKanbanStatePersistence(unittest.TestCase):
 
     def test_save_and_load_roundtrip(self):
         """Write kanban-state.json, verify it can be read back."""
-        from orc_core.atomic_io import write_json_atomic
+        from orc_core.infra.atomic_io import write_json_atomic
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "kanban-state.json"
             state = {

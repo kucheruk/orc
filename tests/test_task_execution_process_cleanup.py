@@ -6,14 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.task_execution import TaskExecutionEngine
-from orc_core.task_execution_types import (
+from orc_core.tasks.task_execution import TaskExecutionEngine
+from orc_core.tasks.task_execution_types import (
     ModelConfig,
     TaskExecutionRequest,
     TemplateConfig,
     TimingConfig,
 )
-from orc_core.task_source import Task
+from orc_core.tasks.task_source import Task
 
 
 class _FakeMonitor:
@@ -116,15 +116,15 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            with patch("orc_core.task_execution.write_task_file"), patch(
-                "orc_core.task_execution.update_task_restart_count"
+            with patch("orc_core.tasks.task_execution.write_task_file"), patch(
+                "orc_core.tasks.task_execution.update_task_restart_count"
             ), patch(
-                "orc_core.task_execution.wait_for_completion",
+                "orc_core.tasks.task_execution.wait_for_completion",
                 side_effect=KeyboardInterrupt,
             ), patch(
-                "orc_core.task_agent_phases.kill_orphan_project_processes"
+                "orc_core.tasks.task_agent_phases.kill_orphan_project_processes"
             ) as orphan_sweep_mock, patch(
-                "orc_core.task_agent_phases.kill_process_tree"
+                "orc_core.tasks.task_agent_phases.kill_process_tree"
             ) as kill_mock:
                 with self.assertRaises(KeyboardInterrupt):
                     engine.execute(request)
@@ -138,18 +138,18 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            with patch("orc_core.task_execution.write_task_file"), patch(
-                "orc_core.task_execution.update_task_restart_count"
+            with patch("orc_core.tasks.task_execution.write_task_file"), patch(
+                "orc_core.tasks.task_execution.update_task_restart_count"
             ), patch(
-                "orc_core.task_execution.wait_for_completion",
+                "orc_core.tasks.task_execution.wait_for_completion",
                 side_effect=KeyboardInterrupt,
             ), patch(
-                "orc_core.task_agent_phases.terminate_process_group",
+                "orc_core.tasks.task_agent_phases.terminate_process_group",
                 return_value=True,
             ) as terminate_group_mock, patch(
-                "orc_core.task_agent_phases.kill_orphan_project_processes"
+                "orc_core.tasks.task_agent_phases.kill_orphan_project_processes"
             ) as orphan_sweep_mock, patch(
-                "orc_core.task_agent_phases.kill_process_tree"
+                "orc_core.tasks.task_agent_phases.kill_process_tree"
             ) as kill_mock:
                 with self.assertRaises(KeyboardInterrupt):
                     engine.execute(request)
@@ -167,18 +167,18 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            with patch("orc_core.task_execution.write_task_file"), patch(
-                "orc_core.task_execution.update_task_restart_count"
+            with patch("orc_core.tasks.task_execution.write_task_file"), patch(
+                "orc_core.tasks.task_execution.update_task_restart_count"
             ), patch(
-                "orc_core.task_execution.wait_for_completion",
+                "orc_core.tasks.task_execution.wait_for_completion",
                 side_effect=KeyboardInterrupt,
             ), patch(
-                "orc_core.task_agent_phases.terminate_process_group",
+                "orc_core.tasks.task_agent_phases.terminate_process_group",
                 return_value=False,
             ) as terminate_group_mock, patch(
-                "orc_core.task_agent_phases.kill_orphan_project_processes"
+                "orc_core.tasks.task_agent_phases.kill_orphan_project_processes"
             ) as orphan_sweep_mock, patch(
-                "orc_core.task_agent_phases.kill_process_tree"
+                "orc_core.tasks.task_agent_phases.kill_process_tree"
             ) as kill_mock:
                 with self.assertRaises(KeyboardInterrupt):
                     engine.execute(request)

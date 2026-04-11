@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from orc_core.project_hooks import fire_hooks
+from orc_core.git.project_hooks import fire_hooks
 
 
 class FireHooksTest(unittest.TestCase):
@@ -24,7 +24,7 @@ class FireHooksTest(unittest.TestCase):
             (hooks_dir / "on_complete.sh").write_text("#!/bin/sh\necho done")
             (hooks_dir / "on_complete.sh").chmod(0o755)
             # Event is "on_move" but only "on_complete.sh" exists
-            with patch("orc_core.project_hooks.subprocess.Popen") as popen_mock:
+            with patch("orc_core.git.project_hooks.subprocess.Popen") as popen_mock:
                 fire_hooks(tmpdir, "on_move", {})
                 popen_mock.assert_not_called()
 
@@ -35,7 +35,7 @@ class FireHooksTest(unittest.TestCase):
             script = hooks_dir / "on_move.sh"
             script.write_text("#!/bin/sh\necho moved")
             script.chmod(0o755)
-            with patch("orc_core.project_hooks.subprocess.Popen") as popen_mock:
+            with patch("orc_core.git.project_hooks.subprocess.Popen") as popen_mock:
                 fire_hooks(tmpdir, "on_move", {"CARD_ID": "C-1"})
                 popen_mock.assert_called_once()
                 call_kwargs = popen_mock.call_args
@@ -52,7 +52,7 @@ class FireHooksTest(unittest.TestCase):
             script.write_text("#!/bin/sh\necho moved")
             # No execute permission
             script.chmod(0o644)
-            with patch("orc_core.project_hooks.subprocess.Popen") as popen_mock:
+            with patch("orc_core.git.project_hooks.subprocess.Popen") as popen_mock:
                 fire_hooks(tmpdir, "on_move", {})
                 popen_mock.assert_not_called()
 
@@ -63,12 +63,12 @@ class FireHooksTest(unittest.TestCase):
             script = hooks_dir / "on_move.sh"
             script.write_text("#!/bin/sh\necho moved")
             script.chmod(0o755)
-            with patch("orc_core.project_hooks.subprocess.Popen", side_effect=OSError("popen failed")):
+            with patch("orc_core.git.project_hooks.subprocess.Popen", side_effect=OSError("popen failed")):
                 # Should not raise
                 fire_hooks(tmpdir, "on_move", {})
 
     def test_swallows_outer_exception(self) -> None:
         # Passing a non-string workdir that would cause Path() to fail
-        with patch("orc_core.project_hooks.Path", side_effect=TypeError("bad path")):
+        with patch("orc_core.git.project_hooks.Path", side_effect=TypeError("bad path")):
             # Should not raise
             fire_hooks(None, "on_move", {})

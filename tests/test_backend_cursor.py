@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.agent_preflight import AgentNotInstalledError
+from orc_core.cli.agent_preflight import AgentNotInstalledError
 from orc_core.backends.cursor import CursorBackend
 
 
