@@ -5,7 +5,7 @@
 import subprocess
 from pathlib import Path
 
-from .kanban_constants import IntegrationErrorKind
+from .failure_reasons import IntegrationErrorKind
 from .logging import log_event
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
@@ -183,3 +183,25 @@ def classify_main_integration_error(error: str) -> IntegrationErrorKind:
     if "cherry-pick" in text or "cherrypick" in text:
         return IntegrationErrorKind.CHERRY_PICK_FAILED
     return IntegrationErrorKind.UNKNOWN
+
+
+def git_diff_numstat(workdir: str, *, cached: bool = False, timeout: float = 10.0) -> str | None:
+    """Run git diff --numstat and return stdout, or None on failure."""
+    args = ["git", "diff", "--numstat"]
+    if cached:
+        args.append("--cached")
+    try:
+        result = subprocess.run(
+            args,
+            cwd=workdir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, Exception):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout

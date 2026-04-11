@@ -317,29 +317,11 @@ class StreamJsonMonitor:
             raise
 
     def _update_git_stats(self) -> None:
+        from .git_helpers import git_diff_numstat
+
         started_ms = now_ms()
-
-        def read_numstat(args: list[str]) -> Optional[str]:
-            try:
-                result = subprocess.run(
-                    args,
-                    cwd=self.workdir,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    check=False,
-                    timeout=GIT_STATS_TIMEOUT_SECONDS,
-                )
-            except subprocess.TimeoutExpired:
-                return None
-            except Exception:
-                return None
-            if result.returncode != 0:
-                return None
-            return result.stdout
-
-        unstaged = read_numstat(["git", "diff", "--numstat"])
-        staged = read_numstat(["git", "diff", "--numstat", "--cached"])
+        unstaged = git_diff_numstat(self.workdir, timeout=GIT_STATS_TIMEOUT_SECONDS)
+        staged = git_diff_numstat(self.workdir, cached=True, timeout=GIT_STATS_TIMEOUT_SECONDS)
         if unstaged is None and staged is None:
             timeline_instant(
                 timeline_id=str(getattr(self, "timeline_id", "") or ""),

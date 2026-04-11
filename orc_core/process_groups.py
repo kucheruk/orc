@@ -19,12 +19,10 @@ def is_posix() -> bool:
 
 def subprocess_group_spawn_kwargs() -> Dict[str, object]:
     """
-    Spawn subprocesses in a separate session/process group on Unix.
-    On non-Unix platforms keep defaults unchanged.
+    Let subprocesses inherit the parent's process group so that
+    os.killpg() on the ORC group leader kills the entire tree.
     """
-    if not is_posix():
-        return {}
-    return {"start_new_session": True}
+    return {}
 
 
 def resolve_process_group_id(pid: Optional[int]) -> Optional[int]:
@@ -96,3 +94,11 @@ def _group_processes(process_group_id: int) -> list[psutil.Process]:
         except OSError:
             continue
     return processes
+
+
+def kill_own_process_group() -> None:
+    """Send SIGTERM to our own process group. Best-effort, never raises."""
+    try:
+        os.killpg(os.getpgrp(), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass

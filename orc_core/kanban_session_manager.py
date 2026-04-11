@@ -574,10 +574,8 @@ class KanbanSessionManager:
                     signal.signal(sig, signal.SIG_IGN)
                 except Exception:
                     pass
-        try:
-            os.killpg(os.getpgrp(), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+        from .process_groups import kill_own_process_group
+        kill_own_process_group()
 
 
 # ── Protocol adapter classes ───────────────────────────────────────

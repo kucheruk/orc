@@ -141,10 +141,8 @@ def install_crash_handlers(
             _CRASH_HANDLER_LOCK.release()
         if not _killpg_fired:
             _killpg_fired = True
-            try:
-                os.killpg(os.getpgrp(), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
+            from .process_groups import kill_own_process_group
+            kill_own_process_group()
         raise SystemExit(128 + int(signum))
 
     sys.excepthook = _sys_excepthook
