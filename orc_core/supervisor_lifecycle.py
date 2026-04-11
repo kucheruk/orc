@@ -12,6 +12,7 @@ import psutil
 from .task_execution_types import TaskCompletionStatus
 from .logging import log_event
 from .debug_log import debug_log, debug_mode_log
+from .monitor_protocol import StreamMonitorProtocol
 from .timeline import timeline_instant
 from .notify import send_telegram_message
 from .process import is_pid_alive
@@ -42,16 +43,14 @@ def _task_done_in_backlog(task_path: Path) -> bool:
         return False
 
 
-def _monitor_pid_missing(monitor) -> bool:
-    refresh_status = getattr(monitor, "refresh_process_status", None)
-    if callable(refresh_status):
-        try:
-            refresh_status()
-        except Exception:
-            pass
+def _monitor_pid_missing(monitor: StreamMonitorProtocol) -> bool:
+    try:
+        monitor.refresh_process_status()
+    except Exception:
+        pass
     if monitor.proc.poll() is not None:
         return False
-    pid = getattr(monitor.proc, "pid", None) or getattr(monitor, "init_pid", None)
+    pid = monitor.proc.pid or monitor.init_pid
     if not isinstance(pid, int) or pid <= 0:
         return False
     return not is_pid_alive(pid)
@@ -72,12 +71,9 @@ def _is_model_unavailable_stderr(last_stderr_line: str) -> bool:
 
 
 
-def _force_close_active_tools_if_needed(monitor, log_path: Path, task_id: str, reason: str) -> None:
-    finalize = getattr(monitor, "force_finalize_live_tool_calls", None)
-    if not callable(finalize):
-        return
+def _force_close_active_tools_if_needed(monitor: StreamMonitorProtocol, log_path: Path, task_id: str, reason: str) -> None:
     try:
-        result = finalize(reason)
+        result = monitor.force_finalize_live_tool_calls(reason)
     except Exception as exc:
         log_event(log_path, "WARN", "force close tools failed", task_id=task_id, reason=reason, error=str(exc))
         return
@@ -96,8 +92,8 @@ def _force_close_active_tools_if_needed(monitor, log_path: Path, task_id: str, r
     )
 
 
-def _get_active_children_count(monitor) -> int:
-    pid = getattr(monitor.proc, "pid", None) or getattr(monitor, "init_pid", None)
+def _get_active_children_count(monitor: StreamMonitorProtocol) -> int:
+    pid = monitor.proc.pid or monitor.init_pid
     if not isinstance(pid, int) or pid <= 0:
         return 0
     try:
@@ -119,7 +115,7 @@ class CompletionMonitor:
     def __init__(
         self,
         task_path: Path,
-        monitor,
+        monitor: StreamMonitorProtocol,
         poll: float,
         stall_timeout: float,
         task_ttl: float,
@@ -290,7 +286,7 @@ class CompletionMonitor:
                     send_telegram_message(stuck_msg, self.log_path)
 
     def _check_process_exited(self) -> Optional[TaskCompletionStatus]:
-        if getattr(self.monitor, "result_status", None) == "success":
+        if self.monitor.result_status == "success":
             if not self.task_path.exists():
                 return TaskCompletionStatus.COMPLETED
 
@@ -309,7 +305,7 @@ class CompletionMonitor:
                 return TaskCompletionStatus.COMPLETED
             if returncode == 0 and self.task_path.exists():
                 # Check stream result_status first (hook-free completion detection)
-                stream_result = getattr(self.monitor, "result_status", None)
+                stream_result = self.monitor.result_status
                 if stream_result == "success":
                     log_event(self.log_path, "INFO", "completed via stream result_status=success",
                               task_id=self.task_id)
@@ -346,13 +342,13 @@ class CompletionMonitor:
                         )
                         return TaskCompletionStatus.COMPLETED
                     time.sleep(max(min(self.poll, 0.2), 0.05))
-            if _is_model_unavailable_stderr(getattr(self.monitor, "last_stderr_line", "")):
+            if _is_model_unavailable_stderr(self.monitor.last_stderr_line):
                 log_event(
                     self.log_path,
                     "ERROR",
                     "agent model unavailable",
                     returncode=self.monitor.proc.returncode,
-                    stderr_line=getattr(self.monitor, "last_stderr_line", ""),
+                    stderr_line=self.monitor.last_stderr_line,
                 )
                 timeline_instant(
                     timeline_id=self.timeline_id,
@@ -397,7 +393,7 @@ class CompletionMonitor:
         return None
 
     def _check_followup_prompt(self) -> Optional[TaskCompletionStatus]:
-        if getattr(self.monitor, "ui_followup_prompt", False):
+        if self.monitor.ui_followup_prompt:
             log_event(self.log_path, "WARN", "follow-up input requested by agent", task_id=self.task_id)
             timeline_instant(
                 timeline_id=self.timeline_id,
@@ -413,8 +409,7 @@ class CompletionMonitor:
     def _check_stall(self) -> Optional[TaskCompletionStatus]:
         now = time.time()
         silence_seconds = now - self.monitor.last_output_time
-        snapshot_fn = getattr(self.monitor, "active_tool_calls_watchdog_snapshot", None)
-        tool_snapshot = snapshot_fn() if callable(snapshot_fn) else {}
+        tool_snapshot = self.monitor.active_tool_calls_watchdog_snapshot()
         active_tools_count = int(tool_snapshot.get("count") or 0) if isinstance(tool_snapshot, dict) else 0
         is_stalled = False
         stall_reason = ""
@@ -557,7 +552,7 @@ class CompletionMonitor:
 
 def wait_for_completion(
     task_path: Path,
-    monitor,
+    monitor: StreamMonitorProtocol,
     poll: float,
     stall_timeout: float,
     task_ttl: float,
@@ -630,7 +625,7 @@ def wait_for_completion(
 
 
 def wait_for_process_exit(
-    monitor,
+    monitor: StreamMonitorProtocol,
     poll: float,
     stall_timeout: float,
     task_ttl: float,
@@ -713,7 +708,7 @@ def wait_for_process_exit(
                 reason="pid_missing",
             )
             return TaskCompletionStatus.PROCESS_EXITED
-        if stop_on_followup_prompt and getattr(monitor, "ui_followup_prompt", False):
+        if stop_on_followup_prompt and monitor.ui_followup_prompt:
             log_event(log_path, "WARN", "follow-up prompt visible during phase", label=label)
             timeline_instant(
                 timeline_id=timeline_id,

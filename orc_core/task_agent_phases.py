@@ -21,6 +21,7 @@ from .git_helpers import (
 )
 from .task_execution_types import TaskCompletionStatus, TaskExecutionStatus
 from .logging import log_event
+from .monitor_protocol import StreamMonitorProtocol
 from .timeline import timeline_step
 from .process import (
     ORPHAN_SWEEP_COMMAND_MARKERS,
@@ -44,13 +45,13 @@ from .text_parse import SafeDict
 _logger = logging.getLogger(__name__)
 
 
-def cleanup_monitor_processes(monitor, log_path: Path, label: str) -> None:
+def cleanup_monitor_processes(monitor: StreamMonitorProtocol, log_path: Path, label: str) -> None:
     """Kill agent process tree and sweep orphan processes."""
-    root_pid = getattr(monitor, "init_pid", None) or getattr(getattr(monitor, "proc", None), "pid", None)
-    process_group_id = getattr(monitor, "process_group_id", None)
-    workspace = str(getattr(monitor, "workdir", "") or "")
-    started_at = getattr(monitor, "started_at", None)
-    run_token = str(getattr(monitor, "run_token", "") or "").strip() or None
+    root_pid = monitor.init_pid or monitor.proc.pid
+    process_group_id = monitor.process_group_id
+    workspace = monitor.workdir or ""
+    started_at = monitor.started_at
+    run_token = monitor.run_token or None
     if terminate_process_group(process_group_id, log_path, label=label):
         if isinstance(root_pid, int) and root_pid > 0 and is_pid_alive(root_pid):
             lingering = build_process_tree(root_pid)

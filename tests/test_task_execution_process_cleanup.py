@@ -41,6 +41,10 @@ class _FakeMonitor:
         self.workdir = ""
         self.run_token = "run-token-task-exec"
         self._stop_calls = 0
+        self.started_at = 0.0
+        self.result_status = None
+        self.stderr_count = 0
+        self.last_stderr_line = ""
 
     def stop(self) -> None:
         self._stop_calls += 1
@@ -49,13 +53,17 @@ class _FakeMonitor:
         return ""
 
 
+    def maybe_report(self): pass
+    def refresh_process_status(self): return None
+    def force_finalize_live_tool_calls(self, reason): return {}
+    def active_tool_calls_watchdog_snapshot(self): return {}
+
 class _FakeWorker:
     def __init__(self) -> None:
         self.monitor = _FakeMonitor()
 
     def launch(self, **_kwargs):
         return self.monitor
-
 
 class TaskExecutionProcessCleanupTest(unittest.TestCase):
     def _request(self, tmpdir: str) -> TaskExecutionRequest:

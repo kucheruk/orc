@@ -40,6 +40,12 @@ class _FakeMonitor:
         self.last_output_time = 0.0
         self.ui_followup_prompt = False
         self.workdir = ""
+        self.process_group_id = None
+        self.started_at = 0.0
+        self.run_token = ""
+        self.result_status = None
+        self.stderr_count = 0
+        self.last_stderr_line = ""
 
     def stop(self) -> None:
         return None
@@ -48,6 +54,11 @@ class _FakeMonitor:
         return "done"
 
 
+    def maybe_report(self): pass
+    def refresh_process_status(self): return None
+    def force_finalize_live_tool_calls(self, reason): return {}
+    def active_tool_calls_watchdog_snapshot(self): return {}
+
 class _FakeWorker:
     def __init__(self) -> None:
         self.launch_calls = 0
@@ -55,7 +66,6 @@ class _FakeWorker:
     def launch(self, **_kwargs):
         self.launch_calls += 1
         return _FakeMonitor()
-
 
 class TaskExecutionResumeStateTest(unittest.TestCase):
     def _request(self, tmpdir: str) -> TaskExecutionRequest:

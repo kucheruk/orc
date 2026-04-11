@@ -153,15 +153,15 @@ async def launch_agent_stream_json_async(
         monitor.set_progress(progress_done, progress_total, progress_in_progress)
     except Exception:
         monitor.stop()
-        if not terminate_process_group(getattr(monitor, "process_group_id", None), log_path, label="agent-launch"):
+        if not terminate_process_group(monitor.process_group_id, log_path, label="agent-launch"):
             kill_process_tree(monitor.init_pid or monitor.proc.pid, log_path, label="agent-launch")
         kill_orphan_project_processes(
-            str(getattr(monitor, "workdir", "") or workdir),
+            monitor.workdir or workdir,
             log_path,
             label="agent-launch-orphan-sweep",
-            started_after=getattr(monitor, "started_at", None),
+            started_after=monitor.started_at,
             command_markers=ORPHAN_SWEEP_COMMAND_MARKERS,
-            run_token=str(getattr(monitor, "run_token", "") or "").strip() or None,
+            run_token=monitor.run_token or None,
         )
         raise
     debug_log(

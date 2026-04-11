@@ -14,6 +14,7 @@ from orc_core.supervisor_lifecycle import PROCESS_EXIT_GRACE_SECONDS, wait_for_c
 
 class _ExitedProc:
     def __init__(self, returncode: int) -> None:
+        self.pid = 12345
         self.returncode = returncode
 
     def poll(self) -> int:
@@ -34,6 +35,11 @@ class _FakeMonitor:
         self.workdir = workdir
         self.stderr_count = 0
         self.last_stderr_line = ""
+        self.process_group_id = None
+        self.started_at = 0.0
+        self.run_token = ""
+        self.result_status = None
+        self.init_pid = None
         self._watchdog_snapshot = {
             "count": 0,
             "oldest_age_seconds": 0.0,
@@ -51,10 +57,16 @@ class _FakeMonitor:
         return dict(self._watchdog_snapshot)
 
 
+    def stop(self): pass
+    def get_summary_text(self): return ""
+    def refresh_process_status(self): return None
+    def force_finalize_live_tool_calls(self, reason): return {}
+
 class SupervisorLifecycleTest(unittest.TestCase):
     @patch("orc_core.supervisor_lifecycle.send_telegram_message")
     @patch("orc_core.supervisor_lifecycle.debug_log")
     @patch("orc_core.supervisor_lifecycle.time.sleep")
+
     def test_wait_for_completion_sends_stuck_notice_after_15m_without_token_changes(
         self,
         _sleep_mock,
@@ -65,7 +77,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             task_path = Path(tmpdir) / "orc-task.json"
             task_path.write_text("{}", encoding="utf-8")
             monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
-            monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
+            monitor.proc = SimpleNamespace(pid=None, returncode=None, poll=lambda: None)
             monitor.metrics.tokens_total = 42
             monitor.last_output_time = 0.0
 
@@ -370,7 +382,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
                 encoding="utf-8",
             )
             monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
-            monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
+            monitor.proc = SimpleNamespace(pid=None, returncode=None, poll=lambda: None)
             monitor.last_output_time = time.time() - 1000.0
 
             with patch("orc_core.supervisor_lifecycle.DONE_BACKLOG_IDLE_GRACE_SECONDS", 9999.0):
@@ -470,7 +482,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             task_path.write_text("{}", encoding="utf-8")
             monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
             monitor.ui_followup_prompt = True
-            monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
+            monitor.proc = SimpleNamespace(pid=None, returncode=None, poll=lambda: None)
 
             result = wait_for_completion(
                 task_path=task_path,
@@ -495,7 +507,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             task_path.write_text("{}", encoding="utf-8")
             monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
             monitor.ui_followup_prompt = True
-            monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
+            monitor.proc = SimpleNamespace(pid=None, returncode=None, poll=lambda: None)
 
             result = wait_for_completion(
                 task_path=task_path,
@@ -526,7 +538,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             task_path = Path(tmpdir) / "orc-task.json"
             task_path.write_text("{}", encoding="utf-8")
             monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
-            monitor.proc = SimpleNamespace(returncode=None, poll=lambda: None)
+            monitor.proc = SimpleNamespace(pid=None, returncode=None, poll=lambda: None)
             monitor.last_output_time = time.time()
 
             result = wait_for_completion(

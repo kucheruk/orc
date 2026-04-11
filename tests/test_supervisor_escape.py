@@ -40,6 +40,12 @@ class _FakeMonitor:
         self.workdir = "."
         self.stderr_count = 0
         self.last_stderr_line = ""
+        self.process_group_id = None
+        self.started_at = 0.0
+        self.run_token = ""
+        self.result_status = None
+        self.stderr_count = 0
+        self.last_stderr_line = ""
 
     def maybe_report(self) -> None:
         return None
@@ -48,7 +54,14 @@ class _FakeMonitor:
         return False
 
 
+    def stop(self): pass
+    def get_summary_text(self): return ""
+    def refresh_process_status(self): return None
+    def force_finalize_live_tool_calls(self, reason): return {}
+    def active_tool_calls_watchdog_snapshot(self): return {}
+
 class SupervisorEscapeTest(unittest.TestCase):
+
     def test_wait_for_completion_raises_on_confirmed_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             task_path = Path(tmpdir) / "orc-task.json"
