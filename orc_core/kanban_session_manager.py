@@ -10,6 +10,7 @@ import threading
 import time
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace as _SimpleNamespace
 from typing import Callable, Optional
 
 from .backend import Backend, get_backend
@@ -109,6 +110,19 @@ class KanbanSessionManager:
         self._directive_queue: list[str] = []
         self._directive_lock = threading.Lock()
         self._telegram_available: bool | None = None  # cached telegram availability
+        # Protocol adapters for KanbanWorkerRunner (ISP: grouped callbacks)
+        self._worker_lifecycle = _SimpleNamespace(
+            should_continue=self._should_continue,
+            sleep=self.sleep_fn,
+        )
+        self._worker_notifier = _SimpleNamespace(
+            send_telegram=self._send_telegram,
+            notify_completion=self._notify_completion,
+        )
+        self._worker_state_manager = _SimpleNamespace(
+            mark_dirty=self._mark_state_dirty,
+            make_request=self._make_request,
+        )
         self._load_kanban_state()
         self._incident_mgr = IncidentManager(
             distributor=self._distributor,
@@ -138,12 +152,9 @@ class KanbanSessionManager:
             card_fail_counts=self._card_fail_counts,
             completed_tasks=self._completed_tasks,
             failed_tasks=self._failed_tasks,
-            make_request_fn=self._make_request,
-            mark_state_dirty_fn=self._mark_state_dirty,
-            send_telegram_fn=self._send_telegram,
-            notify_completion_fn=self._notify_completion,
-            should_continue_fn=self._should_continue,
-            sleep_fn=self.sleep_fn,
+            lifecycle=self._worker_lifecycle,
+            notifier=self._worker_notifier,
+            state_manager=self._worker_state_manager,
         )
         self._teamlead_runner = KanbanTeamleadRunner(
             workdir=self.workdir,
