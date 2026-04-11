@@ -97,7 +97,7 @@ class CrashStdoutPayloadTest(unittest.TestCase):
 
 class CrashHandlersTest(unittest.TestCase):
     def setUp(self) -> None:
-        logging_module._CRASH_HANDLERS_INSTALLED = False
+        logging_module._cfg.crash_handlers_installed = False
         logging_module._FAULT_HANDLER_STREAM = None
 
     def test_report_fatal_exception_logs_and_emits_payload(self) -> None:
@@ -192,18 +192,18 @@ class CrashHandlersTest(unittest.TestCase):
 
 class TimelineDebugLogTest(unittest.TestCase):
     def setUp(self) -> None:
-        self._orig_debug_enabled = logging_module._DEBUG_ENABLED
-        self._orig_debug_log_path = logging_module._DEBUG_LOG_PATH
+        self._orig_debug_enabled = logging_module._cfg.debug_enabled
+        self._orig_debug_log_path = logging_module._cfg.debug_log_path
 
     def tearDown(self) -> None:
-        logging_module._DEBUG_ENABLED = self._orig_debug_enabled
-        logging_module._DEBUG_LOG_PATH = self._orig_debug_log_path
+        logging_module._cfg.debug_enabled = self._orig_debug_enabled
+        logging_module._cfg.debug_log_path = self._orig_debug_log_path
 
     def test_timeline_event_schema_is_stable(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "debug.jsonl"
-            logging_module._DEBUG_ENABLED = False
-            logging_module._DEBUG_LOG_PATH = log_path
+            logging_module._cfg.debug_enabled = False
+            logging_module._cfg.debug_log_path = log_path
             init_debug_logging(enabled=True, workdir=tmpdir)
             started_at_ms = timeline_step_started(
                 timeline_id="tl-1",
@@ -258,15 +258,15 @@ class TimelineStepContextManagerTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.mkdtemp()
         self._log_path = Path(self._tmpdir) / "debug.jsonl"
-        self._orig_debug_enabled = logging_module._DEBUG_ENABLED
-        self._orig_debug_log_path = logging_module._DEBUG_LOG_PATH
-        logging_module._DEBUG_ENABLED = False
-        logging_module._DEBUG_LOG_PATH = self._log_path
+        self._orig_debug_enabled = logging_module._cfg.debug_enabled
+        self._orig_debug_log_path = logging_module._cfg.debug_log_path
+        logging_module._cfg.debug_enabled = False
+        logging_module._cfg.debug_log_path = self._log_path
         init_debug_logging(enabled=True, workdir=self._tmpdir)
 
     def tearDown(self) -> None:
-        logging_module._DEBUG_ENABLED = self._orig_debug_enabled
-        logging_module._DEBUG_LOG_PATH = self._orig_debug_log_path
+        logging_module._cfg.debug_enabled = self._orig_debug_enabled
+        logging_module._cfg.debug_log_path = self._orig_debug_log_path
         import shutil
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 

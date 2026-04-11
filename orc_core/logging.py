@@ -24,14 +24,26 @@ ORC_LOG_DIR.mkdir(parents=True, exist_ok=True)
 DEBUG_LOG_DIR = Path(tempfile.gettempdir()) / "orc"
 DEBUG_LOG_PREFIX = "orc-debug"
 DEBUG_ENV_TRUE_VALUES = {"1", "true", "yes"}
-_DEBUG_ENABLED = False
-_DEBUG_LOG_PATH: Optional[Path] = None
-_DEBUG_SESSION_ID = f"{int(time.time() * 1000)}-{os.getpid()}"
-_DEBUG_WORKDIR = ""
-_LOG_WORKDIR = ""
-_CRASH_HANDLERS_INSTALLED = False
+class _LoggingConfig:
+    """Module-level logging state, replacing scattered globals."""
+    __slots__ = (
+        "debug_enabled", "debug_log_path", "debug_session_id",
+        "debug_workdir", "log_workdir", "crash_handlers_installed",
+        "fault_handler_stream",
+    )
+
+    def __init__(self) -> None:
+        self.debug_enabled: bool = False
+        self.debug_log_path: Optional[Path] = None
+        self.debug_session_id: str = f"{int(time.time() * 1000)}-{os.getpid()}"
+        self.debug_workdir: str = ""
+        self.log_workdir: str = ""
+        self.crash_handlers_installed: bool = False
+        self.fault_handler_stream: object = None
+
+
+_cfg = _LoggingConfig()
 _CRASH_HANDLER_LOCK = threading.Lock()
-_FAULT_HANDLER_STREAM = None
 
 ORC_LOG_NAME = "orc.log"
 ORC_DATA_DIR = ".orc"
@@ -64,50 +76,47 @@ def _build_debug_log_path() -> Path:
 
 
 def _write_debug_payload(payload: Dict[str, object]) -> None:
-    global _DEBUG_LOG_PATH
-    if _DEBUG_LOG_PATH is None:
-        _DEBUG_LOG_PATH = _build_debug_log_path()
-    _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with _DEBUG_LOG_PATH.open("a", encoding="utf-8", errors="replace") as handle:
+    if _cfg.debug_log_path is None:
+        _cfg.debug_log_path = _build_debug_log_path()
+    _cfg.debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with _cfg.debug_log_path.open("a", encoding="utf-8", errors="replace") as handle:
         handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
 def init_debug_logging(*, enabled: bool, workdir: str = "") -> Optional[Path]:
-    global _DEBUG_ENABLED, _DEBUG_WORKDIR
     should_enable = bool(enabled or _env_debug_enabled())
     if not should_enable:
         return None
-    if _DEBUG_ENABLED:
-        return _DEBUG_LOG_PATH
-    _DEBUG_ENABLED = True
-    _DEBUG_WORKDIR = workdir
+    if _cfg.debug_enabled:
+        return _cfg.debug_log_path
+    _cfg.debug_enabled = True
+    _cfg.debug_workdir = workdir
     _write_debug_payload(
         {
             "type": "debug_session_started",
-            "sessionId": _DEBUG_SESSION_ID,
+            "sessionId": _cfg.debug_session_id,
             "timestamp": int(time.time() * 1000),
             "workdir": workdir,
             "pid": os.getpid(),
-            "logPath": str(_DEBUG_LOG_PATH) if _DEBUG_LOG_PATH else "",
+            "logPath": str(_cfg.debug_log_path) if _cfg.debug_log_path else "",
         }
     )
-    return _DEBUG_LOG_PATH
+    return _cfg.debug_log_path
 
 
 def get_debug_log_path() -> Optional[Path]:
-    return _DEBUG_LOG_PATH
+    return _cfg.debug_log_path
 
 
 def set_log_context(*, workdir: str = "") -> None:
-    global _LOG_WORKDIR
     resolved = str(workdir or "").strip()
     if not resolved:
-        _LOG_WORKDIR = ""
+        _cfg.log_workdir = ""
         return
     try:
-        _LOG_WORKDIR = str(Path(resolved).resolve())
+        _cfg.log_workdir = str(Path(resolved).resolve())
     except Exception:
-        _LOG_WORKDIR = resolved
+        _cfg.log_workdir = resolved
 
 
 def log_event(log_path: Path, level: str, message: str, **fields: object) -> None:
@@ -117,8 +126,8 @@ def log_event(log_path: Path, level: str, message: str, **fields: object) -> Non
     log_path.parent.mkdir(parents=True, exist_ok=True)
     pid = os.getpid()
     context: Dict[str, object] = {"pid": pid, "orc_pid": pid}
-    if _LOG_WORKDIR:
-        context["workspace"] = _LOG_WORKDIR
+    if _cfg.log_workdir:
+        context["workspace"] = _cfg.log_workdir
     payload = {
         "ts": now_iso(),
         "level": level,
@@ -214,8 +223,7 @@ def install_crash_handlers(
     workspace: str,
     log_path: Path,
 ) -> None:
-    global _CRASH_HANDLERS_INSTALLED, _FAULT_HANDLER_STREAM
-    if _CRASH_HANDLERS_INSTALLED:
+    if _cfg.crash_handlers_installed:
         return
 
     def _emit(exc_type: str, error: str, tb_text: str, source: str) -> None:
@@ -267,28 +275,28 @@ def install_crash_handlers(
             continue
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        _FAULT_HANDLER_STREAM = log_path.open("a", encoding="utf-8", errors="replace")
-        faulthandler.enable(file=_FAULT_HANDLER_STREAM, all_threads=True)
+        _cfg.fault_handler_stream = log_path.open("a", encoding="utf-8", errors="replace")
+        faulthandler.enable(file=_cfg.fault_handler_stream, all_threads=True)
     except Exception:
-        _FAULT_HANDLER_STREAM = None
-    _CRASH_HANDLERS_INSTALLED = True
+        _cfg.fault_handler_stream = None
+    _cfg.crash_handlers_installed = True
 
 
 def debug_log(hypothesis_id: str, location: str, message: str, data: Dict[str, object]) -> None:
-    if not _DEBUG_ENABLED:
+    if not _cfg.debug_enabled:
         init_debug_logging(enabled=False)
-    if not _DEBUG_ENABLED:
+    if not _cfg.debug_enabled:
         return
     payload = {
         "type": "debug_event",
-        "sessionId": _DEBUG_SESSION_ID,
+        "sessionId": _cfg.debug_session_id,
         "runId": "run1",
         "hypothesisId": hypothesis_id,
         "location": location,
         "message": message,
         "data": data,
         "timestamp": int(time.time() * 1000),
-        "workdir": _DEBUG_WORKDIR,
+        "workdir": _cfg.debug_workdir,
         "pid": os.getpid(),
     }
     _write_debug_payload(payload)
@@ -313,9 +321,9 @@ def debug_mode_log(run_id: str, hypothesis_id: str, location: str, message: str,
 
 
 def _timeline_enabled() -> bool:
-    if not _DEBUG_ENABLED:
+    if not _cfg.debug_enabled:
         init_debug_logging(enabled=False)
-    return _DEBUG_ENABLED
+    return _cfg.debug_enabled
 
 
 def _timeline_base_payload(
@@ -330,7 +338,7 @@ def _timeline_base_payload(
 ) -> Dict[str, object]:
     return {
         "type": "debug_timeline",
-        "sessionId": _DEBUG_SESSION_ID,
+        "sessionId": _cfg.debug_session_id,
         "runId": "run1",
         "hypothesisId": hypothesis_id,
         "location": location,
@@ -339,7 +347,7 @@ def _timeline_base_payload(
         "step": str(step or ""),
         "attempt": max(int(attempt), 0),
         "timestamp_ms": int(timestamp_ms),
-        "workdir": _DEBUG_WORKDIR,
+        "workdir": _cfg.debug_workdir,
         "pid": os.getpid(),
     }
 

@@ -28,6 +28,7 @@ from .kanban_request_builder import build_kanban_request
 from .kanban_teamlead_runner import KanbanTeamleadRunner
 from .kanban_worker_runner import KanbanWorkerRunner
 from .notify import send_telegram_message
+from .project_hooks import fire_hooks
 from .kanban_roles import ROLE_TEAMLEAD
 from .logging import log_event
 from .quit_signal import is_quit_after_task_requested, is_session_stop_requested, is_stop_requested
@@ -261,7 +262,19 @@ class KanbanSessionManager:
 
     def _wire_board_callbacks(self) -> None:
         board = self._distributor.board
-        board.on_move = lambda cid, frm, to, reason: self.publisher.log_move(cid, frm, to, reason)
+
+        def _on_move(cid: str, frm: str, to: str, reason: str) -> None:
+            self.publisher.log_move(cid, frm, to, reason)
+            card = board.card_by_id(cid)
+            fire_hooks(self.workdir, "on_move", {
+                "ORC_CARD_ID": cid,
+                "ORC_CARD_TITLE": card.title if card else "",
+                "ORC_FROM_STAGE": STAGE_SHORT_NAMES.get(frm, frm),
+                "ORC_TO_STAGE": STAGE_SHORT_NAMES.get(to, to),
+                "ORC_REASON": reason,
+            })
+
+        board.on_move = _on_move
         board.on_action_change = lambda cid, old, new, role: self.publisher.log_action_change(cid, old, new, role)
 
     def _release_stale_agents(self) -> None:
@@ -479,6 +492,16 @@ class KanbanSessionManager:
         lines.append(f"\nProgress: {done}/{total}")
 
         self._send_telegram("\n".join(lines))
+
+        fire_hooks(self.workdir, "on_complete", {
+            "ORC_CARD_ID": card.id,
+            "ORC_CARD_TITLE": card.title,
+            "ORC_FROM_STAGE": fr,
+            "ORC_TO_STAGE": to,
+            "ORC_ROLE": role,
+            "ORC_REASON": f"{old_action} -> {new_action}",
+            "ORC_ELAPSED_MIN": f"{mins:.1f}",
+        })
 
     @staticmethod
     def _extract_card_summary(card: KanbanCard) -> str:

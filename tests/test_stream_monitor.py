@@ -47,8 +47,8 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         state.record_event({"type": "thinking", "subtype": "delta", "text": " plan**"})
         state.record_event({"type": "thinking", "subtype": "completed"})
 
-        self.assertEqual(len(state._recent_reasoning), 1)
-        self.assertEqual(state._recent_reasoning[-1], "Preparing onboarding plan")
+        self.assertEqual(len(state._reasoning._recent_reasoning), 1)
+        self.assertEqual(state._reasoning._recent_reasoning[-1], "Preparing onboarding plan")
 
     def test_reasoning_flushes_buffer_when_completed_missing(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
@@ -58,7 +58,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         state.record_event({"type": "thinking", "subtype": "delta", "text": " across"})
         state.record_event({"type": "tool_call", "subtype": "started", "tool_name": "ReadFile"})
 
-        self.assertEqual(state._recent_reasoning[-1], "Split across")
+        self.assertEqual(state._reasoning._recent_reasoning[-1], "Split across")
 
     def test_reasoning_update_fragments_preserve_spaces_between_words(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
@@ -129,17 +129,17 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         event = {"type": "assistant", "subtype": "reasoning"}
-        state._remember_reasoning(event, "**Checking for existing technical specs**")
+        state._reasoning._remember_reasoning(event, "**Checking for existing technical specs**", state._iter_values)
 
-        self.assertEqual(len(state._recent_reasoning), 1)
-        self.assertNotIn("**", state._recent_reasoning[-1])
-        self.assertEqual(state._recent_reasoning[-1], "Checking for existing technical specs")
+        self.assertEqual(len(state._reasoning._recent_reasoning), 1)
+        self.assertNotIn("**", state._reasoning._recent_reasoning[-1])
+        self.assertEqual(state._reasoning._recent_reasoning[-1], "Checking for existing technical specs")
 
     def test_reasoning_panel_lines_wrap_long_entries(self) -> None:
         from orc_core.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
-        state._recent_reasoning.append("Assessing documentation and code structure for event feed improvements and token parsing stability")
+        state._reasoning._recent_reasoning.append("Assessing documentation and code structure for event feed improvements and token parsing stability")
 
         lines = state.reasoning_lines_for_panel(max_width=40, max_lines=5)
         self.assertGreater(len(lines), 1)

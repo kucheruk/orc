@@ -751,17 +751,44 @@ class ToolCallTracker:
 
 
 # ---------------------------------------------------------------------------
+# Internal tracker: progress & ETA
+# ---------------------------------------------------------------------------
+
+class ProgressTracker:
+    def __init__(self) -> None:
+        self._done = 0
+        self._total = 1
+        self._in_progress = 0
+        self._baseline_total: Optional[int] = None
+        self._added_delta = 0
+        self._eta_seconds: Optional[float] = None
+        self._spinner_idx = 0
+
+    def set_progress(self, done: int, total: int, in_progress: int = 0) -> None:
+        self._done = max(0, int(done))
+        self._total = max(1, int(total))
+        self._in_progress = max(0, int(in_progress))
+        if self._baseline_total is None:
+            self._baseline_total = self._total
+        self._added_delta = max(self._total - self._baseline_total, 0)
+
+    def set_eta_seconds(self, eta_seconds: Optional[float]) -> None:
+        if eta_seconds is None:
+            self._eta_seconds = None
+            return
+        self._eta_seconds = max(float(eta_seconds), 0.0)
+
+    def tick_spinner(self) -> None:
+        self._spinner_idx += 1
+
+
+# ---------------------------------------------------------------------------
 # Public API class — delegates to internal trackers
 # ---------------------------------------------------------------------------
 
 class StreamMonitorState:
     _WORKTREE_PREFIX_RE = re.compile(r"/[^\s\"']*?/.orc/worktrees/[^/\s\"']+")
 
-    # Keep class-level aliases so any external code referencing them still works
-    _TOTAL_TOKEN_KEYS = TokenTracker._TOTAL_TOKEN_KEYS
-    _PROMPT_TOKEN_KEYS = TokenTracker._PROMPT_TOKEN_KEYS
-    _COMPLETION_TOKEN_KEYS = TokenTracker._COMPLETION_TOKEN_KEYS
-    _RAW_TOKEN_FIELD_RE = TokenTracker._RAW_TOKEN_FIELD_RE
 
     def __init__(self, task_id: str, started_at: float, summary_lines: int) -> None:
         self.task_id = task_id
@@ -773,13 +800,6 @@ class StreamMonitorState:
         self._recent_commands: Deque[str] = deque(maxlen=8)
         self._recent_files: Deque[str] = deque(maxlen=10)
         self._recent_events: Deque[str] = deque(maxlen=8)
-        self._progress_done = 0
-        self._progress_total = 1
-        self._progress_in_progress = 0
-        self._progress_baseline_total: Optional[int] = None
-        self._progress_added_delta = 0
-        self._eta_seconds: Optional[float] = None
-        self._spinner_idx = 0
         self._last_event_at = started_at
         self._live_phase = "starting"
         self._live_status = "starting, no messages yet"
@@ -791,89 +811,42 @@ class StreamMonitorState:
         self._tokens = TokenTracker()
         self._reasoning = ReasoningTracker()
         self._tools = ToolCallTracker()
-
-        # Backward-compatible aliases for state that moved to trackers
-        # (used by tests or external code that accesses internals)
-
-    # -- Backward-compatible property aliases for tracker state --
-
-    @property
-    def _seen_token_usage_keys(self) -> set[str]:
-        return self._tokens._seen_token_usage_keys
-
-    @property
-    def _max_tokens_by_request(self) -> dict[str, int]:
-        return self._tokens._max_tokens_by_request
-
-    @property
-    def _reasoning_buffer(self) -> str:
-        return self._reasoning._reasoning_buffer
-
-    @_reasoning_buffer.setter
-    def _reasoning_buffer(self, value: str) -> None:
-        self._reasoning._reasoning_buffer = value
-
-    @property
-    def _reasoning_stream_kind(self) -> str:
-        return self._reasoning._reasoning_stream_kind
-
-    @_reasoning_stream_kind.setter
-    def _reasoning_stream_kind(self, value: str) -> None:
-        self._reasoning._reasoning_stream_kind = value
-
-    @property
-    def _recent_reasoning(self) -> Deque[str]:
-        return self._reasoning._recent_reasoning
-
-    @property
-    def _active_tool_calls(self) -> dict[str, dict[str, object]]:
-        return self._tools._active_tool_calls
-
-    @property
-    def _active_tool_order(self) -> Deque[str]:
-        return self._tools._active_tool_order
+        self._progress = ProgressTracker()
 
     @property
     def session_id(self) -> Optional[str]:
         return self._session_id
 
     def set_progress(self, done: int, total: int, in_progress: int = 0) -> None:
-        self._progress_done = max(0, int(done))
-        self._progress_total = max(1, int(total))
-        self._progress_in_progress = max(0, int(in_progress))
-        if self._progress_baseline_total is None:
-            self._progress_baseline_total = self._progress_total
-        self._progress_added_delta = max(self._progress_total - self._progress_baseline_total, 0)
+        self._progress.set_progress(done, total, in_progress)
 
     def set_eta_seconds(self, eta_seconds: Optional[float]) -> None:
-        if eta_seconds is None:
-            self._eta_seconds = None
-            return
-        self._eta_seconds = max(float(eta_seconds), 0.0)
+        self._progress.set_eta_seconds(eta_seconds)
 
     def tick_spinner(self) -> None:
-        self._spinner_idx += 1
+        self._progress.tick_spinner()
 
     def build_snapshot(self) -> MonitorSnapshot:
-        remaining = max(self._progress_total - self._progress_done, 0)
+        p = self._progress
+        remaining = max(p._total - p._done, 0)
         return MonitorSnapshot(
             task_id=self.task_id,
             started_at=self.started_at,
-            progress_done=self._progress_done,
-            progress_total=self._progress_total,
+            progress_done=p._done,
+            progress_total=p._total,
             metrics=self.metrics,
             last_event_type=self._last_event_type,
             last_event_note=self._last_event_note,
             recent_commands=list(self._recent_commands),
             recent_files=list(self._recent_files),
             recent_events=list(self._recent_events),
-            reasoning_lines=self.reasoning_lines_for_panel(max_width=90, max_lines=5),
-            spinner_idx=self._spinner_idx,
+            reasoning_lines=self._reasoning.reasoning_lines_for_panel(max_width=90, max_lines=5),
+            spinner_idx=p._spinner_idx,
             last_event_at=self._last_event_at,
             progress_remaining=remaining,
-            progress_in_progress=self._progress_in_progress,
-            progress_added_delta=self._progress_added_delta,
-            eta_seconds=self._eta_seconds,
+            progress_in_progress=p._in_progress,
+            progress_added_delta=p._added_delta,
+            eta_seconds=p._eta_seconds,
             live_phase=self._live_phase,
             live_status=self._live_status,
             live_since=self._live_since,
@@ -884,86 +857,13 @@ class StreamMonitorState:
     def summary_text(self) -> str:
         return "\n".join(self._line_buffer)
 
-    # -- Delegated token methods --
-
-    def extract_tokens(self, obj: object) -> Optional[int]:
-        return self._tokens.extract_tokens(obj)
-
-    def _normalize_token_key(self, key: str) -> str:
-        return self._tokens._normalize_token_key(key)
-
-    def _to_non_negative_int(self, value: object) -> Optional[int]:
-        return self._tokens._to_non_negative_int(value)
-
-    def _extract_token_metric(self, value: Dict[str, object], aliases: set[str]) -> Optional[int]:
-        return self._tokens._extract_token_metric(value, aliases)
-
-    def _extract_structured_token_entries(self, event: Dict[str, object]) -> list[tuple[str, str, int]]:
-        return self._tokens._extract_structured_token_entries(event)
-
-    def _extract_tokens_from_raw(self, raw: str) -> Optional[int]:
-        return self._tokens._extract_tokens_from_raw(raw)
-
-    # -- Delegated reasoning methods --
-
-    def normalize_reasoning_fragment(self, fragment: str) -> str:
-        return self._reasoning.normalize_reasoning_fragment(fragment)
+    # -- Public delegation to trackers (used by StreamMonitor) --
 
     def append_reasoning_fragment(self, fragment: str) -> None:
         self._reasoning.append_reasoning_fragment(fragment)
 
-    def _append_to_reasoning_buffer(self, fragment: str) -> None:
-        self._reasoning._append_to_reasoning_buffer(fragment)
-
-    def _should_flush_reasoning_buffer(self, fragment: str, subtype: str) -> bool:
-        return self._reasoning._should_flush_reasoning_buffer(fragment, subtype)
-
-    def _flush_reasoning_buffer(self) -> None:
-        self._reasoning._flush_reasoning_buffer()
-
-    def _reasoning_stream_kind_for_event(self, event_type: str, subtype: str) -> str:
-        return self._reasoning._reasoning_stream_kind_for_event(event_type, subtype)
-
-    def _extract_reasoning_fragment(self, event: Dict[str, object], fallback_text: str) -> str:
-        return self._reasoning._extract_reasoning_fragment(event, fallback_text)
-
-    def _extract_reasoning_text_fragment(self, value: object) -> Optional[str]:
-        return self._reasoning._extract_reasoning_text_fragment(value)
-
-    def _remember_reasoning_from_stream(
-        self, event: Dict[str, object], event_type: str, subtype: str, fallback_text: str,
-    ) -> None:
-        self._reasoning._remember_reasoning_from_stream(event, event_type, subtype, fallback_text)
-
     def reasoning_lines_for_panel(self, max_width: int = 90, max_lines: int = 5) -> list[str]:
         return self._reasoning.reasoning_lines_for_panel(max_width, max_lines)
-
-    def _is_reasoning_event(self, event: Dict[str, object]) -> bool:
-        return self._reasoning._is_reasoning_event(event, self._iter_values)
-
-    def _remember_reasoning(self, event: Dict[str, object], text: str) -> None:
-        self._reasoning._remember_reasoning(event, text, self._iter_values)
-
-    # -- Delegated tool call methods --
-
-    def _tool_call_name(self, payload_key: str) -> str:
-        return self._tools._tool_call_name(payload_key)
-
-    def _is_subagent_tool(self, tool_label: str) -> bool:
-        return self._tools._is_subagent_tool(tool_label)
-
-    def _tool_call_label_from_event(self, event: Dict[str, object]) -> tuple[str, str]:
-        return self._tools._tool_call_label_from_event(event, self._format_tool_call_with_args)
-
-    def _active_tool_status(self) -> tuple[str, bool]:
-        return self._tools._active_tool_status()
-
-    def _remember_tool_activity(self, event: Dict[str, object], event_type: str, subtype: str) -> None:
-        self._tools._remember_tool_activity(
-            event, event_type, subtype,
-            self._format_tool_call_with_args,
-            self._set_live_status,
-        )
 
     def force_finalize_live_tool_calls(self, reason: str) -> dict[str, object]:
         return self._tools.force_finalize_live_tool_calls(reason, self._set_live_status, self._recent_events)
@@ -977,9 +877,6 @@ class StreamMonitorState:
         )
 
     # -- Methods that remain on StreamMonitorState --
-
-    def _trim_fragment(self, value: str, *, max_len: int = 220) -> str:
-        return self._reasoning._trim_fragment(value, max_len=max_len)
 
     def _iter_values(self, value: object):
         if isinstance(value, dict):
@@ -1021,9 +918,6 @@ class StreamMonitorState:
             seen.add(key)
             deduped.append(piece)
         return "\n".join(deduped).strip()
-
-    def _extract_request_id(self, event: Dict[str, object]) -> Optional[str]:
-        return self._tokens._extract_request_id(event)
 
     def _string_arg(self, value: object) -> str:
         if isinstance(value, str):
@@ -1178,8 +1072,12 @@ class StreamMonitorState:
             self.metrics.input_bytes += raw_bytes
         elif event_type in ("assistant", "tool_call"):
             self.metrics.output_bytes += raw_bytes
-        stream_kind = self._reasoning_stream_kind_for_event(event_type, subtype)
-        self._remember_tool_activity(event, event_type, subtype)
+        stream_kind = self._reasoning._reasoning_stream_kind_for_event(event_type, subtype)
+        self._tools._remember_tool_activity(
+            event, event_type, subtype,
+            self._format_tool_call_with_args,
+            self._set_live_status,
+        )
         self._last_event_type = event_type or "event"
         self._last_event_note = subtype or "update"
         if event_type == "tool_call" and subtype == "started":
@@ -1210,12 +1108,12 @@ class StreamMonitorState:
                 self._last_event_note = preview[:80]
 
     def _process_event_reasoning(self, event: Dict[str, object], event_type: str, subtype: str, text: str) -> None:
-        self._remember_reasoning_from_stream(event, event_type, subtype, text)
+        self._reasoning._remember_reasoning_from_stream(event, event_type, subtype, text)
 
     def _update_live_status_from_event(self, event: Dict[str, object], event_type: str, subtype: str, text: str) -> None:
         if event_type in {"thinking", "analysis"}:
-            fragment = self._extract_reasoning_fragment(event, text)
-            preview = self._trim_fragment(" ".join(fragment.split()).strip()) if fragment else ""
+            fragment = self._reasoning._extract_reasoning_fragment(event, text)
+            preview = self._reasoning._trim_fragment(" ".join(fragment.split()).strip()) if fragment else ""
             status = f"thinking {preview}" if preview else "thinking"
             self._set_live_status("thinking", status, is_subagent=False)
         elif event_type == "assistant":
@@ -1226,7 +1124,7 @@ class StreamMonitorState:
         elif self._update_live_status_for_network_event(event, event_type, subtype):
             pass
         elif event_type != "tool_call" and self._tools.active_tool_calls:
-            label, is_subagent = self._active_tool_status()
+            label, is_subagent = self._tools._active_tool_status()
             self._set_live_status(
                 "subagent" if is_subagent else "tool_call",
                 f"running {label}",
