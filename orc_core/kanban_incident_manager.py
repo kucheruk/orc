@@ -314,7 +314,7 @@ class IncidentManager:
             board = self._distributor.board
             card = board.card_by_id(incident.source_task_id)
             if card and card.action != Action.BLOCKED:
-                card.action = Action.BLOCKED
+                card.block()
                 board.save_card(card)
                 self._distributor.release_card(card.id)
 
@@ -328,7 +328,7 @@ class IncidentManager:
         board = self._distributor.board
         fix_card = board.card_by_id(incident.fix_card_id)
         if fix_card and fix_card.action != Action.BLOCKED:
-            fix_card.action = Action.BLOCKED
+            fix_card.block()
             board.save_card(fix_card)
             self._distributor.release_card(fix_card.id)
 

@@ -186,7 +186,7 @@ class KanbanTeamleadRunner:
                     if refreshed.action == Action.BLOCKED:
                         self.escalate(refreshed)
                     elif refreshed.action == Action.ARBITRATION:
-                        refreshed.action = Action.BLOCKED.value
+                        refreshed.block()
                         self._distributor.board.save_card(refreshed)
                         log_event(self._log_path, "WARN",
                                   "teamlead left card in Arbitration, auto-blocking",
@@ -321,7 +321,7 @@ class KanbanTeamleadRunner:
     # ── Escalation ──────────────────────────────────────────────
 
     def escalate(self, card: KanbanCard) -> None:
-        card.action = "Blocked"
+        card.block()
         self._distributor.board.save_card(card)
         self._arbitrated_at_loop[card.id] = card.loop_count
         self._state_manager.mark_dirty()

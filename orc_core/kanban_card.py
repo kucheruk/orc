@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from .kanban_constants import STAGE_INBOX, Action, ClassOfService
+from .kanban_constants import STAGE_INBOX, STAGE_ORDER, Action, ClassOfService
 from .text_parse import parse_frontmatter
 
 # Fields agents are NOT allowed to change (Python-only)
@@ -51,6 +51,58 @@ class KanbanCard:
 
     def touch(self) -> None:
         self.updated_at = _now_iso()
+
+    # ── Domain operations ────────────────────────────────────────
+
+    def can_move_to(self, target_stage: str, *, allow_backward: bool = False) -> bool:
+        """Check if this card can transition to target_stage."""
+        if allow_backward:
+            return target_stage != self.stage
+        return STAGE_ORDER.get(target_stage, -1) > STAGE_ORDER.get(self.stage, -1)
+
+    def assign(self, agent_id: str) -> None:
+        self.assigned_agent = agent_id
+        self.touch()
+
+    def release(self) -> None:
+        self.assigned_agent = ""
+        self.touch()
+
+    def block(self, reason: str = "") -> None:
+        self.action = Action.BLOCKED
+        if reason:
+            self.body += f"\n\n## Block Reason\n{reason}\n"
+        self.touch()
+
+    def unblock(self, directive: str = "") -> None:
+        if directive:
+            self.body += f"\n\n## Human Directive\n{directive}\n"
+        self.action = Action.CODING
+        self.loop_count = 0
+        self.touch()
+
+    def validate(self) -> list[str]:
+        """Validate card invariants. Returns list of error messages (empty = valid)."""
+        errors: list[str] = []
+        if not self.id:
+            errors.append("Card must have an id")
+        if self.class_of_service == ClassOfService.EXPEDITE and not self.cos_justification:
+            errors.append("Expedite cards require cos_justification")
+        if self.class_of_service == ClassOfService.FIXED_DATE and not self.deadline:
+            errors.append("Fixed-date cards require a deadline")
+        if not (0 <= self.value_score <= 100):
+            errors.append(f"value_score {self.value_score} out of 0-100 range")
+        if not (0 <= self.effort_score <= 100):
+            errors.append(f"effort_score {self.effort_score} out of 0-100 range")
+        try:
+            Action(self.action)
+        except ValueError:
+            errors.append(f"Invalid action: {self.action}")
+        try:
+            ClassOfService(self.class_of_service)
+        except ValueError:
+            errors.append(f"Invalid class_of_service: {self.class_of_service}")
+        return errors
 
     # ── Serialization ───────────────────────────────────────────
 
@@ -121,26 +173,8 @@ def write_card(card: KanbanCard, path: Path | None = None) -> None:
 
 
 def validate_card(card: KanbanCard) -> list[str]:
-    errors: list[str] = []
-    if not card.id:
-        errors.append("Card must have an id")
-    if card.class_of_service == ClassOfService.EXPEDITE and not card.cos_justification:
-        errors.append("Expedite cards require cos_justification")
-    if card.class_of_service == ClassOfService.FIXED_DATE and not card.deadline:
-        errors.append("Fixed-date cards require a deadline")
-    if not (0 <= card.value_score <= 100):
-        errors.append(f"value_score {card.value_score} out of 0-100 range")
-    if not (0 <= card.effort_score <= 100):
-        errors.append(f"effort_score {card.effort_score} out of 0-100 range")
-    try:
-        Action(card.action)
-    except ValueError:
-        errors.append(f"Invalid action: {card.action}")
-    try:
-        ClassOfService(card.class_of_service)
-    except ValueError:
-        errors.append(f"Invalid class_of_service: {card.class_of_service}")
-    return errors
+    """Validate card invariants. Delegates to card.validate()."""
+    return card.validate()
 
 
 def new_card_body() -> str:

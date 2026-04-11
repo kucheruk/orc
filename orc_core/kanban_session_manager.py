@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import signal
 import threading
 import time
 from argparse import Namespace
 from pathlib import Path
-from types import SimpleNamespace as _SimpleNamespace
 from typing import Callable, Optional
 
 from .backend import Backend, get_backend
@@ -21,11 +22,19 @@ from .kanban_distributor import KanbanDistributor
 from .kanban_constants import (
     STAGE_DONE,
     STAGE_INBOX,
-    STAGE_SHORT_NAMES,
     Action,
 )
+from .kanban_notifications import extract_card_summary, format_completion_message
 from .kanban_publisher import KanbanPublisher
 from .kanban_request_builder import build_kanban_request
+from .kanban_protocols import (
+    CompletionNotifier,
+    DirectiveSource,
+    RunnerLifecycle,
+    RunnerNotifier,
+    RunnerStateManager,
+    SessionController,
+)
 from .kanban_teamlead_runner import KanbanTeamleadRunner
 from .kanban_worker_runner import KanbanWorkerRunner
 from .notify import send_telegram_message
@@ -110,19 +119,12 @@ class KanbanSessionManager:
         self._directive_queue: list[str] = []
         self._directive_lock = threading.Lock()
         self._telegram_available: bool | None = None  # cached telegram availability
-        # Protocol adapters for KanbanWorkerRunner (ISP: grouped callbacks)
-        self._worker_lifecycle = _SimpleNamespace(
-            should_continue=self._should_continue,
-            sleep=self.sleep_fn,
-        )
-        self._worker_notifier = _SimpleNamespace(
-            send_telegram=self._send_telegram,
-            notify_completion=self._notify_completion,
-        )
-        self._worker_state_manager = _SimpleNamespace(
-            mark_dirty=self._mark_state_dirty,
-            make_request=self._make_request,
-        )
+        # Protocol adapters (ISP: grouped callbacks → typed interfaces)
+        self._lifecycle_adapter = _LifecycleAdapter(self)
+        self._notifier_adapter = _NotifierAdapter(self)
+        self._state_adapter = _StateManagerAdapter(self)
+        self._directive_adapter = _DirectiveAdapter(self)
+        self._session_ctrl_adapter = _SessionControllerAdapter(self)
         self._load_kanban_state()
         self._incident_mgr = IncidentManager(
             distributor=self._distributor,
@@ -135,9 +137,8 @@ class KanbanSessionManager:
             workdir=self.workdir,
             max_sessions=self.max_sessions,
             sleep_fn=self.sleep_fn,
-            make_request_fn=self._make_request,
-            add_session_fn=self.request_add_session,
-            remove_session_fn=lambda sid: self.request_remove_session(sid),
+            state_manager=self._state_adapter,
+            session_controller=self._session_ctrl_adapter,
         )
         self._worker_runner = KanbanWorkerRunner(
             workdir=self.workdir,
@@ -152,9 +153,10 @@ class KanbanSessionManager:
             card_fail_counts=self._card_fail_counts,
             completed_tasks=self._completed_tasks,
             failed_tasks=self._failed_tasks,
-            lifecycle=self._worker_lifecycle,
-            notifier=self._worker_notifier,
-            state_manager=self._worker_state_manager,
+            lifecycle=self._lifecycle_adapter,
+            notifier=self._notifier_adapter,
+            state_manager=self._state_adapter,
+            integrator=self._integrator,
         )
         self._teamlead_runner = KanbanTeamleadRunner(
             workdir=self.workdir,
@@ -165,12 +167,10 @@ class KanbanSessionManager:
             incident_mgr=self._incident_mgr,
             slots_lock=self._slots_lock,
             arbitrated_at_loop=self._arbitrated_at_loop,
-            make_request_fn=self._make_request,
-            mark_state_dirty_fn=self._mark_state_dirty,
-            send_telegram_fn=self._send_telegram,
-            should_continue_fn=self._should_continue,
-            pop_directive_fn=self._pop_directive,
-            sleep_fn=self.sleep_fn,
+            lifecycle=self._lifecycle_adapter,
+            notifier=self._notifier_adapter,
+            state_manager=self._state_adapter,
+            directives=self._directive_adapter,
         )
 
     # ── State persistence ─────────────────────────────────────────
@@ -465,82 +465,26 @@ class KanbanSessionManager:
         elapsed: float,
     ) -> None:
         """Send a single rich Telegram notification after a role finishes."""
-        mins = elapsed / 60.0
-        new_stage = card.stage
-        new_action = card.action
+        from .kanban_constants import STAGE_SHORT_NAMES
 
-        # Only notify on meaningful transitions, not every micro-step
-        # Notify: stage changed, or expedite flagged, or Done
-        stage_changed = old_stage != new_stage
-        became_expedite = card.class_of_service == "expedite" and old_cos != "expedite"
-        is_done = new_stage == STAGE_DONE
+        msg = format_completion_message(
+            card, role, old_stage, old_action, old_cos, elapsed,
+            self._distributor.get_progress(),
+        )
+        if msg:
+            self._send_telegram(msg)
 
-        if not stage_changed and not became_expedite:
-            return
-
-        # Build short stage names for readability
         fr = STAGE_SHORT_NAMES.get(old_stage, old_stage)
-        to = STAGE_SHORT_NAMES.get(new_stage, new_stage)
-
-        icon = "✅" if is_done else "🔄"
-        if became_expedite:
-            icon = "🔥"
-
-        lines = [f"{icon} {card.id}: {card.title}"]
-        lines.append(f"  {role} ({mins:.0f}m): {fr} → {to}")
-        if old_action != new_action:
-            lines.append(f"  Action: {old_action} → {new_action}")
-        if became_expedite:
-            lines.append(f"  EXPEDITE: {card.cos_justification or 'no reason'}")
-
-        # For Done cards — extract delivery summary from card body
-        if is_done:
-            summary = self._extract_card_summary(card)
-            if summary:
-                lines.append(f"\n{summary}")
-
-        done, _ip, total = self._distributor.get_progress()
-        lines.append(f"\nProgress: {done}/{total}")
-
-        self._send_telegram("\n".join(lines))
-
+        to = STAGE_SHORT_NAMES.get(card.stage, card.stage)
         fire_hooks(self.workdir, "on_complete", {
             "ORC_CARD_ID": card.id,
             "ORC_CARD_TITLE": card.title,
             "ORC_FROM_STAGE": fr,
             "ORC_TO_STAGE": to,
             "ORC_ROLE": role,
-            "ORC_REASON": f"{old_action} -> {new_action}",
-            "ORC_ELAPSED_MIN": f"{mins:.1f}",
+            "ORC_REASON": f"{old_action} -> {card.action}",
+            "ORC_ELAPSED_MIN": f"{elapsed / 60.0:.1f}",
         })
-
-    @staticmethod
-    def _extract_card_summary(card: KanbanCard) -> str:
-        """Extract last implementation/integration note block from card body."""
-        body = card.body or ""
-        # Find section 3 content
-        in_section3 = False
-        section3_lines: list[str] = []
-        for line in body.splitlines():
-            if line.startswith("# 3."):
-                in_section3 = True
-                continue
-            if in_section3 and line.startswith("# "):
-                break
-            if in_section3:
-                section3_lines.append(line)
-        if not section3_lines:
-            return ""
-        # Take last non-empty paragraph (integrator's summary is appended last)
-        text = "\n".join(section3_lines).strip()
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-        if not paragraphs:
-            return ""
-        last = paragraphs[-1]
-        # Truncate for telegram readability
-        if len(last) > 500:
-            last = last[:497] + "..."
-        return last
 
     # ── Request builder ──────────────────────────────────────────
 
@@ -577,10 +521,7 @@ class KanbanSessionManager:
             return
         if card.action != Action.BLOCKED:
             return
-        if directive:
-            card.body += f"\n\n## Human Directive\n{directive}\n"
-        card.action = Action.CODING
-        card.loop_count = 0
+        card.unblock(directive)
         board.save_card(card)
         self.publisher.log_unblock(card_id, directive)
         log_event(self.log_path, "INFO", "card unblocked", card_id=card_id, directive=directive)
@@ -624,3 +565,95 @@ class KanbanSessionManager:
                 self.publisher._emit("system", "", f"{sid} stopped ({total - i} remaining)")
         if total:
             self.publisher._emit("system", "", "All agents stopped")
+        # Kill any remaining child processes in our group.
+        # Ignore signals first to prevent recursive handler invocation.
+        for sig_name in ("SIGTERM", "SIGHUP", "SIGQUIT", "SIGABRT", "SIGINT"):
+            sig = getattr(signal, sig_name, None)
+            if sig:
+                try:
+                    signal.signal(sig, signal.SIG_IGN)
+                except Exception:
+                    pass
+        try:
+            os.killpg(os.getpgrp(), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+
+# ── Protocol adapter classes ───────────────────────────────────────
+# These small classes implement the Protocol interfaces defined in
+# kanban_protocols.py, delegating to KanbanSessionManager methods.
+# They replace the old SimpleNamespace-based ad-hoc adapters with
+# typed, IDE-discoverable implementations.
+
+
+class _LifecycleAdapter:
+    """Implements RunnerLifecycle by delegating to the manager."""
+
+    __slots__ = ("_mgr",)
+
+    def __init__(self, mgr: KanbanSessionManager) -> None:
+        self._mgr = mgr
+
+    def should_continue(self, slot) -> bool:
+        return self._mgr._should_continue(slot)
+
+    def sleep(self, seconds: float) -> None:
+        self._mgr.sleep_fn(seconds)
+
+
+class _NotifierAdapter:
+    """Implements CompletionNotifier by delegating to the manager."""
+
+    __slots__ = ("_mgr",)
+
+    def __init__(self, mgr: KanbanSessionManager) -> None:
+        self._mgr = mgr
+
+    def send_telegram(self, message: str) -> None:
+        self._mgr._send_telegram(message)
+
+    def notify_completion(self, card, role, old_stage, old_action, old_cos, elapsed) -> None:
+        self._mgr._notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
+
+
+class _StateManagerAdapter:
+    """Implements RunnerStateManager by delegating to the manager."""
+
+    __slots__ = ("_mgr",)
+
+    def __init__(self, mgr: KanbanSessionManager) -> None:
+        self._mgr = mgr
+
+    def mark_dirty(self) -> None:
+        self._mgr._mark_state_dirty()
+
+    def make_request(self, task, prompt, workdir, session_id, commit_phase, ttl):
+        return self._mgr._make_request(task, prompt, workdir, session_id, commit_phase, ttl)
+
+
+class _DirectiveAdapter:
+    """Implements DirectiveSource by delegating to the manager."""
+
+    __slots__ = ("_mgr",)
+
+    def __init__(self, mgr: KanbanSessionManager) -> None:
+        self._mgr = mgr
+
+    def pop_directive(self):
+        return self._mgr._pop_directive()
+
+
+class _SessionControllerAdapter:
+    """Implements SessionController by delegating to the manager."""
+
+    __slots__ = ("_mgr",)
+
+    def __init__(self, mgr: KanbanSessionManager) -> None:
+        self._mgr = mgr
+
+    def add_session(self):
+        return self._mgr.request_add_session()
+
+    def remove_session(self, session_id: str) -> None:
+        self._mgr.request_remove_session(session_id)

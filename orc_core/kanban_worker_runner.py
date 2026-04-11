@@ -203,7 +203,7 @@ class KanbanWorkerRunner:
         self._state_manager.mark_dirty()
         if count >= self._FAIL_BLOCK_THRESHOLD:
             try:
-                card.action = Action.BLOCKED.value
+                card.block(error_desc)
                 self._distributor.board.save_card(card)
                 self._publisher._emit("escalate", card.id,
                                        f"{card.id} marked Blocked after {count} consecutive failures: {error_desc}")
