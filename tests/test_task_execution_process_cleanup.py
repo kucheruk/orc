@@ -62,7 +62,7 @@ class _FakeWorker:
     def __init__(self) -> None:
         self.monitor = _FakeMonitor()
 
-    def launch(self, **_kwargs):
+    def launch(self, _config):
         return self.monitor
 
 class TaskExecutionProcessCleanupTest(unittest.TestCase):

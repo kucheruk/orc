@@ -19,7 +19,7 @@ from ..git.git_helpers import (
     parse_git_porcelain as _parse_git_porcelain,
     runtime_artifact_paths_from_porcelain_lines as _runtime_artifact_paths_from_porcelain_lines,
 )
-from .task_execution_types import TaskCompletionStatus, TaskExecutionStatus
+from .task_execution_types import LaunchConfig, TaskCompletionStatus, TaskExecutionStatus
 from ..infra.logging import log_event
 from ..infra.monitor_protocol import StreamMonitorProtocol
 from ..infra.timeline import timeline_step
@@ -112,7 +112,7 @@ def run_agent_phase(
         _logger.info(f"[orc] {phase.label}: starting")
 
         try:
-            monitor = worker.launch(
+            monitor = worker.launch(LaunchConfig(
                 workdir=phase.workdir,
                 prompt_path=prompt_path,
                 model=phase.model,
@@ -127,7 +127,7 @@ def run_agent_phase(
                 snapshot_publisher=request.snapshot_publisher,
                 timeline_id=timeline_id,
                 attempt=attempt,
-            )
+            ))
         except Exception as exc:
             log_event(log_path, "ERROR", f"{phase.label} launch failed", task_id=task_id, error=str(exc))
             _logger.error(f"[orc] {phase.label}: launch failed ({type(exc).__name__})")

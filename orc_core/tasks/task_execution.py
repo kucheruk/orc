@@ -33,6 +33,7 @@ from ..infra.text_parse import SafeDict
 from ..git.worktree_flow import preflight_main_integration
 
 from .task_execution_types import (
+    LaunchConfig,
     TaskStageSpec,
     TaskExecutionRequest,
     TaskExecutionResult,
@@ -397,7 +398,7 @@ class TaskExecutionEngine:
                         stage_total=len(stage_specs),
                     )
                     try:
-                        active_monitor = self.worker.launch(
+                        active_monitor = self.worker.launch(LaunchConfig(
                             workdir=request.workdir,
                             prompt_path=prompt_path,
                             model=stage_model,
@@ -416,7 +417,7 @@ class TaskExecutionEngine:
                             resume_prompt=resume_prompt_text if stage_resume_existing else None,
                             timeline_id=timeline_id,
                             attempt=attempt_number,
-                        )
+                        ))
                     except FileNotFoundError:
                         _logger.error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
                         ts_attempt.result = "failed"

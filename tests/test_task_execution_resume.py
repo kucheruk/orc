@@ -63,7 +63,7 @@ class _FakeWorker:
     def __init__(self) -> None:
         self.launch_calls = 0
 
-    def launch(self, **_kwargs):
+    def launch(self, _config):
         self.launch_calls += 1
         return _FakeMonitor()
 

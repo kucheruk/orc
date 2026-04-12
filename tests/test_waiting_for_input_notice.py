@@ -60,7 +60,7 @@ class _FakeMonitor:
     def active_tool_calls_watchdog_snapshot(self): return {}
 
 class _FakeWorker:
-    def launch(self, **_kwargs):
+    def launch(self, _config):
         return _FakeMonitor()
 
 

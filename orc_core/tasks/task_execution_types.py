@@ -135,77 +135,57 @@ class _ResumeState:
     elapsed_before_start: float = 0.0
 
 
+@dataclass(frozen=True)
+class LaunchConfig:
+    """All parameters needed to launch an agent subprocess."""
+    workdir: str
+    prompt_path: Path
+    model: str
+    log_path: Path
+    report_interval: float
+    summary_lines: int
+    task_id: str
+    progress_done: int
+    progress_total: int
+    progress_in_progress: int = 0
+    agent_output_log_path: Optional[str] = None
+    agent_env: Optional[Mapping[str, str]] = None
+    snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None
+    resume_id: Optional[str] = None
+    resume_latest: bool = False
+    resume_prompt: Optional[str] = None
+    timeline_id: str = ""
+    attempt: int = 0
+
+
 class TaskWorker(Protocol):
-    def launch(
-        self,
-        *,
-        workdir: str,
-        prompt_path: Path,
-        model: str,
-        log_path: Path,
-        report_interval: float,
-        summary_lines: int,
-        task_id: str,
-        progress_done: int,
-        progress_total: int,
-        progress_in_progress: int = 0,
-        agent_output_log_path: Optional[str] = None,
-        agent_env: Optional[Mapping[str, str]] = None,
-        snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
-        resume_id: Optional[str] = None,
-        resume_latest: bool = False,
-        resume_prompt: Optional[str] = None,
-        timeline_id: str = "",
-        attempt: int = 0,
-    ):
-        ...
+    def launch(self, config: LaunchConfig): ...
 
 
 class AgentTaskWorker:
     def __init__(self, backend: Optional["BackendProtocol"] = None) -> None:
         self._backend = backend
 
-    def launch(
-        self,
-        *,
-        workdir: str,
-        prompt_path: Path,
-        model: str,
-        log_path: Path,
-        report_interval: float,
-        summary_lines: int,
-        task_id: str,
-        progress_done: int,
-        progress_total: int,
-        progress_in_progress: int = 0,
-        agent_output_log_path: Optional[str] = None,
-        agent_env: Optional[Mapping[str, str]] = None,
-        snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
-        resume_id: Optional[str] = None,
-        resume_latest: bool = False,
-        resume_prompt: Optional[str] = None,
-        timeline_id: str = "",
-        attempt: int = 0,
-    ):
+    def launch(self, config: LaunchConfig):
         return launch_agent_stream_json(
-            workdir,
-            prompt_path,
-            model,
-            log_path,
-            report_interval=report_interval,
-            summary_lines=summary_lines,
-            task_id=task_id,
-            progress_done=progress_done,
-            progress_total=progress_total,
-            progress_in_progress=progress_in_progress,
-            agent_output_log_path=agent_output_log_path,
-            agent_env=agent_env,
-            snapshot_publisher=snapshot_publisher,
-            resume_id=resume_id,
-            resume_latest=resume_latest,
-            resume_prompt=resume_prompt,
-            timeline_id=timeline_id,
-            attempt=attempt,
+            config.workdir,
+            config.prompt_path,
+            config.model,
+            config.log_path,
+            report_interval=config.report_interval,
+            summary_lines=config.summary_lines,
+            task_id=config.task_id,
+            progress_done=config.progress_done,
+            progress_total=config.progress_total,
+            progress_in_progress=config.progress_in_progress,
+            agent_output_log_path=config.agent_output_log_path,
+            agent_env=config.agent_env,
+            snapshot_publisher=config.snapshot_publisher,
+            resume_id=config.resume_id,
+            resume_latest=config.resume_latest,
+            resume_prompt=config.resume_prompt,
+            timeline_id=config.timeline_id,
+            attempt=config.attempt,
             backend=self._backend,
         )
 

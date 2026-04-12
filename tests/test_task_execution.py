@@ -80,13 +80,13 @@ class _FakeMonitor:
 class _FakeWorker:
     def __init__(self) -> None:
         self.launch_calls = 0
-        self.launch_kwargs: list[dict] = []
+        self.launch_configs: list = []
 
-    def launch(self, **kwargs):
+    def launch(self, config):
         self.launch_calls += 1
-        self.launch_kwargs.append(kwargs)
+        self.launch_configs.append(config)
         monitor = _FakeMonitor()
-        monitor.workdir = str(kwargs.get("workdir") or "")
+        monitor.workdir = str(getattr(config, "workdir", ""))
         return monitor
 
 
@@ -96,11 +96,11 @@ class _EmptySummaryMonitor(_FakeMonitor):
 
 
 class _EmptySummaryWorker(_FakeWorker):
-    def launch(self, **kwargs):
+    def launch(self, config):
         self.launch_calls += 1
-        self.launch_kwargs.append(kwargs)
+        self.launch_configs.append(config)
         monitor = _EmptySummaryMonitor()
-        monitor.workdir = str(kwargs.get("workdir") or "")
+        monitor.workdir = str(getattr(config, "workdir", ""))
         return monitor
 
 
@@ -137,16 +137,16 @@ class _FragmentedSummaryMonitor(_FakeMonitor):
 
 
 class _FragmentedSummaryWorker(_FakeWorker):
-    def launch(self, **kwargs):
+    def launch(self, config):
         self.launch_calls += 1
-        self.launch_kwargs.append(kwargs)
+        self.launch_configs.append(config)
         monitor = _FragmentedSummaryMonitor()
-        monitor.workdir = str(kwargs.get("workdir") or "")
+        monitor.workdir = str(getattr(config, "workdir", ""))
         return monitor
 
 
 class _FailingWorker:
-    def launch(self, **_kwargs):
+    def launch(self, _config):
         raise TypeError("missing required keyword-only arguments: progress_done and progress_total")
 
 
@@ -235,7 +235,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = engine.execute(self._request(tmpdir, max_restarts=2))
-            retry_prompt = worker.launch_kwargs[1]["prompt_path"].read_text(encoding="utf-8")
+            retry_prompt = worker.launch_configs[1].prompt_path.read_text(encoding="utf-8")
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 2)
@@ -460,9 +460,9 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 1)
-        launch_kwargs = worker.launch_kwargs[0]
-        self.assertIsNone(launch_kwargs["resume_id"])
-        self.assertIsNone(launch_kwargs["resume_prompt"])
+        launch_configs = worker.launch_configs[0]
+        self.assertIsNone(launch_configs.resume_id)
+        self.assertIsNone(launch_configs.resume_prompt)
         write_task_file.assert_called_once()
 
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
@@ -547,8 +547,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 2)
-        self.assertEqual(worker.launch_kwargs[0]["resume_prompt"], "continue")
-        self.assertIn("Ты превысил лимит времени", worker.launch_kwargs[1]["resume_prompt"])
+        self.assertEqual(worker.launch_configs[0].resume_prompt, "continue")
+        self.assertIn("Ты превысил лимит времени", worker.launch_configs[1].resume_prompt)
 
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
     @patch("orc_core.tasks.task_execution.update_task_restart_count")
@@ -711,8 +711,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual(worker.launch_calls, 1)
-        self.assertEqual(worker.launch_kwargs[0]["progress_done"], 3)
-        self.assertEqual(worker.launch_kwargs[0]["progress_total"], 9)
+        self.assertEqual(worker.launch_configs[0].progress_done, 3)
+        self.assertEqual(worker.launch_configs[0].progress_total, 9)
 
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
     @patch("orc_core.tasks.task_agent_phases.wait_for_process_exit", return_value="completed")
@@ -773,7 +773,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 1)
-        launch_path = worker.launch_kwargs[0]["agent_output_log_path"]
+        launch_path = worker.launch_configs[0].agent_output_log_path
         self.assertTrue(isinstance(launch_path, str) and launch_path.endswith(".log"))
         self.assertIn(".orc/run/raw-stream/", launch_path)
 
@@ -926,15 +926,15 @@ class TaskExecutionEngineTest(unittest.TestCase):
             artifact_bundle.handoff.write_text("handoff", encoding="utf-8")
             result = engine.execute(self._request(tmpdir, stage_specs=stages))
             prompt_payloads = [
-                Path(call["prompt_path"]).read_text(encoding="utf-8")
-                for call in worker.launch_kwargs
+                Path(call.prompt_path).read_text(encoding="utf-8")
+                for call in worker.launch_configs
             ]
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 6)
-        self.assertEqual([call["model"] for call in worker.launch_kwargs], [stage.model for stage in stages])
-        self.assertTrue(all(call["resume_id"] is None for call in worker.launch_kwargs))
-        self.assertTrue(all(call["resume_prompt"] is None for call in worker.launch_kwargs))
+        self.assertEqual([call.model for call in worker.launch_configs], [stage.model for stage in stages])
+        self.assertTrue(all(call.resume_id is None for call in worker.launch_configs))
+        self.assertTrue(all(call.resume_prompt is None for call in worker.launch_configs))
         self.assertEqual(
             prompt_payloads,
             [
@@ -1027,7 +1027,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
             wait_for_completion.side_effect = _write_stage_artifacts
             result = engine.execute(self._request(tmpdir, stage_specs=stages))
-            prompt_payloads = [Path(call["prompt_path"]).read_text(encoding="utf-8") for call in worker.launch_kwargs]
+            prompt_payloads = [Path(call.prompt_path).read_text(encoding="utf-8") for call in worker.launch_configs]
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 6)
@@ -1095,7 +1095,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
 
             def _write_stage_artifacts(*_args, **_kwargs):
-                if len(worker.launch_kwargs) == 1:
+                if len(worker.launch_configs) == 1:
                     Path(tmpdir, "BACKLOG.md").write_text("- [x] TASK-001 test task\n", encoding="utf-8")
                     return "process_exited"
                 artifact_bundle.implementation.write_text("implementation", encoding="utf-8")
@@ -1154,7 +1154,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
 
             def _write_stage_artifacts(*_args, **_kwargs):
-                if len(worker.launch_kwargs) == 1:
+                if len(worker.launch_configs) == 1:
                     artifact_bundle.implementation.write_text("implementation", encoding="utf-8")
                     Path(tmpdir, "BACKLOG.md").write_text("- [x] TASK-001 test task\n", encoding="utf-8")
                     return "process_exited"
@@ -1163,7 +1163,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
             wait_for_completion.side_effect = _write_stage_artifacts
             result = engine.execute(self._request(tmpdir, stage_specs=stages))
-            prompt_payloads = [Path(call["prompt_path"]).read_text(encoding="utf-8") for call in worker.launch_kwargs]
+            prompt_payloads = [Path(call.prompt_path).read_text(encoding="utf-8") for call in worker.launch_configs]
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 2)
@@ -1241,7 +1241,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
             artifact_bundle.plan.write_text("plan", encoding="utf-8")
             result = engine.execute(self._request(tmpdir, stage_specs=stages))
-            prompt_payload = Path(worker.launch_kwargs[0]["prompt_path"]).read_text(encoding="utf-8")
+            prompt_payload = Path(worker.launch_configs[0].prompt_path).read_text(encoding="utf-8")
 
         self.assertEqual(result.status, "completed")
         self.assertIn(f"artifacts={artifact_bundle.artifacts_dir}", prompt_payload)
