@@ -24,9 +24,9 @@ from .kanban_publisher import KanbanPublisher
 from .kanban_roles import build_prompt
 from ..infra.logging import log_event
 from ..infra.quit_signal import is_quit_after_task_requested
-from ..infra.session_types import SessionSlot, SlotStatus
+from ..models.session_types import SessionSlot, SlotStatus
 from ..tasks.task_execution import TaskExecutionEngine
-from ..infra.task_types import Task
+from ..models.task_types import Task
 from ..git.worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
 
 _logger = logging.getLogger(__name__)

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from ..infra.atomic_io import write_json_atomic, write_text_atomic
-from ..infra.task_types import Task
+from ..models.task_types import Task
 from ..infra.logging import log_event, now_iso
 from ..infra.state_paths import active_task_path
 from .task_state import write_task_runtime_state

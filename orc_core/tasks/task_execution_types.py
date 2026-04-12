@@ -26,7 +26,7 @@ class TaskCompletionStatus(StrEnum):
     MODEL_UNAVAILABLE = "model_unavailable"
 from ..infra.runner import launch_agent_stream_json
 from ..infra.monitor_types import MonitorSnapshot
-from ..infra.task_types import Task
+from ..models.task_types import Task
 
 
 SDLC_FEEDBACK_MAX_ITERATIONS = 3
@@ -156,6 +156,8 @@ class LaunchConfig:
     resume_prompt: Optional[str] = None
     timeline_id: str = ""
     attempt: int = 0
+    backlog_task_lister: Optional[Callable] = None
+    git_diff_fn: Optional[Callable] = None
 
 
 class TaskWorker(Protocol):
@@ -187,6 +189,8 @@ class AgentTaskWorker:
             timeline_id=config.timeline_id,
             attempt=config.attempt,
             backend=self._backend,
+            backlog_task_lister=config.backlog_task_lister,
+            git_diff_fn=config.git_diff_fn,
         )
 
 

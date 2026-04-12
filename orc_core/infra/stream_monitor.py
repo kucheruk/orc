@@ -35,6 +35,8 @@ class StreamJsonMonitor:
         snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
         timeline_id: str = "",
         attempt: int = 0,
+        backlog_task_lister: Optional[Callable] = None,
+        git_diff_fn: Optional[Callable] = None,
     ) -> None:
         self.log_path = log_path
         self.task_id = task_id
@@ -88,13 +90,9 @@ class StreamJsonMonitor:
             stats_path=self._stats_path, metrics_path=self._metrics_path,
             timeline_id=self.timeline_id, attempt=self.attempt,
             started_at=self.started_at,
-            backlog_task_lister=self._list_backlog_tasks,
+            backlog_task_lister=backlog_task_lister,
+            git_diff_fn=git_diff_fn,
         )
-
-    @staticmethod
-    def _list_backlog_tasks(backlog_path):
-        from ..tasks.task_source import MarkdownTaskSource
-        return MarkdownTaskSource(backlog_path).list_tasks()
 
         # Spawn agent subprocess — callbacks run on the asyncio reader thread
         self._agent = AgentProcess(

@@ -1,11 +1,3 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class Task:
-    task_id: str
-    text: str
-    done: bool
+# Moved to orc_core.models.task_types — this file is kept empty to avoid dangling .pyc.

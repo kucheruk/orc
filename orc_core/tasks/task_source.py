@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Optional, Protocol
 
 from ..board.backlog_markdown_parser import mark_task_done_in_lines, parse_backlog_markdown
-from ..infra.task_types import Task
+from ..models.task_types import Task
 
 
 class TaskSource(Protocol):

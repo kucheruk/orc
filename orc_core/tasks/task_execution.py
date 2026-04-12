@@ -27,6 +27,8 @@ from .task_state import runtime_state_path
 from ..infra.text_parse import SafeDict
 from .task_execution_preflight import preflight_integration
 from .task_execution_resume import recover_resume_state, init_task_file
+from .task_source import MarkdownTaskSource
+from ..git.git_helpers import git_diff_numstat
 
 from .task_execution_types import (
     LaunchConfig,
@@ -217,6 +219,8 @@ class TaskExecutionEngine:
                             resume_prompt=resume_prompt_text if stage_resume_existing else None,
                             timeline_id=timeline_id,
                             attempt=attempt_number,
+                            backlog_task_lister=lambda p: MarkdownTaskSource(p).list_tasks(),
+                            git_diff_fn=git_diff_numstat,
                         )
                         active_monitor, result = self._launch_and_wait(
                             ctx, launch_cfg,

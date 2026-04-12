@@ -14,7 +14,7 @@ from typing import Callable, Optional
 
 from ..infra.atomic_io import write_json_atomic
 from ..infra.logging import log_event
-from ..infra.session_types import (
+from ..models.session_types import (
     ERROR_TRUNCATE,
     REASON_TRUNCATE,
     TRACEBACK_TRUNCATE,
@@ -22,7 +22,7 @@ from ..infra.session_types import (
 )
 from ..infra.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
-from ..infra.task_types import Task
+from ..models.task_types import Task
 from .conflict_resolver import ConflictResolver
 from .worktree_flow import (
     get_head_commit,

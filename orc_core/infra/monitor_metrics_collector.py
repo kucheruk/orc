@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from .task_types import Task
+from ..models.task_types import Task
 
 from .atomic_io import write_json_atomic
 from .logging import log_event, now_ms
@@ -34,6 +34,7 @@ class MonitorMetricsCollector:
         attempt: int,
         started_at: float,
         backlog_task_lister: Optional[Callable[[Path], List[Task]]] = None,
+        git_diff_fn: Optional[Callable] = None,
     ) -> None:
         self._task_id = task_id
         self._workdir = workdir
@@ -47,15 +48,17 @@ class MonitorMetricsCollector:
         self._attempt = attempt
         self._started_at = started_at
         self._backlog_task_lister = backlog_task_lister
+        self._git_diff_fn = git_diff_fn
         self._run_id = f"{int(started_at)}-{task_id}"
         self._last_git_stats_time = 0.0
 
     def update_git_stats(self) -> None:
-        from ..git.git_helpers import git_diff_numstat
+        if self._git_diff_fn is None:
+            return
 
         started_ms = now_ms()
-        unstaged = git_diff_numstat(self._workdir, timeout=10.0)
-        staged = git_diff_numstat(self._workdir, cached=True, timeout=10.0)
+        unstaged = self._git_diff_fn(self._workdir, timeout=10.0)
+        staged = self._git_diff_fn(self._workdir, cached=True, timeout=10.0)
         if unstaged is None and staged is None:
             timeline_instant(
                 timeline_id=self._timeline_id, task_id=self._task_id,

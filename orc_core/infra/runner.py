@@ -38,6 +38,8 @@ def launch_agent_stream_json(
     resume_prompt: Optional[str] = None,
     timeline_id: str = "",
     attempt: int = 0,
+    backlog_task_lister: Optional[Callable] = None,
+    git_diff_fn: Optional[Callable] = None,
 ) -> StreamJsonMonitor:
     return asyncio.run(
         launch_agent_stream_json_async(
@@ -60,6 +62,8 @@ def launch_agent_stream_json(
             timeline_id=timeline_id,
             attempt=attempt,
             backend=backend,
+            backlog_task_lister=backlog_task_lister,
+            git_diff_fn=git_diff_fn,
         )
     )
 
@@ -85,6 +89,8 @@ async def launch_agent_stream_json_async(
     resume_prompt: Optional[str] = None,
     timeline_id: str = "",
     attempt: int = 0,
+    backlog_task_lister: Optional[Callable] = None,
+    git_diff_fn: Optional[Callable] = None,
 ) -> StreamJsonMonitor:
     #region agent log
     debug_log(
@@ -144,6 +150,8 @@ async def launch_agent_stream_json_async(
         snapshot_publisher=snapshot_publisher,
         timeline_id=timeline_id,
         attempt=attempt,
+        backlog_task_lister=backlog_task_lister,
+        git_diff_fn=git_diff_fn,
     )
     try:
         monitor.set_progress(progress_done, progress_total, progress_in_progress)
