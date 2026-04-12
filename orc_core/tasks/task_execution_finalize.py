@@ -35,6 +35,32 @@ from ..git.worktree_flow import get_head_commit, integrate_commit_into_main
 _logger = logging.getLogger(__name__)
 
 
+def _collect_completion_stats(log_path: Path, task_id: str, request, monitor) -> None:
+    """Log completion stats, clean summary, write metrics."""
+    log_event(log_path, "INFO", "task completed", task_id=task_id)
+    raw_summary_text = monitor.get_summary_text()
+    raw_lines = raw_summary_text.splitlines() if raw_summary_text else []
+    cleaned_lines = clean_summary_lines(raw_lines)
+    if _is_fragmented_summary_lines(cleaned_lines):
+        summary_text = _normalize_fragmented_summary_text("\n".join(cleaned_lines))
+    else:
+        summary_text = "\n".join(cleaned_lines[-request.timing.summary_lines:])
+    tokens = monitor.metrics.tokens_total if monitor.metrics.tokens_total is not None else "-"
+    files_edited = monitor.metrics.files_edited if monitor.metrics.files_edited is not None else "-"
+    _logger.info(
+        f"[orc] completed stats tokens={tokens} lines={monitor.metrics.total_lines} "
+        f"commands={monitor.metrics.command_count} files_edited={files_edited}"
+    )
+    _update_completion_stats(
+        monitor=monitor, task_id=task_id, task_path=request.task_path,
+        workdir=request.workdir, log_path=log_path,
+    )
+    debug_log("H8", "orc_core/task_execution.py:execute:summary", "summary prepared", {
+        "summary_len": len(summary_text),
+        "summary_lines": summary_text.count("\n") + 1 if summary_text else 0,
+    })
+
+
 def finalize_completed(
     engine,
     ctx: _ExecutionContext,
@@ -54,37 +80,7 @@ def finalize_completed(
     runtime_backlog_path = ctx.runtime_backlog_path
 
     commit_completed = False
-    log_event(engine.log_path, "INFO", "task completed", task_id=current_task_id)
-    raw_summary_text = monitor.get_summary_text()
-    raw_lines = raw_summary_text.splitlines() if raw_summary_text else []
-    cleaned_lines = clean_summary_lines(raw_lines)
-    if _is_fragmented_summary_lines(cleaned_lines):
-        summary_text = _normalize_fragmented_summary_text("\n".join(cleaned_lines))
-    else:
-        summary_text = "\n".join(cleaned_lines[-request.timing.summary_lines :])
-    tokens = monitor.metrics.tokens_total if monitor.metrics.tokens_total is not None else "-"
-    files_edited = monitor.metrics.files_edited if monitor.metrics.files_edited is not None else "-"
-    _logger.info(
-        f"[orc] completed stats tokens={tokens} lines={monitor.metrics.total_lines} "
-        f"commands={monitor.metrics.command_count} files_edited={files_edited}"
-    )
-    _update_completion_stats(
-        monitor=monitor,
-        task_id=current_task_id,
-        task_path=request.task_path,
-        workdir=request.workdir,
-        log_path=engine.log_path,
-    )
-    debug_log(
-        "H8",
-        "orc_core/task_execution.py:execute:summary",
-        "summary prepared",
-        {
-            "summary_len": len(summary_text),
-            "summary_lines": summary_text.count("\n") + 1 if summary_text else 0,
-        },
-    )
-    # Kanban session manager handles its own notifications
+    _collect_completion_stats(engine.log_path, current_task_id, request, monitor)
     prompt_vars = SafeDict(
         task_text=current_task_text,
         task_id=current_task_id,
