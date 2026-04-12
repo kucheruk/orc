@@ -2,13 +2,24 @@
 # -*- coding: utf-8 -*-
 
 import traceback
-from typing import Callable
+from typing import Callable, Optional, Protocol, runtime_checkable
 
 from textual import work
 from textual.app import App
 
 from ..infra.state.quit_signal import clear_stop_request, request_stop, toggle_quit_after_task
 from ..infra.monitoring.monitor_types import MonitorSnapshot
+
+
+@runtime_checkable
+class SessionManagerProtocol(Protocol):
+    """TUI's view of the session manager — only the methods TUI needs."""
+
+    def add_inbox_card(self, text: str) -> None: ...
+    def unblock_card(self, card_id: str, directive: str) -> None: ...
+    def queue_teamlead_directive(self, text: str) -> None: ...
+    def request_add_session(self) -> Optional[str]: ...
+    def request_remove_session(self, session_id: str) -> None: ...
 from ..tui.kanban_messages import (
     BoardUpdated,
     InboxCardRequested,
@@ -35,7 +46,7 @@ class OrcApp(App[int]):
         ("f3", "remove_session", "-Agent"),
     ]
 
-    def __init__(self, run_orchestrator: Callable[[Callable[[str, MonitorSnapshot | None], None]], int], *, session_manager=None) -> None:
+    def __init__(self, run_orchestrator: Callable[[Callable[[str, MonitorSnapshot | None], None]], int], *, session_manager: SessionManagerProtocol | None = None) -> None:
         super().__init__()
         self._run_orchestrator = run_orchestrator
         self._session_manager = session_manager
@@ -91,15 +102,15 @@ class OrcApp(App[int]):
         self._kanban_screen.add_journal_entry(message.entry)
 
     def on_inbox_card_requested(self, message: InboxCardRequested) -> None:
-        if self._session_manager and hasattr(self._session_manager, "add_inbox_card"):
+        if self._session_manager:
             self._session_manager.add_inbox_card(message.text)
 
     def on_unblock_card_requested(self, message: UnblockCardRequested) -> None:
-        if self._session_manager and hasattr(self._session_manager, "unblock_card"):
+        if self._session_manager:
             self._session_manager.unblock_card(message.card_id, message.directive)
 
     def on_teamlead_directive_requested(self, message: TeamleadDirectiveRequested) -> None:
-        if self._session_manager and hasattr(self._session_manager, "queue_teamlead_directive"):
+        if self._session_manager:
             self._session_manager.queue_teamlead_directive(message.text)
 
     def on_snapshot_updated(self, message: SnapshotUpdated) -> None:
