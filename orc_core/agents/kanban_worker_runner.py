@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..cli.orc_config import OrcConfig
+from .task_outcome_tracker import TaskOutcomeTracker
 from ..git.integration_manager import IntegrationManager
 from .kanban_agent_output import process_agent_result
 from ..board.kanban_constants import STAGE_DONE, STAGE_HANDOFF, Action
@@ -48,9 +49,7 @@ class KanbanWorkerRunner:
         main_branch: str,
         slots_lock: threading.Lock,
         worktree_lock: threading.Lock,
-        card_fail_counts: dict[str, int],
-        completed_tasks: list[str],
-        failed_tasks: list[str],
+        outcomes: TaskOutcomeTracker,
         lifecycle: RunnerLifecycle,
         notifier: CompletionNotifier,
         state_manager: RunnerStateManager,
@@ -65,9 +64,7 @@ class KanbanWorkerRunner:
         self._main_branch = main_branch
         self._slots_lock = slots_lock
         self._worktree_lock = worktree_lock
-        self._card_fail_counts = card_fail_counts
-        self._completed_tasks = completed_tasks
-        self._failed_tasks = failed_tasks
+        self._outcomes = outcomes
         self._lifecycle = lifecycle
         self._notifier = notifier
         self._state_manager = state_manager
@@ -147,7 +144,7 @@ class KanbanWorkerRunner:
                 old_cos = card.class_of_service
                 errors = process_agent_result(self._distributor.board, card, role)
                 if not errors:
-                    self._completed_tasks.append(card.id)
+                    self._outcomes.record_completed(card.id)
                     self._publisher.log_complete(card.id, role, elapsed)
                     self._notifier.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
                 else:
@@ -155,24 +152,22 @@ class KanbanWorkerRunner:
                                            f"{card.id} validation failed: {'; '.join(errors[:3])}")
                     log_event(self._log_path, "WARN", "agent output validation failed",
                               task_id=card.id, role=role, errors=str(errors))
-                    self._failed_tasks.append(card.id)
+                    self._outcomes.record_failed(card.id)
             else:
                 reason = result.reason if result else "no result"
                 self._publisher._emit("escalate", card.id, f"{card.id} {role} failed: {reason}")
-                self._failed_tasks.append(card.id)
+                self._outcomes.record_failed(card.id)
                 self.increment_fail_and_maybe_block(card, f"agent returned: {reason}")
         except Exception as exc:
             self._publisher._emit("escalate", card.id,
                                    f"{card.id} ERROR: {type(exc).__name__}: {exc}")
             log_event(self._log_path, "ERROR", "assignment failed",
                       task_id=card.id, error=str(exc))
-            self._failed_tasks.append(card.id)
+            self._outcomes.record_failed(card.id)
             self.increment_fail_and_maybe_block(card, f"{type(exc).__name__}: {exc}")
         else:
             # Reset failure counter on success
-            if card.id in self._card_fail_counts:
-                del self._card_fail_counts[card.id]
-                self._state_manager.mark_dirty()
+            self._outcomes.reset_fail_count(card.id)
         finally:
             # Integrate worktree commits into main before cleanup
             if worktree and card.stage == STAGE_DONE:
@@ -199,9 +194,7 @@ class KanbanWorkerRunner:
 
     def increment_fail_and_maybe_block(self, card: KanbanCard, error_desc: str) -> None:
         """Track consecutive failures for a card. Block it after threshold."""
-        count = self._card_fail_counts.get(card.id, 0) + 1
-        self._card_fail_counts[card.id] = count
-        self._state_manager.mark_dirty()
+        count = self._outcomes.increment_fail_count(card.id)
         if count >= self._FAIL_BLOCK_THRESHOLD:
             try:
                 card.block(error_desc)

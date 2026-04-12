@@ -44,6 +44,7 @@ from .kanban_roles import ROLE_TEAMLEAD
 from ..infra.logging import log_event
 from ..infra.quit_signal import is_quit_after_task_requested, is_stop_requested
 from .session_pool import SessionPool
+from .task_outcome_tracker import TaskOutcomeTracker
 from .session_types import (
     MANAGER_POLL_SECONDS,
     STAGGER_DELAY_SECONDS,
@@ -186,10 +187,11 @@ class KanbanSessionManager:
         self.publisher = KanbanPublisher()
         self.last_failure_reason = ""
         self._started_at = 0.0
-        self._completed_tasks: list[str] = []
-        self._failed_tasks: list[str] = []
-        self._card_fail_counts, self._arbitrated_at_loop = _load_kanban_state(workdir)
-        self._state_dirty: bool = False
+        card_fail_counts, arbitrated_at_loop = _load_kanban_state(workdir)
+        self._outcomes = TaskOutcomeTracker(
+            card_fail_counts=card_fail_counts,
+            arbitrated_at_loop=arbitrated_at_loop,
+        )
         self._directive_queue: list[str] = []
         self._directive_lock = threading.Lock()
 
@@ -214,7 +216,7 @@ class KanbanSessionManager:
             engine=self.engine,
             slots=self._pool.slots,
             slots_lock=self._pool.slots_lock,
-            failed_tasks=self._failed_tasks,
+            failed_tasks=self._outcomes.failed_tasks,
             log_path=self.log_path,
             workdir=self.workdir,
             max_sessions=self._pool.max_sessions,
@@ -232,9 +234,7 @@ class KanbanSessionManager:
             main_branch=self.main_branch,
             slots_lock=self._pool.slots_lock,
             worktree_lock=self._worktree_lock,
-            card_fail_counts=self._card_fail_counts,
-            completed_tasks=self._completed_tasks,
-            failed_tasks=self._failed_tasks,
+            outcomes=self._outcomes,
             lifecycle=self._lifecycle_adapter,
             notifier=self._notifier_adapter,
             state_manager=self._state_adapter,
@@ -248,7 +248,7 @@ class KanbanSessionManager:
             publisher=self.publisher,
             incident_mgr=self._incident_mgr,
             slots_lock=self._pool.slots_lock,
-            arbitrated_at_loop=self._arbitrated_at_loop,
+            arbitrated_at_loop=self._outcomes.arbitrated_at_loop,
             lifecycle=self._lifecycle_adapter,
             notifier=self._notifier_adapter,
             state_manager=self._state_adapter,
@@ -306,11 +306,13 @@ class KanbanSessionManager:
         hours, mins = divmod(mins, 60)
         time_str = f"{hours}h {mins}m {secs}s" if hours else f"{mins}m {secs}s"
         done, _ip, total = self._distributor.get_progress()
-        lines = [f"Completed: {len(self._completed_tasks)} tasks in {time_str}"]
-        if self._completed_tasks:
-            lines.append(f"  Tasks: {', '.join(self._completed_tasks)}")
-        if self._failed_tasks:
-            lines.append(f"  Failed: {', '.join(self._failed_tasks)}")
+        completed = self._outcomes.completed_tasks
+        failed = self._outcomes.failed_tasks
+        lines = [f"Completed: {len(completed)} tasks in {time_str}"]
+        if completed:
+            lines.append(f"  Tasks: {', '.join(completed)}")
+        if failed:
+            lines.append(f"  Failed: {', '.join(failed)}")
         lines.append(f"  Board: {done}/{total} done")
         return "\n".join(lines)
 
@@ -395,12 +397,13 @@ class KanbanSessionManager:
     # ── State persistence ───────────────────────────────────────
 
     def _mark_state_dirty(self) -> None:
-        self._state_dirty = True
+        self._outcomes.mark_dirty()
 
     def _flush_state_if_dirty(self) -> None:
-        if self._state_dirty:
-            _save_kanban_state(self.workdir, self._card_fail_counts, self._arbitrated_at_loop)
-            self._state_dirty = False
+        if self._outcomes.is_dirty():
+            snapshot = self._outcomes.state_snapshot()
+            _save_kanban_state(self.workdir, snapshot["card_fail_counts"], snapshot["arbitrated_at_loop"])
+            self._outcomes.clear_dirty()
 
     # ── Worker/teamlead thread targets ──────────────────────────
 
