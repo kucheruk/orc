@@ -247,12 +247,16 @@ class KanbanSessionManager:
 
     def add_inbox_card(self, text: str) -> None:
         board = self._distributor.board
-        card = create_inbox_card(board, text, log_path=self.log_path)
+        def _log_created(cid, title):
+            log_event(self.log_path, "INFO", "inbox card created", card_id=cid, title=title)
+        card = create_inbox_card(board, text, on_created=_log_created)
         self.publisher.log_inbox(card.id, text)
 
     def unblock_card(self, card_id: str, directive: str) -> None:
         board = self._distributor.board
-        if unblock_card_uc(board, card_id, directive, log_path=self.log_path):
+        def _log_unblocked(cid, dir_text):
+            log_event(self.log_path, "INFO", "card unblocked", card_id=cid, directive=dir_text)
+        if unblock_card_uc(board, card_id, directive, on_unblocked=_log_unblocked):
             self.publisher.log_unblock(card_id, directive)
 
     def queue_teamlead_directive(self, text: str) -> None:

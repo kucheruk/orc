@@ -4,11 +4,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import Callable, Optional
 
 from ..board.kanban_board import KanbanBoard
 from ..board.kanban_card import KanbanCard
-from ..infra.io.logging import log_event
 
 
 def create_inbox_card(
@@ -16,13 +15,13 @@ def create_inbox_card(
     title: str,
     *,
     card_id: str | None = None,
-    log_path: Path | None = None,
+    on_created: Optional[Callable[[str, str], None]] = None,
 ) -> KanbanCard:
     """Create a new inbox card and add it to the board."""
     card_id = card_id or board.next_card_id()
     card = board.create_inbox_card(card_id, title)
-    if log_path:
-        log_event(log_path, "INFO", "inbox card created", card_id=card_id, title=title)
+    if on_created:
+        on_created(card_id, title)
     return card
 
 
@@ -35,7 +34,7 @@ def create_expedite_card(
     stage: str = "3-coding",
     action: str = "Coding",
     cos_justification: str = "",
-    log_path: Path | None = None,
+    on_created: Optional[Callable[[str, str], None]] = None,
 ) -> KanbanCard:
     """Create an expedite card directly at the given stage."""
     card_id = card_id or board.next_card_id()
@@ -44,6 +43,6 @@ def create_expedite_card(
         stage=stage, action=action,
         cos_justification=cos_justification,
     )
-    if log_path:
-        log_event(log_path, "INFO", "expedite card created", card_id=card_id, title=title, stage=stage)
+    if on_created:
+        on_created(card_id, title)
     return card

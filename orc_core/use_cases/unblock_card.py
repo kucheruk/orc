@@ -4,11 +4,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import Callable, Optional
 
 from ..board.kanban_board import KanbanBoard
 from ..board.action_constants import Action
-from ..infra.io.logging import log_event
 
 
 def unblock_card(
@@ -16,7 +15,7 @@ def unblock_card(
     card_id: str,
     directive: str,
     *,
-    log_path: Path | None = None,
+    on_unblocked: Optional[Callable[[str, str], None]] = None,
 ) -> bool:
     """Unblock a card. Returns True if the card was found and unblocked."""
     card = board.card_by_id(card_id)
@@ -24,6 +23,6 @@ def unblock_card(
         return False
     card.unblock(directive)
     board.save_card(card)
-    if log_path:
-        log_event(log_path, "INFO", "card unblocked", card_id=card_id, directive=directive)
+    if on_unblocked:
+        on_unblocked(card_id, directive)
     return True
