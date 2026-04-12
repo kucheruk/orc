@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orc_core.tasks.task_execution import TaskExecutionEngine
+import orc_core.tasks.main_integrator as main_integrator
 import orc_core.tasks.task_execution_preflight as task_execution_preflight
 from orc_core.tasks.task_execution_types import (
     ModelConfig,
@@ -176,9 +177,9 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 1)
 
     @patch("orc_core.tasks.task_execution_preflight.preflight_main_integration")
-    @patch("orc_core.tasks.task_execution_finalize.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.tasks.task_execution_finalize.get_head_commit", return_value="abc123")
-    @patch("orc_core.tasks.task_execution_finalize.integrate_commit_into_main")
+    @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
+    @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
     @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
     @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
@@ -187,7 +188,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         import orc_core.tasks.task_execution_finalize as task_execution_finalize
 
         task_execution_preflight.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
-        task_execution_finalize.integrate_commit_into_main.return_value = type(
+        main_integrator.integrate_commit_into_main.return_value = type(
             "Integration",
             (),
             {"ok": False, "conflict": False, "error": "checkout main failed: test"},
@@ -215,9 +216,9 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 1)
 
     @patch("orc_core.tasks.task_execution_preflight.preflight_main_integration")
-    @patch("orc_core.tasks.task_execution_finalize.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.tasks.task_execution_finalize.get_head_commit", return_value="abc123")
-    @patch("orc_core.tasks.task_execution_finalize.integrate_commit_into_main")
+    @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
+    @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
     @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
     @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
@@ -226,7 +227,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         import orc_core.tasks.task_execution_finalize as task_execution_finalize
 
         task_execution_preflight.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
-        task_execution_finalize.integrate_commit_into_main.return_value = type(
+        main_integrator.integrate_commit_into_main.return_value = type(
             "Integration",
             (),
             {"ok": True, "conflict": False, "already_integrated": False, "error": ""},
