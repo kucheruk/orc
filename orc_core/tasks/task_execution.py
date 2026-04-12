@@ -56,6 +56,8 @@ from .task_execution_finalize import (
     finalize_completed as _finalize_completed,
     complete_stage as _complete_stage,
 )
+from .task_execution_launch import launch_and_wait
+from .completion_handlers import COMPLETION_HANDLERS
 
 
 
@@ -255,66 +257,17 @@ class TaskExecutionEngine:
                             ctx.restart_count = restart_count
                             return self._finalize_completed_impl(ctx, task_id, task_text, tag, active_monitor)
                         break
-                    if result == TaskCompletionStatus.MODEL_UNAVAILABLE:
-                        log_event(
-                            self.log_path,
-                            "ERROR",
-                            "agent model unavailable; stopping without restart",
-                            task_id=task_id,
-                            model=stage_model,
+                    handler = COMPLETION_HANDLERS.get(result)
+                    if handler is not None:
+                        action = handler.handle(
+                            task_id=task_id, stage_model=stage_model,
+                            restart_count=restart_count, request=request,
+                            log_path=self.log_path, timeline_id=timeline_id,
+                            attempt_number=attempt_number,
+                            ts_attempt=ts_attempt, ts_exec=ts_exec,
                         )
-                        _logger.error(
-                            "❌ Выбранная модель недоступна для `agent`. "
-                            "Проверьте `agent --list-models` и укажите доступную модель через `--model`."
-                        )
-                        ts_attempt.result = "failed"
-                        ts_attempt.reason = "model_unavailable"
-                        ts_exec.result = "failed"
-                        ts_exec.reason = "model_unavailable"
-                        return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="model_unavailable")
-                    if result == TaskCompletionStatus.WAITING_FOR_INPUT:
-                        ts_attempt.result = "waiting_for_input"
-                        restart_count += 1
-                        update_task_restart_count(request.task_path, self.log_path, restart_count)
-                        log_event(
-                            self.log_path,
-                            "INFO",
-                            "waiting_for_input_budget_tick",
-                            task_id=task_id,
-                            restart_count=restart_count,
-                            max_restarts=request.timing.max_restarts,
-                        )
-                        if restart_count > request.timing.max_restarts:
-                            log_event(
-                                self.log_path,
-                                "ERROR",
-                                "max restarts exceeded while waiting for input",
-                                task_id=task_id,
-                                restart_count=restart_count,
-                                max_restarts=request.timing.max_restarts,
-                            )
-                            _logger.error("❌ Агент зациклился на запросе follow-up ввода. Лимит перезапусков исчерпан.")
-                            ts_exec.result = "failed"
-                            ts_exec.reason = "max_restarts_exceeded"
-                            return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="max_restarts_exceeded")
-                        delay = max(request.timing.nudge_cooldown, request.timing.poll, 1.0)
-                        timeline_instant(
-                            timeline_id=timeline_id,
-                            task_id=task_id,
-                            step="restart_backoff_sleep",
-                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                            attempt=attempt_number,
-                            result="continue",
-                            reason="waiting_for_input",
-                            data={"delay_seconds": delay},
-                        )
-                        _logger.warning(
-                            f"[orc] агент запросил follow-up ввод; продолжу цикл через {delay:.1f}s "
-                            "(resume сохранен, задача не потеряна)"
-                        )
-                        ts_exec.result = "continue"
-                        ts_exec.reason = "waiting_for_input"
-                        return TaskExecutionResult(status=TaskExecutionStatus.CONTINUE, reason="waiting_for_input", delay_seconds=delay)
+                        if action.action == "return" and action.result is not None:
+                            return action.result
                     # Backlog done detection for non-completed results
                     done_action, done_result, done_next_index, missing_artifact_retry_budget = _check_backlog_done(
                         self,
@@ -393,55 +346,12 @@ class TaskExecutionEngine:
         *, elapsed_before_start: float, ignore_initial_backlog_done: bool,
         attempt_number: int,
     ) -> tuple[object, TaskCompletionStatus]:
-        """Launch agent, wait for completion, cleanup. Returns (monitor, status)."""
-        request = ctx.request
-        active_monitor = self.worker.launch(launch_config)
-        try:
-            with timeline_step(
-                timeline_id=ctx.timeline_id,
-                task_id=ctx.task_id,
-                step="wait_for_completion",
-                location="orc_core/task_execution.py:TaskExecutionEngine._launch_and_wait",
-                attempt=attempt_number,
-            ) as ts_wait:
-                result = wait_for_completion(
-                    task_path=request.task_path,
-                    monitor=active_monitor,
-                    poll=request.timing.poll,
-                    stall_timeout=request.timing.stall_timeout,
-                    task_ttl=request.timing.task_ttl,
-                    elapsed_before_start=elapsed_before_start,
-                    ignore_initial_backlog_done=ignore_initial_backlog_done,
-                    log_path=self.log_path,
-                    nudge_after=request.timing.nudge_after,
-                    nudge_cooldown=request.timing.nudge_cooldown,
-                    nudge_text=request.timing.nudge_text,
-                    task_id=ctx.task_id,
-                    task_text=ctx.task_text,
-                    timeline_id=ctx.timeline_id,
-                    attempt=attempt_number,
-                    escape_requested=is_stop_requested,
-                )
-                ts_wait.result = result
-        finally:
-            try:
-                active_monitor.stop()
-            except Exception:
-                pass
-            _cleanup_monitor_processes(active_monitor, self.log_path, label="agent")
-        debug_log(
-            "H8",
-            "orc_core/task_execution.py:execute:completion_state",
-            "completion state",
-            {
-                "result": result,
-                "monitor_is_none": active_monitor is None,
-                "lines": active_monitor.metrics.total_lines,
-                "commands": active_monitor.metrics.command_count,
-                "tokens_total": active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-",
-            },
+        return launch_and_wait(
+            self.worker, ctx, launch_config, self.log_path,
+            elapsed_before_start=elapsed_before_start,
+            ignore_initial_backlog_done=ignore_initial_backlog_done,
+            attempt_number=attempt_number,
         )
-        return active_monitor, result
 
     def _finalize_completed_impl(self, ctx: _ExecutionContext, current_task_id: str, current_task_text: str, current_tag: str, monitor) -> TaskExecutionResult:
         return _finalize_completed(self, ctx, current_task_id, current_task_text, current_tag, monitor)
