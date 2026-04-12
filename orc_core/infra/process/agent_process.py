@@ -150,9 +150,13 @@ class AgentProcess:
         self.proc.returncode = self._proc.returncode
         if self._on_exit is not None:
             self._on_exit(int(self.proc.returncode or 0))
+        # Cancel reader tasks — process is dead, don't wait for pipe drain forever
+        for task in (stdout_task, stderr_task):
+            if not task.done():
+                task.cancel()
         reader_results = await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
         for stream_name, result in zip(("stdout", "stderr"), reader_results):
-            if isinstance(result, Exception):
+            if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
                 log_event(
                     self.log_path, "ERROR", "stream reader task failed",
                     stream=stream_name, error=str(result),
