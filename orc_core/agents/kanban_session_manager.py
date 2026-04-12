@@ -5,8 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import logging
 import signal
 import threading
 import time
@@ -16,25 +14,29 @@ from typing import Callable, Optional
 from ..infra.backend import Backend, get_backend
 from ..git.integration_manager import IntegrationManager
 from .kanban_incident_manager import IncidentManager
-from ..board.kanban_card import KanbanCard, new_card_body
+from ..board.kanban_card import KanbanCard
 from ..board.kanban_distributor import KanbanDistributor
 from ..board.kanban_constants import (
-    STAGE_DONE,
     STAGE_INBOX,
     STAGE_SHORT_NAMES,
     Action,
 )
-from ..board.kanban_notifications import extract_card_summary, format_completion_message
+from ..board.kanban_notifications import format_completion_message
 from ..config import OrcConfig
+from .kanban_adapters import (
+    DirectiveAdapter,
+    LifecycleAdapter,
+    NotifierAdapter,
+    SessionControllerAdapter,
+    StateManagerAdapter,
+)
 from .kanban_publisher import KanbanPublisher
 from .kanban_request_builder import build_kanban_request
-from .kanban_protocols import (
-    CompletionNotifier,
-    DirectiveSource,
-    RunnerLifecycle,
-    RunnerNotifier,
-    RunnerStateManager,
-    SessionController,
+from .kanban_state_persistence import (
+    cleanup_done_worktrees,
+    load_kanban_state,
+    release_stale_agents,
+    save_kanban_state,
 )
 from .kanban_teamlead_runner import KanbanTeamleadRunner
 from .kanban_worker_runner import KanbanWorkerRunner
@@ -52,98 +54,11 @@ from ..infra.session_types import (
 )
 from ..infra.monitor_types import MonitorSnapshot
 from ..tasks.task_execution import TaskExecutionEngine
-from ..git.worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
-from ..infra.atomic_io import write_json_atomic
 from ..infra.process_groups import kill_own_process_group
-from ..infra.state_paths import kanban_state_path
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_INTERRUPT = 130
-
-
-_logger = logging.getLogger(__name__)
-
-
-# ── Standalone helpers ──────────────────────────────────────────────
-
-
-def _load_kanban_state(workdir: str) -> tuple[dict[str, int], dict[str, int]]:
-    """Load persisted card_fail_counts and arbitrated_at_loop from disk."""
-    path = kanban_state_path(workdir)
-    if not path.exists():
-        return {}, {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        fail_counts = {k: int(v) for k, v in data.get("card_fail_counts", {}).items()}
-        arb_loop = {k: int(v) for k, v in data.get("arbitrated_at_loop", {}).items()}
-        return fail_counts, arb_loop
-    except Exception as exc:
-        _logger.warning("Failed to load kanban state: %s", exc)
-        return {}, {}
-
-
-def _save_kanban_state(
-    workdir: str,
-    card_fail_counts: dict[str, int],
-    arbitrated_at_loop: dict[str, int],
-) -> None:
-    """Persist card_fail_counts and arbitrated_at_loop to disk."""
-    path = kanban_state_path(workdir)
-    write_json_atomic(path, {
-        "card_fail_counts": card_fail_counts,
-        "arbitrated_at_loop": arbitrated_at_loop,
-    })
-
-
-def _release_stale_agents(board, publisher) -> set[str]:
-    """Release cards stuck with assigned_agent from a crashed previous run.
-
-    Returns set of done card IDs (for worktree cleanup).
-    """
-    released = 0
-    done_ids: set[str] = set()
-    for card in list(board.cards):
-        if card.stage == STAGE_DONE:
-            done_ids.add(card.id)
-        if card.assigned_agent and card.stage != STAGE_DONE:
-            old_agent = card.assigned_agent
-            board.release_agent(card)
-            released += 1
-            publisher._emit("system", card.id, f"{card.id} released stale agent {old_agent}")
-    if released:
-        publisher._emit("system", "", f"Released {released} stale agent(s) from previous run")
-    return done_ids
-
-
-def _cleanup_done_worktrees(
-    done_ids: set[str], workdir: str, log_path: Path, publisher,
-) -> None:
-    """Remove worktrees for cards that reached Done."""
-    from ..git.worktree_flow import _safe_name
-    from ..infra.state_paths import worktrees_root
-    wt_root = worktrees_root(workdir)
-    if not wt_root.exists():
-        return
-    cleaned = 0
-    for card_id in done_ids:
-        safe = _safe_name(card_id)
-        wt_path = wt_root / safe
-        if wt_path.exists():
-            session = WorktreeSession(
-                base_workdir=workdir,
-                worktree_path=str(wt_path),
-                branch_name=f"orc/{safe}",
-                task_id=card_id,
-            )
-            try:
-                cleanup_task_worktree(session, log_path)
-                cleaned += 1
-            except Exception as exc:
-                log_event(log_path, "WARN", "failed to cleanup done worktree",
-                          task_id=card_id, error=str(exc)[:200])
-    if cleaned:
-        publisher._emit("system", "", f"Cleaned {cleaned} worktree(s) from completed cards")
 
 
 class KanbanSessionManager:
@@ -192,7 +107,7 @@ class KanbanSessionManager:
         self.publisher = publisher or KanbanPublisher()
         self.last_failure_reason = ""
         self._started_at = 0.0
-        card_fail_counts, arbitrated_at_loop = _load_kanban_state(workdir)
+        card_fail_counts, arbitrated_at_loop = load_kanban_state(workdir)
         self._outcomes = TaskOutcomeTracker(
             card_fail_counts=card_fail_counts,
             arbitrated_at_loop=arbitrated_at_loop,
@@ -211,11 +126,11 @@ class KanbanSessionManager:
 
     def _wire_runners(self) -> None:
         """Build protocol adapters and wire up runners with all dependencies."""
-        self._lifecycle_adapter = _LifecycleAdapter(self._pool)
-        self._notifier_adapter = _NotifierAdapter(self)
-        self._state_adapter = _StateManagerAdapter(self)
-        self._directive_adapter = _DirectiveAdapter(self)
-        self._session_ctrl_adapter = _SessionControllerAdapter(self)
+        self._lifecycle_adapter = LifecycleAdapter(self._pool)
+        self._notifier_adapter = NotifierAdapter(self)
+        self._state_adapter = StateManagerAdapter(self)
+        self._directive_adapter = DirectiveAdapter(self)
+        self._session_ctrl_adapter = SessionControllerAdapter(self)
 
         self._incident_mgr = IncidentManager(
             distributor=self._distributor,
@@ -278,8 +193,8 @@ class KanbanSessionManager:
         self._distributor.refresh()
 
         # Cleanup stale state from previous runs
-        done_ids = _release_stale_agents(self._distributor.board, self.publisher)
-        _cleanup_done_worktrees(done_ids, self.workdir, self.log_path, self.publisher)
+        done_ids = release_stale_agents(self._distributor.board, self.publisher)
+        cleanup_done_worktrees(done_ids, self.workdir, self.log_path, self.publisher)
 
         done, _ip, total = self._distributor.get_progress()
         self.publisher._emit("system", "", f"Kanban started: {total} cards, {self._pool.max_sessions} agents")
@@ -409,7 +324,7 @@ class KanbanSessionManager:
     def _flush_state_if_dirty(self) -> None:
         if self._outcomes.is_dirty():
             snapshot = self._outcomes.state_snapshot()
-            _save_kanban_state(self.workdir, snapshot["card_fail_counts"], snapshot["arbitrated_at_loop"])
+            save_kanban_state(self.workdir, snapshot["card_fail_counts"], snapshot["arbitrated_at_loop"])
             self._outcomes.clear_dirty()
 
     # ── Worker/teamlead thread targets ──────────────────────────
@@ -485,70 +400,3 @@ class KanbanSessionManager:
                 except Exception:
                     pass
         kill_own_process_group()
-
-
-# ── Protocol adapter classes ───────────────────────────────────────
-
-
-class _LifecycleAdapter:
-    """Implements RunnerLifecycle by delegating to SessionPool."""
-
-    __slots__ = ("_pool",)
-
-    def __init__(self, pool: SessionPool) -> None:
-        self._pool = pool
-
-    def should_continue(self, slot) -> bool:
-        return self._pool.should_continue(slot)
-
-    def sleep(self, seconds: float) -> None:
-        self._pool.sleep_fn(seconds)
-
-
-class _NotifierAdapter:
-    __slots__ = ("_mgr",)
-
-    def __init__(self, mgr: KanbanSessionManager) -> None:
-        self._mgr = mgr
-
-    def send_telegram(self, message: str) -> None:
-        self._mgr._send_telegram(message)
-
-    def notify_completion(self, card, role, old_stage, old_action, old_cos, elapsed) -> None:
-        self._mgr._notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
-
-
-class _StateManagerAdapter:
-    __slots__ = ("_mgr",)
-
-    def __init__(self, mgr: KanbanSessionManager) -> None:
-        self._mgr = mgr
-
-    def mark_dirty(self) -> None:
-        self._mgr._mark_state_dirty()
-
-    def make_request(self, task, prompt: str, workdir: str, session_id: str, commit_phase: bool, ttl: float):
-        return self._mgr._make_request(task, prompt, workdir, session_id, commit_phase, ttl)
-
-
-class _DirectiveAdapter:
-    __slots__ = ("_mgr",)
-
-    def __init__(self, mgr: KanbanSessionManager) -> None:
-        self._mgr = mgr
-
-    def pop_directive(self):
-        return self._mgr._pop_directive()
-
-
-class _SessionControllerAdapter:
-    __slots__ = ("_mgr",)
-
-    def __init__(self, mgr: KanbanSessionManager) -> None:
-        self._mgr = mgr
-
-    def add_session(self):
-        return self._mgr.request_add_session()
-
-    def remove_session(self, session_id: str) -> None:
-        self._mgr.request_remove_session(session_id)
