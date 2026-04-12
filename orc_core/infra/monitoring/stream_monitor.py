@@ -37,6 +37,8 @@ class StreamJsonMonitor:
         attempt: int = 0,
         backlog_task_lister: Optional[Callable] = None,
         git_diff_fn: Optional[Callable] = None,
+        state: Optional["StreamMonitorState"] = None,
+        collector: Optional["MonitorMetricsCollector"] = None,
     ) -> None:
         self.log_path = log_path
         self.task_id = task_id
@@ -63,7 +65,7 @@ class StreamJsonMonitor:
             self._agent_output_file.flush()
             log_event(self.log_path, "INFO", "agent output stream enabled", task_id=self.task_id, path=str(path))
 
-        self._state = StreamMonitorState(task_id=task_id, started_at=self.started_at, summary_lines=summary_lines)
+        self._state = state or StreamMonitorState(task_id=task_id, started_at=self.started_at, summary_lines=summary_lines)
         self.metrics = self._state.metrics
         self._report_interval = max(report_interval, 1.0)
         self._last_report_time = 0.0
@@ -82,7 +84,7 @@ class StreamJsonMonitor:
         self._metrics_path = Path(metrics_override) if metrics_override else metrics_path(self.workdir)
         self._first_output_recorded = False
         self._last_live_status_marker: tuple[str, str, int, bool] | None = None
-        self._collector = MonitorMetricsCollector(
+        self._collector = collector or MonitorMetricsCollector(
             task_id=task_id, workdir=workdir, log_path=log_path,
             metrics=self.metrics,
             task_state_path=self._task_state_path,
