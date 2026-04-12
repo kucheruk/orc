@@ -33,6 +33,7 @@ class KanbanBoard:
         self._last_stage_mtimes: dict[str, float] = {}
         self._move_listeners: list[Callable[[str, str, str, str], None]] = []
         self._action_change_listeners: list[Callable[[str, str, str, str], None]] = []
+        self._parse_errors: list[tuple[str, str]] = []
         self.refresh(force=True)
 
     # ── Event listeners ────────────────────────────────────────
@@ -52,6 +53,7 @@ class KanbanBoard:
             return
         with self._lock:
             self._cards = []
+            self._parse_errors = []
             self._wip.reset()
             for stage in STAGES:
                 stage_dir = self._tasks_dir / stage
@@ -85,11 +87,18 @@ class KanbanBoard:
                 card.stage = stage  # trust folder over frontmatter
                 self._cards.append(card)
             except Exception as exc:
-                _logger.warning("Failed to parse card %s: %s", md, exc)
+                _logger.error("CARD LOST — failed to parse %s: %s", md, exc, exc_info=True)
+                self._parse_errors.append((str(md), str(exc)))
 
     def _recompute_roi(self) -> None:
         for card in self._cards:
             card.refresh_roi()
+
+    @property
+    def parse_errors(self) -> list[tuple[str, str]]:
+        """Files that failed to parse during last refresh — (path, error)."""
+        with self._lock:
+            return list(self._parse_errors)
 
     # ── Per-card locking ──────────────────────────────────────────
 
