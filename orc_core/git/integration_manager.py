@@ -14,7 +14,7 @@ from typing import Callable, Optional
 
 from ..infra.atomic_io import write_json_atomic
 from ..infra.logging import log_event
-from ..agents.session_types import (
+from ..infra.session_types import (
     ERROR_TRUNCATE,
     CONFLICT_ERROR_TRUNCATE,
     REASON_TRUNCATE,

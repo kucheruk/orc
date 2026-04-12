@@ -17,7 +17,7 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Label, ProgressBar, RichLog, Static
 
-from ...agents.session_types import (
+from ...infra.session_types import (
     EVENTS_LINES_FULL,
     EVENTS_LINES_MEDIUM,
     HEADING_MAX_LENGTH,

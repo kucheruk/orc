@@ -45,7 +45,7 @@ from ..infra.logging import log_event
 from ..infra.quit_signal import is_quit_after_task_requested, is_stop_requested
 from .session_pool import SessionPool
 from .task_outcome_tracker import TaskOutcomeTracker
-from .session_types import (
+from ..infra.session_types import (
     MANAGER_POLL_SECONDS,
     STAGGER_DELAY_SECONDS,
     SessionSlot,

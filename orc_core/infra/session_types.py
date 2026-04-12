@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Optional
 from ..tasks.task_source import Task
 
 if TYPE_CHECKING:
-    from ..infra.monitor_types import MonitorSnapshot
+    from .monitor_types import MonitorSnapshot
     from ..git.worktree_flow import WorktreeSession
 
 

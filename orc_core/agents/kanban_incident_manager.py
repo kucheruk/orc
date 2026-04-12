@@ -20,7 +20,7 @@ from ..tasks.task_execution_types import TaskExecutionStatus
 from ..infra.logging import log_event
 from ..notifications.notify import send_telegram_message
 from ..infra.quit_signal import is_stop_requested
-from .session_types import (
+from ..infra.session_types import (
     STAGGER_DELAY_SECONDS,
     SessionSlot,
     SlotStatus,

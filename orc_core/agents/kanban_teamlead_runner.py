@@ -23,7 +23,7 @@ from ..git.git_helpers import run_git
 from ..infra.logging import log_event
 from ..infra.quit_signal import is_quit_after_task_requested
 from ..infra.state_paths import run_root, stats_path
-from .session_types import SessionSlot, SlotStatus
+from ..infra.session_types import SessionSlot, SlotStatus
 from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
 from ..tasks.task_execution import TaskExecutionEngine
 from ..tasks.task_source import Task

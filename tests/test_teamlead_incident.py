@@ -290,12 +290,12 @@ class TestCreateExpediteCard(unittest.TestCase):
 class TestSessionSlotCrashTraceback(unittest.TestCase):
 
     def test_default_empty(self):
-        from orc_core.agents.session_types import SessionSlot
+        from orc_core.infra.session_types import SessionSlot
         slot = SessionSlot(session_id="s1")
         self.assertEqual(slot.crash_traceback, "")
 
     def test_can_set(self):
-        from orc_core.agents.session_types import SessionSlot
+        from orc_core.infra.session_types import SessionSlot
         slot = SessionSlot(session_id="s1")
         slot.crash_traceback = "Traceback..."
         self.assertEqual(slot.crash_traceback, "Traceback...")

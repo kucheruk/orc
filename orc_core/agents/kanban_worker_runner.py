@@ -24,7 +24,7 @@ from .kanban_publisher import KanbanPublisher
 from .kanban_roles import build_prompt
 from ..infra.logging import log_event
 from ..infra.quit_signal import is_quit_after_task_requested
-from .session_types import SessionSlot, SlotStatus
+from ..infra.session_types import SessionSlot, SlotStatus
 from ..tasks.task_execution import TaskExecutionEngine
 from ..tasks.task_source import Task
 from ..git.worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
