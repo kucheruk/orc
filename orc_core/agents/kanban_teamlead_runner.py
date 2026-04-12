@@ -15,6 +15,7 @@ from ..board.kanban_card import KanbanCard
 from ..board.action_constants import Action
 from ..tasks.task_execution_types import TaskExecutionStatus
 from ..incident.manager import IncidentManager
+from .task_outcome_tracker import TaskOutcomeTracker
 from .kanban_protocols import DirectiveSource, EventPublisher, RunnerLifecycle, RunnerNotifier, RunnerStateManager, WorkDistributor
 from .kanban_roles import build_teamlead_prompt
 from ..git.git_helpers import run_git
@@ -54,7 +55,7 @@ class KanbanTeamleadRunner:
         publisher: EventPublisher,
         incident_mgr: IncidentManager,
         slots_lock: threading.Lock,
-        arbitrated_at_loop: dict[str, int],
+        outcomes: TaskOutcomeTracker,
         lifecycle: RunnerLifecycle,
         notifier: RunnerNotifier,
         state_manager: RunnerStateManager,
@@ -67,7 +68,7 @@ class KanbanTeamleadRunner:
         self._publisher = publisher
         self._incident_mgr = incident_mgr
         self._slots_lock = slots_lock
-        self._arbitrated_at_loop = arbitrated_at_loop
+        self._outcomes = outcomes
         self._lifecycle = lifecycle
         self._notifier = notifier
         self._state_manager = state_manager
@@ -153,7 +154,7 @@ class KanbanTeamleadRunner:
         card = self._distributor.pick_teamlead_task(sid)
         if card is None:
             return
-        prev_arb = self._arbitrated_at_loop.get(card.id, -1)
+        prev_arb = self._outcomes.get_arbitrated_loop(card.id)
         if card.loop_count <= prev_arb:
             self._distributor.release_card(card.id)
             return
@@ -194,15 +195,13 @@ class KanbanTeamleadRunner:
                                   task_id=card.id)
                         self.escalate(refreshed)
                     elif needs_esc:
-                        self._arbitrated_at_loop[card.id] = card.loop_count
-                        self._state_manager.mark_dirty()
+                        self._outcomes.set_arbitrated_loop(card.id, card.loop_count)
                         log_event(self._log_path, "INFO",
                                   "escalation threshold reached but teamlead resolved — allowing progress",
                                   task_id=card.id, loop_count=refreshed.loop_count,
                                   action=refreshed.action, stage=refreshed.stage)
                     else:
-                        self._arbitrated_at_loop[card.id] = card.loop_count
-                        self._state_manager.mark_dirty()
+                        self._outcomes.set_arbitrated_loop(card.id, card.loop_count)
                         self._publisher._emit("arbitration", card.id,
                                                f"{card.id} teamlead resolved → {refreshed.action} "
                                                f"(loop_count={refreshed.loop_count})")
@@ -307,8 +306,7 @@ class KanbanTeamleadRunner:
     def escalate(self, card: KanbanCard) -> None:
         card.block()
         self._distributor.board.save_card(card)
-        self._arbitrated_at_loop[card.id] = card.loop_count
-        self._state_manager.mark_dirty()
+        self._outcomes.set_arbitrated_loop(card.id, card.loop_count)
         msg = (f"ESCALATION: Task {card.id} ({card.title}) blocked. "
                f"Loop count: {card.loop_count}. Stage: {card.stage}.")
         self._publisher.log_escalate(card.id, msg)

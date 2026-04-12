@@ -58,9 +58,14 @@ class TaskOutcomeTracker:
 
     # ── Arbitration tracking ────────────────────────────────────
 
-    @property
-    def arbitrated_at_loop(self) -> dict[str, int]:
-        return self._arbitrated_at_loop
+    def get_arbitrated_loop(self, card_id: str) -> int:
+        with self._lock:
+            return self._arbitrated_at_loop.get(card_id, -1)
+
+    def set_arbitrated_loop(self, card_id: str, loop_count: int) -> None:
+        with self._lock:
+            self._arbitrated_at_loop[card_id] = loop_count
+            self._dirty = True
 
     # ── State persistence ───────────────────────────────────────
 

@@ -170,7 +170,7 @@ class KanbanSessionManager:
             publisher=self.publisher,
             incident_mgr=self._incident_mgr,
             slots_lock=self._pool.slots_lock,
-            arbitrated_at_loop=self._outcomes.arbitrated_at_loop,
+            outcomes=self._outcomes,
             lifecycle=self._lifecycle_adapter,
             notifier=self._notifier_adapter,
             state_manager=self._state_adapter,
