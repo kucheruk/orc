@@ -65,9 +65,9 @@ def launch_and_wait(
         {
             "result": result,
             "monitor_is_none": active_monitor is None,
-            "lines": active_monitor.metrics.total_lines,
-            "commands": active_monitor.metrics.command_count,
-            "tokens_total": active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-",
+            "lines": active_monitor.metrics.total_lines if active_monitor else -1,
+            "commands": active_monitor.metrics.command_count if active_monitor else -1,
+            "tokens_total": (active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-") if active_monitor else "-",
         },
     )
     return active_monitor, result
