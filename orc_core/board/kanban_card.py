@@ -54,6 +54,22 @@ class KanbanCard:
 
     # ── Domain operations ────────────────────────────────────────
 
+    @property
+    def is_assigned(self) -> bool:
+        return bool(self.assigned_agent)
+
+    @property
+    def is_blocked(self) -> bool:
+        return self.action == Action.BLOCKED
+
+    @property
+    def is_done(self) -> bool:
+        from .kanban_constants import STAGE_DONE
+        return self.stage == STAGE_DONE
+
+    def is_looping(self, threshold: int = 2) -> bool:
+        return self.loop_count >= threshold
+
     def can_move_to(self, target_stage: str, *, allow_backward: bool = False) -> bool:
         """Check if this card can transition to target_stage."""
         if allow_backward:

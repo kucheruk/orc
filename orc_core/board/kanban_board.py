@@ -182,14 +182,14 @@ class KanbanBoard:
     def looping_cards(self, threshold: int = 2) -> list[KanbanCard]:
         with self._lock:
             return [c for c in self._cards
-                    if c.loop_count >= threshold and not c.assigned_agent
-                    and c.stage != STAGE_DONE]
+                    if c.is_looping(threshold) and not c.is_assigned
+                    and not c.is_done]
 
     def blocked_cards(self) -> list[KanbanCard]:
         with self._lock:
             return [c for c in self._cards
-                    if c.action == "Blocked" and not c.assigned_agent
-                    and c.stage != STAGE_DONE]
+                    if c.is_blocked and not c.is_assigned
+                    and not c.is_done]
 
     def _apply_deferred_moves(self) -> None:
         """Move cards whose action doesn't match their stage (stuck after restart)."""
@@ -225,7 +225,7 @@ class KanbanBoard:
         if not card.dependencies:
             return False
         with self._lock:
-            done_ids = {c.id for c in self._cards if c.stage == STAGE_DONE}
+            done_ids = {c.id for c in self._cards if c.is_done}
         return any(dep not in done_ids for dep in card.dependencies)
 
     # ── Card operations ─────────────────────────────────────────

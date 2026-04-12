@@ -48,14 +48,12 @@ def release_stale_agents(board, publisher) -> set[str]:
 
     Returns set of done card IDs (for worktree cleanup).
     """
-    from ..board.kanban_constants import STAGE_DONE
-
     released = 0
     done_ids: set[str] = set()
     for card in list(board.cards):
-        if card.stage == STAGE_DONE:
+        if card.is_done:
             done_ids.add(card.id)
-        if card.assigned_agent and card.stage != STAGE_DONE:
+        if card.is_assigned and not card.is_done:
             old_agent = card.assigned_agent
             board.release_agent(card)
             released += 1
