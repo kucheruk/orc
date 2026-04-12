@@ -16,7 +16,6 @@ from ..infra.atomic_io import write_json_atomic
 from ..infra.logging import log_event
 from ..infra.session_types import (
     ERROR_TRUNCATE,
-    CONFLICT_ERROR_TRUNCATE,
     REASON_TRUNCATE,
     TRACEBACK_TRUNCATE,
     SessionSlot,
@@ -24,6 +23,7 @@ from ..infra.session_types import (
 from ..infra.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
 from ..infra.task_types import Task
+from .conflict_resolver import ConflictResolver
 from .worktree_flow import (
     get_head_commit,
     integrate_commit_into_main,
@@ -82,6 +82,7 @@ class IntegrationManager:
         self.log_path = log_path
         self._safe_tracked_paths = safe_tracked_paths
         self._lock = threading.Lock()
+        self._conflict_resolver = ConflictResolver(workdir)
 
     def integrate(
         self,
@@ -299,44 +300,7 @@ class IntegrationManager:
             ctx.save_report("failed", f"cherry_pick_error:{result.error[:REASON_TRUNCATE]}")
             return False
 
-        return self._resolve_conflict_and_retry(ctx, result, merge_expert_fn)
-
-    def _resolve_conflict_and_retry(self, ctx: IntegrationContext, initial_attempt, merge_expert_fn: Optional[Callable]) -> bool:
-        ctx.step("conflict_detected", error=initial_attempt.error[:CONFLICT_ERROR_TRUNCATE])
-        self._log_conflict_files(ctx)
-
-        # Try auto-resolving trivial conflicts before invoking merge expert.
-        # _try_auto_resolve_conflicts handles its own abort on failure,
-        # so we only proceed to merge expert if it returns None (not attempted).
-        auto_result = self._try_auto_resolve_conflicts(ctx)
-        if auto_result is True:
-            return True
-        if auto_result is False:
-            # Auto-resolve attempted but failed; cherry-pick already aborted.
-            return False
-
-        # auto_result is None: auto-resolve was not applicable, try merge expert
-        if not self._invoke_merge_expert(ctx, merge_expert_fn):
-            return False
-
-        return self._verify_merge_expert_result(ctx)
-
-    def _invoke_merge_expert(self, ctx: IntegrationContext, merge_expert_fn: Optional[Callable]) -> bool:
-        if not merge_expert_fn:
-            ctx.step_error("no_merge_expert_available")
-            self._abort_cherry_pick(ctx)
-            ctx.save_report("failed", "no_merge_expert")
-            return False
-
-        ctx.step("merge_expert_start")
-        if not merge_expert_fn():
-            ctx.step_error("merge_expert_failed")
-            self._abort_cherry_pick(ctx)
-            ctx.save_report("failed", "merge_expert_failed")
-            return False
-
-        ctx.step("merge_expert_completed")
-        return True
+        return self._conflict_resolver.resolve(ctx, result, merge_expert_fn, self._abort_cherry_pick)
 
     def _git_dir(self) -> Path:
         """Resolve the actual .git directory (handles worktrees)."""
@@ -345,96 +309,6 @@ class IntegrationManager:
             p = Path(out.strip())
             return p if p.is_absolute() else Path(self.workdir) / p
         return Path(self.workdir) / ".git"
-
-    def _verify_merge_expert_result(self, ctx: IntegrationContext) -> bool:
-        ctx.step("verify_after_merge_expert")
-        # Check git is clean (no unresolved conflicts, no cherry-pick in progress)
-        cherry_pick_head = self._git_dir() / "CHERRY_PICK_HEAD"
-        if cherry_pick_head.exists():
-            ctx.step_error("merge_expert_left_cherry_pick_in_progress")
-            self._abort_cherry_pick(ctx)
-            ctx.save_report("failed", "merge_expert_did_not_complete_cherry_pick")
-            return False
-
-        # Check commit landed — either as ancestor or by checking log
-        ok, stdout, _, _ = run_git(self.workdir, ["git", "log", "--oneline", "-1", self.main_branch])
-        ctx.step("cherry_pick_ok_after_merge_expert", head=stdout.strip()[:80])
-        ctx.save_report("completed", "cherry_pick_ok_after_merge_expert")
-        return True
-
-    def _try_auto_resolve_conflicts(self, ctx: IntegrationContext) -> Optional[bool]:
-        """Auto-resolve trivial conflicts by keeping both sides (ours + theirs).
-
-        Works for append-only files like changelog.md where both sides added
-        entries and there's no semantic conflict — just positional overlap.
-
-        Returns:
-            True  — all conflicts resolved, cherry-pick committed
-            False — attempted resolution but failed, cherry-pick aborted
-            None  — not applicable (complex conflicts), caller should try merge expert
-        """
-        import re
-
-        ok, stdout, _, _ = run_git(self.workdir, ["git", "diff", "--name-only", "--diff-filter=U"])
-        if not ok:
-            return None
-        conflict_files = [f for f in stdout.strip().splitlines() if f.strip()]
-        if not conflict_files:
-            return None
-
-        # Match conflict markers (handles both \n and \r\n line endings)
-        CONFLICT_RE = re.compile(
-            r"<<<<<<<[^\n]*\r?\n(.*?)=======\r?\n(.*?)>>>>>>>[^\n]*\r?\n",
-            re.DOTALL,
-        )
-
-        for fpath in conflict_files:
-            full = Path(self.workdir) / fpath
-            if not full.exists():
-                ctx.step("auto_resolve_skip", file=fpath, reason="file_not_found")
-                return None
-            try:
-                text = full.read_text(encoding="utf-8")
-            except OSError:
-                return None
-            if "<<<<<<< " not in text:
-                continue
-            resolved = CONFLICT_RE.sub(r"\1\2", text)
-            if "<<<<<<< " in resolved:
-                # Nested or malformed markers — not auto-resolvable
-                ctx.step("auto_resolve_skip", file=fpath, reason="complex_conflict")
-                return None
-            try:
-                full.write_text(resolved, encoding="utf-8")
-            except OSError:
-                # Can't write resolved file — abort and let merge expert try
-                self._abort_cherry_pick(ctx)
-                ctx.save_report("failed", "auto_resolve_write_failed")
-                return False
-
-        # Stage all resolved files and continue cherry-pick
-        for fpath in conflict_files:
-            run_git(self.workdir, ["git", "add", fpath])
-
-        # cherry-pick --continue needs GIT_EDITOR=true to skip editor for commit message
-        ok_commit, _, stderr, _ = run_git(
-            self.workdir,
-            ["git", "-c", "core.editor=true", "cherry-pick", "--continue"],
-        )
-        if ok_commit:
-            ctx.step("auto_resolve_ok", files=conflict_files)
-            ctx.save_report("completed", "cherry_pick_ok_after_auto_resolve")
-            return True
-
-        ctx.step("auto_resolve_failed", stderr=stderr[:ERROR_TRUNCATE])
-        self._abort_cherry_pick(ctx)
-        ctx.save_report("failed", "auto_resolve_continue_failed")
-        return False
-
-    def _log_conflict_files(self, ctx: IntegrationContext) -> None:
-        ok, stdout, _, _ = run_git(self.workdir, ["git", "diff", "--name-only", "--diff-filter=U"])
-        files = stdout.strip().splitlines() if ok else []
-        ctx.step("conflict_files", files=files[:20])
 
     def _abort_cherry_pick(self, ctx: IntegrationContext) -> None:
         ok, _, stderr, _ = run_git(self.workdir, ["git", "cherry-pick", "--abort"])
