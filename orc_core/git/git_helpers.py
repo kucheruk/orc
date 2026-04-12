@@ -8,36 +8,58 @@ from pathlib import Path
 from ..infra.failure_reasons import IntegrationErrorKind
 from ..infra.logging import log_event
 
-GIT_COMMAND_TIMEOUT_SECONDS = 20.0
+GIT_COMMAND_TIMEOUT_SECONDS = 30.0
 
 
-def git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:
+def run_git(
+    workdir: str,
+    args: list[str],
+    *,
+    timeout: float = GIT_COMMAND_TIMEOUT_SECONDS,
+) -> tuple[bool, str, str, int]:
+    """Run a git command and return (ok, stdout, stderr, returncode).
+
+    This is the single entry point for synchronous git subprocess calls.
+    """
     try:
         result = subprocess.run(
-            ["git", "status", "--porcelain"],
+            args,
             cwd=workdir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             check=False,
-            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        log_event(log_path, "ERROR", "git status timeout", timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS)
-        return False, ""
+        return False, "", "timeout", 124
     except Exception as exc:
-        log_event(log_path, "ERROR", "git status failed", error=str(exc))
+        return False, "", str(exc), 1
+    return result.returncode == 0, result.stdout or "", result.stderr or "", int(result.returncode)
+
+
+def git_run(workdir: str, log_path: Path, args: list[str], label: str) -> tuple[bool, str, str, int]:
+    """Run a git command with structured logging on failure."""
+    ok, stdout, stderr, rc = run_git(workdir, args)
+    if not ok:
+        if rc == 124:
+            log_event(
+                log_path, "ERROR", "git command timeout",
+                label=label, timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS, args=" ".join(args),
+            )
+        else:
+            log_event(
+                log_path, "ERROR", "git command non-zero",
+                label=label, returncode=rc, args=" ".join(args), stderr=stderr[:500],
+            )
+    return ok, stdout, stderr, rc
+
+
+def git_status_porcelain(workdir: str, log_path: Path) -> tuple[bool, str]:
+    ok, stdout, stderr, rc = git_run(workdir, log_path, ["git", "status", "--porcelain"], label="git_status")
+    if not ok:
         return False, ""
-    if result.returncode != 0:
-        log_event(
-            log_path,
-            "ERROR",
-            "git status non-zero",
-            returncode=result.returncode,
-            stderr=(result.stderr or "")[:500],
-        )
-        return False, ""
-    return True, result.stdout or ""
+    return True, stdout
 
 
 def parse_git_porcelain(porcelain: str) -> tuple[list[str], list[str]]:
@@ -76,44 +98,6 @@ def runtime_artifact_paths_from_porcelain_lines(paths: list[str]) -> tuple[list[
         else:
             non_runtime.append(p)
     return runtime, non_runtime
-
-
-def git_run(workdir: str, log_path: Path, args: list[str], label: str) -> tuple[bool, str, str, int]:
-    try:
-        result = subprocess.run(
-            args,
-            cwd=workdir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        log_event(
-            log_path,
-            "ERROR",
-            "git command timeout",
-            label=label,
-            timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS,
-            args=" ".join(args),
-        )
-        return False, "", "timeout", 124
-    except Exception as exc:
-        log_event(log_path, "ERROR", "git command failed", label=label, error=str(exc), args=" ".join(args))
-        return False, "", str(exc), 1
-    ok = result.returncode == 0
-    if not ok:
-        log_event(
-            log_path,
-            "ERROR",
-            "git command non-zero",
-            label=label,
-            returncode=result.returncode,
-            args=" ".join(args),
-            stderr=(result.stderr or "")[:500],
-        )
-    return ok, result.stdout or "", result.stderr or "", int(result.returncode)
 
 
 def attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, task_text: str) -> bool:
@@ -190,18 +174,7 @@ def git_diff_numstat(workdir: str, *, cached: bool = False, timeout: float = 10.
     args = ["git", "diff", "--numstat"]
     if cached:
         args.append("--cached")
-    try:
-        result = subprocess.run(
-            args,
-            cwd=workdir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=timeout,
-        )
-    except (subprocess.TimeoutExpired, Exception):
+    ok, stdout, _, _ = run_git(workdir, args, timeout=timeout)
+    if not ok:
         return None
-    if result.returncode != 0:
-        return None
-    return result.stdout
+    return stdout

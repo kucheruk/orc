@@ -377,7 +377,7 @@ class KanbanTeamleadRunner:
             return
         self._last_auto_commit = now
         try:
-            from ..git.worktree_flow import run_git
+            from ..git.git_helpers import run_git
             wd = self._workdir
             ok, stdout, _, _ = run_git(wd, ["git", "status", "--porcelain"])
             if not ok or not stdout.strip():

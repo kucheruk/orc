@@ -2,16 +2,13 @@
 # -*- coding: utf-8 -*-
 
 import re
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .git_helpers import is_runtime_artifact, parse_git_porcelain as _parse_git_porcelain
+from .git_helpers import is_runtime_artifact, parse_git_porcelain as _parse_git_porcelain, run_git
 from ..infra.logging import log_event
 from ..infra.state_paths import worktrees_root
-
-GIT_TIMEOUT_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -46,27 +43,6 @@ def _safe_name(value: str, limit: int = 64) -> str:
     if not cleaned:
         cleaned = "task"
     return cleaned[:limit]
-
-
-def run_git(
-    workdir: str,
-    args: list[str],
-) -> tuple[bool, str, str, int]:
-    try:
-        result = subprocess.run(
-            args,
-            cwd=workdir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=GIT_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        return False, "", "timeout", 124
-    except Exception as exc:  # pragma: no cover - defensive
-        return False, "", str(exc), 1
-    return result.returncode == 0, result.stdout or "", result.stderr or "", int(result.returncode)
 
 
 
