@@ -67,7 +67,8 @@ def cleanup_done_worktrees(
     done_ids: set[str], workdir: str, log_path: Path, publisher,
 ) -> None:
     """Remove worktrees for cards that reached Done."""
-    from ..git.worktree_flow import WorktreeSession, _safe_name, cleanup_task_worktree
+    from ..models.git_types import WorktreeSession
+    from ..git.worktree_flow import _safe_name, cleanup_task_worktree
     from ..infra.state.state_paths import worktrees_root
 
     wt_root = worktrees_root(workdir)

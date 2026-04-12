@@ -11,7 +11,8 @@ from .task_types import Task
 
 if TYPE_CHECKING:
     from ..infra.monitoring.monitor_types import MonitorSnapshot
-    from ..git.worktree_flow import WorktreeSession
+
+from .git_types import WorktreeSession
 
 
 class SlotStatus(str, Enum):

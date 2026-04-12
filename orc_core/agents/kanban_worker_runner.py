@@ -28,7 +28,8 @@ from ..infra.state.quit_signal import is_quit_after_task_requested
 from ..models.session_types import SessionSlot, SlotStatus
 from .kanban_protocols import TaskExecutor
 from ..models.task_types import Task
-from ..git.worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
+from ..models.git_types import WorktreeSession
+from ..git.worktree_flow import cleanup_task_worktree, create_task_worktree
 
 _logger = logging.getLogger(__name__)
 

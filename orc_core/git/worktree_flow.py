@@ -2,40 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import re
-from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from .git_helpers import is_runtime_artifact, parse_git_porcelain as _parse_git_porcelain, run_git
 from ..infra.io.logging import log_event
 from ..infra.state.state_paths import worktrees_root
-
-
-@dataclass(frozen=True)
-class WorktreeSession:
-    base_workdir: str
-    worktree_path: str
-    branch_name: str
-    task_id: str
-    reused: bool = False
-
-
-@dataclass(frozen=True)
-class IntegrationResult:
-    ok: bool
-    conflict: bool
-    already_integrated: bool = False
-    error: str = ""
-
-
-@dataclass(frozen=True)
-class IntegrationPreflightResult:
-    ok: bool
-    error: str = ""
-    safe_tracked: tuple[str, ...] = ()
-    safe_untracked: tuple[str, ...] = ()
-    unsafe_tracked: tuple[str, ...] = ()
-    unsafe_untracked: tuple[str, ...] = ()
+from ..models.git_types import IntegrationPreflightResult, IntegrationResult, WorktreeSession
 
 
 def _safe_name(value: str, limit: int = 64) -> str:
