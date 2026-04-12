@@ -16,8 +16,6 @@ from .timeline import timeline_instant
 from .state_paths import active_task_path, metrics_path, stats_path
 from .monitor_types import MonitorSnapshot
 from .stream_monitor_state import StreamMonitorState
-from ..tasks.task_state import init_runtime_payload, load_runtime_payload, runtime_state_path
-from ..tasks.task_source import MarkdownTaskSource
 
 GIT_STATS_TIMEOUT_SECONDS = 10.0
 
@@ -71,9 +69,11 @@ class StreamJsonMonitor:
         task_state_override = child_env.get("ORC_TASK_FILE", "").strip()
         self._task_state_path = Path(task_state_override) if task_state_override else active_task_path(self.workdir)
         runtime_override = child_env.get("ORC_TASK_RUNTIME_FILE", "").strip()
-        self._task_runtime_state_path = (
-            Path(runtime_override) if runtime_override else runtime_state_path(self._task_state_path)
-        )
+        if runtime_override:
+            self._task_runtime_state_path = Path(runtime_override)
+        else:
+            from ..tasks.task_state import runtime_state_path
+            self._task_runtime_state_path = runtime_state_path(self._task_state_path)
         stats_override = child_env.get("ORC_STATS_FILE", "").strip()
         self._stats_path = Path(stats_override) if stats_override else stats_path(self.workdir)
         metrics_override = child_env.get("ORC_METRICS_FILE", "").strip()
@@ -313,6 +313,7 @@ class StreamJsonMonitor:
         if not backlog_path.exists():
             return
         try:
+            from ..tasks.task_source import MarkdownTaskSource
             tasks = MarkdownTaskSource(backlog_path).list_tasks()
         except Exception as exc:
             log_event(self.log_path, "WARN", "backlog progress refresh failed", error=str(exc))
@@ -345,6 +346,7 @@ class StreamJsonMonitor:
     def _update_task_runtime_state(self) -> None:
         started_ms = now_ms()
         now = time.time()
+        from ..tasks.task_state import init_runtime_payload, load_runtime_payload
         runtime_path = self._task_runtime_state_path
         payload = load_runtime_payload(runtime_path)
         if not payload:
