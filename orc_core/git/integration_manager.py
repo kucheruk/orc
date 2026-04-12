@@ -150,7 +150,9 @@ class IntegrationManager:
                     saved[safe_path] = full.read_text(encoding="utf-8")
                 except OSError:
                     _logger.debug("OSError reading/writing safe path", exc_info=True)
-        run_git(self.workdir, ["git", "reset", "--hard", "HEAD"])
+        ok, _, stderr, _ = run_git(self.workdir, ["git", "reset", "--hard", "HEAD"])
+        if not ok:
+            raise RuntimeError(f"git reset --hard HEAD failed: {stderr.strip()[:200]}")
         for safe_path, content in saved.items():
             full = Path(self.workdir) / safe_path
             try:
