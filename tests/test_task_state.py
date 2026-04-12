@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.infra.atomic_io import write_json_atomic
+from orc_core.infra.io.atomic_io import write_json_atomic
 from orc_core.tasks.task_state import update_task_conversation_id
 
 

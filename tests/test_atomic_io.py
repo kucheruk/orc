@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.infra.atomic_io import write_json_atomic, write_text_atomic
+from orc_core.infra.io.atomic_io import write_json_atomic, write_text_atomic
 
 
 class AtomicIoTest(unittest.TestCase):
@@ -28,7 +28,7 @@ class AtomicIoTest(unittest.TestCase):
     def test_write_json_atomic_leaves_no_temp_file_on_replace_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "data.json"
-            with patch("orc_core.infra.atomic_io.os.replace", side_effect=OSError("replace failed")):
+            with patch("orc_core.infra.io.atomic_io.os.replace", side_effect=OSError("replace failed")):
                 with self.assertRaises(OSError):
                     write_json_atomic(path, {"ok": True})
             leftovers = [p.name for p in path.parent.iterdir() if p.is_file()]

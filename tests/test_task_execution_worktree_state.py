@@ -16,7 +16,7 @@ from orc_core.tasks.task_execution_types import (
     TemplateConfig,
     TimingConfig,
 )
-from orc_core.infra.task_types import Task
+from orc_core.models.task_types import Task
 
 
 class _FakeProc:
@@ -116,8 +116,8 @@ def _request(base_dir: Path, worktree_dir: Path) -> TaskExecutionRequest:
     )
 
 class TaskExecutionWorktreeStateTest(unittest.TestCase):
-    @patch("orc_core.tasks.task_execution._cleanup_monitor_processes")
-    @patch("orc_core.tasks.task_execution.wait_for_completion", return_value="waiting_for_input")
+    @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
+    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="waiting_for_input")
     @patch("orc_core.notifications.notify.send_telegram_message")
     def test_writes_resume_state_in_base_workspace_and_avoids_duplicate_start_notifications(
         self,
@@ -152,8 +152,8 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         # Telegram notifications removed — kanban session manager handles them
         self.assertEqual(send_telegram_message_mock.call_count, 0)
 
-    @patch("orc_core.tasks.task_execution._cleanup_monitor_processes")
-    @patch("orc_core.tasks.task_execution.wait_for_completion", return_value="stalled")
+    @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
+    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="stalled")
     @patch("orc_core.notifications.notify.send_telegram_message")
     def test_syncs_done_flag_from_worktree_backlog_into_base(self, *_mocks) -> None:
         worker = _FakeWorker()
@@ -179,8 +179,8 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
     @patch("orc_core.tasks.task_execution_finalize.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.task_execution_finalize.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.task_execution_finalize.integrate_commit_into_main")
-    @patch("orc_core.tasks.task_execution._cleanup_monitor_processes")
-    @patch("orc_core.tasks.task_execution.wait_for_completion", return_value="process_exited")
+    @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
+    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
     def test_does_not_mutate_base_backlog_when_runtime_done_and_integration_fails(self, *_mocks) -> None:
         import orc_core.tasks.task_execution as task_execution
@@ -218,8 +218,8 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
     @patch("orc_core.tasks.task_execution_finalize.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.task_execution_finalize.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.task_execution_finalize.integrate_commit_into_main")
-    @patch("orc_core.tasks.task_execution._cleanup_monitor_processes")
-    @patch("orc_core.tasks.task_execution.wait_for_completion", return_value="process_exited")
+    @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
+    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
     def test_fails_when_successful_integration_did_not_mark_base_backlog_done(self, *_mocks) -> None:
         import orc_core.tasks.task_execution as task_execution

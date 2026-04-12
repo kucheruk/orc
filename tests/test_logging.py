@@ -10,16 +10,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 import orc_core.infra.crash_handler as crash_handler_module
-import orc_core.infra.logging as logging_module
+import orc_core.infra.io.logging as logging_module
 from orc_core.infra.crash_handler import (
     build_crash_stdout_payload,
     emit_crash_stdout_payload,
     install_crash_handlers,
     report_fatal_exception,
 )
-from orc_core.infra.debug_log import init_debug_logging
-from orc_core.infra.logging import log_event, set_log_context
-from orc_core.infra.timeline import (
+from orc_core.infra.io.debug_log import init_debug_logging
+from orc_core.infra.io.logging import log_event, set_log_context
+from orc_core.infra.io.timeline import (
     timeline_instant,
     timeline_step,
     timeline_step_finished,

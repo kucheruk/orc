@@ -9,12 +9,12 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock
 
-from orc_core.infra.stream_monitor import StreamJsonMonitor
+from orc_core.infra.monitoring.stream_monitor import StreamJsonMonitor
 
 
 class StreamMonitorFormattingTest(unittest.TestCase):
     def test_set_progress_tracks_added_delta_and_remaining(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.set_progress(1, 4)
@@ -27,7 +27,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(snapshot.progress_added_delta, 2)
 
     def test_snapshot_tracks_last_event_timestamp(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         started_at = time.time() - 10
         state = StreamMonitorState(task_id="TASK-1", started_at=started_at, summary_lines=25)
@@ -39,7 +39,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertGreaterEqual(updated_snapshot.last_event_at, initial_snapshot.last_event_at)
 
     def test_reasoning_delta_and_completed_build_readable_sentence(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event({"type": "thinking", "subtype": "delta", "text": "**Preparing"})
@@ -51,7 +51,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state._reasoning._recent_reasoning[-1], "Preparing onboarding plan")
 
     def test_reasoning_flushes_buffer_when_completed_missing(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event({"type": "thinking", "subtype": "delta", "text": "Split"})
@@ -61,7 +61,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state._reasoning._recent_reasoning[-1], "Split across")
 
     def test_reasoning_update_fragments_preserve_spaces_between_words(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event({"type": "thinking", "subtype": "update", "text": "Понял"})
@@ -72,7 +72,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("Понял задачу", state.reasoning_lines_for_panel()[-1])
 
     def test_assistant_update_stream_is_collected_into_reasoning(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": "Собираю"}]}})
@@ -82,7 +82,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("Собираю", state.reasoning_lines_for_panel()[-1])
 
     def test_assistant_update_preserves_whitespace_only_tokens(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": "Понял"}]}})
@@ -93,7 +93,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("Понял задачу", state.reasoning_lines_for_panel()[-1])
 
     def test_assistant_update_delta_is_hidden_from_event_feed(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event({"type": "assistant", "subtype": "update", "message": {"content": [{"type": "text", "text": "часть"}]}})
@@ -102,7 +102,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.build_snapshot().recent_events, [])
 
     def test_thinking_delta_and_completed_are_hidden_from_event_feed(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event({"type": "thinking", "subtype": "delta", "text": "**Adding"})
@@ -114,7 +114,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertTrue(any("Adding initial setup" in line for line in state.reasoning_lines_for_panel()))
 
     def test_assistant_message_without_subtype_is_collected_into_reasoning(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event({"type": "assistant", "message": {"content": [{"type": "text", "text": "Начинаю"}]}})
@@ -125,7 +125,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertTrue(all(not event.startswith("assistant:") for event in state.build_snapshot().recent_events))
 
     def test_reasoning_strips_basic_markdown(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         event = {"type": "assistant", "subtype": "reasoning"}
@@ -136,7 +136,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state._reasoning._recent_reasoning[-1], "Checking for existing technical specs")
 
     def test_reasoning_panel_lines_wrap_long_entries(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state._reasoning._recent_reasoning.append("Assessing documentation and code structure for event feed improvements and token parsing stability")
@@ -145,7 +145,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertGreater(len(lines), 1)
 
     def test_extract_text_reads_message_content_list(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         text = state._extract_text(
@@ -163,7 +163,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("and ADR", text)
 
     def test_record_event_sums_structured_token_usage_once_per_request(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         event = {
@@ -179,7 +179,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_source, "structured")
 
     def test_record_event_sums_camel_case_usage_from_result_event(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         event = {
@@ -194,7 +194,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_source, "structured")
 
     def test_duplicate_camel_case_usage_is_deduplicated_per_request(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         event = {
@@ -209,7 +209,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_source, "structured")
 
     def test_structured_usage_takes_precedence_over_text_token_fallback(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         event = {
@@ -224,7 +224,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_source, "structured")
 
     def test_same_usage_payload_counts_for_different_request_ids(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         event_one = {
@@ -243,7 +243,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_total, 20)
 
     def test_incremental_usage_for_same_request_counts_only_growth(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         first = {
@@ -263,7 +263,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_source, "structured")
 
     def test_record_event_accepts_string_token_values_in_structured_usage(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -278,7 +278,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_source, "structured")
 
     def test_record_event_extracts_tokens_from_raw_when_text_keys_are_nonstandard(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -292,7 +292,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_source, "heuristic")
 
     def test_text_fallback_is_ignored_when_structured_entries_add_zero(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -308,7 +308,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_source, "heuristic")
 
     def test_text_only_3k_tokens_does_not_set_tokens_total(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -322,7 +322,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(state.metrics.tokens_source, "none")
 
     def test_event_summary_contains_useful_context(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         summary = state._summarize_event(
@@ -338,7 +338,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("ReadFile", summary)
 
     def test_event_summary_has_simple_timestamp_prefix(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event({"type": "result", "subtype": "success", "status": "ok"})
@@ -347,7 +347,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertRegex(recent_event, r"^\[\d{2}:\d{2}:\d{2}\] ")
 
     def test_tool_call_with_nested_payload_populates_recent_commands(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -366,7 +366,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("read /tmp/a.txt", [cmd.lower() for cmd in snapshot.recent_commands])
 
     def test_tool_call_prefers_shell_command_with_arguments_for_recent_commands(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -382,7 +382,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("git status --short", snapshot.recent_commands)
 
     def test_tool_call_shell_command_replaces_worktree_prefix_in_recent_commands(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -404,7 +404,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertNotIn("/.orc/worktrees/", command)
 
     def test_tool_call_read_replaces_worktree_prefix_in_recent_commands(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -425,7 +425,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(command, "read [worktree]/src/main.py")
 
     def test_tool_call_glob_includes_pattern_and_directory(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -448,7 +448,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("/tmp/other-project", command)
 
     def test_tool_call_glob_replaces_worktree_prefix_in_target_directory(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -472,7 +472,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertNotIn("/.orc/worktrees/", command)
 
     def test_tool_call_grep_includes_pattern_and_path(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -495,7 +495,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("/tmp/other-project/src", command)
 
     def test_tool_call_grep_replaces_worktree_prefix_in_path(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -519,7 +519,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertNotIn("/.orc/worktrees/", command)
 
     def test_tool_call_unknown_payload_uses_key_value_fallback(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -542,7 +542,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("n=7", command)
 
     def test_tool_call_unknown_payload_replaces_worktree_prefix_in_fallback_values(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -564,7 +564,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertNotIn("/.orc/worktrees/", command)
 
     def test_recent_files_replaces_worktree_prefix(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -585,7 +585,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(recent_file, "[worktree]/src/module.py")
 
     def test_recent_files_keeps_non_worktree_path_unchanged(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -606,7 +606,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(recent_file, "/tmp/orc-repo/README.md")
 
     def test_live_status_switches_to_tool_call_when_tool_starts(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -624,7 +624,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertFalse(snapshot.is_subagent_activity)
 
     def test_live_status_marks_subagent_phase_for_task_tool(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -641,7 +641,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(snapshot.active_tool_call_count, 1)
 
     def test_live_status_returns_to_waiting_after_tool_completion(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -664,7 +664,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(snapshot.active_tool_call_count, 0)
 
     def test_live_status_shows_network_problem_during_reconnect_and_retry(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event({"type": "connection", "subtype": "reconnecting"})
@@ -683,7 +683,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("recovered", recovered_snapshot.live_status.lower())
 
     def test_force_finalize_live_tool_calls_clears_stuck_tool_phase(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -705,7 +705,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("forced tool close", snapshot.live_status)
 
     def test_active_tool_calls_watchdog_snapshot_reports_oldest_active_call(self) -> None:
-        from orc_core.infra.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         state.record_event(
@@ -752,7 +752,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(monitor.proc.returncode, 7)
 
     def test_refresh_backlog_progress_reads_counts_from_backlog_file(self) -> None:
-        from orc_core.infra.monitor_metrics_collector import MonitorMetricsCollector
+        from orc_core.infra.monitoring.monitor_metrics_collector import MonitorMetricsCollector
         from orc_core.tasks.task_source import MarkdownTaskSource
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -805,7 +805,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertFalse(detected)
 
     def test_runtime_heartbeat_updates_runtime_file_only(self) -> None:
-        from orc_core.infra.monitor_metrics_collector import MonitorMetricsCollector
+        from orc_core.infra.monitoring.monitor_metrics_collector import MonitorMetricsCollector
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             task_path = root / ".cursor" / "orc-task.json"
@@ -845,7 +845,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(runtime_payload.get("run_id"), "run-1")
 
     def test_runtime_heartbeat_does_not_overwrite_task_conversation_state(self) -> None:
-        from orc_core.infra.monitor_metrics_collector import MonitorMetricsCollector
+        from orc_core.infra.monitoring.monitor_metrics_collector import MonitorMetricsCollector
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             task_path = root / ".cursor" / "orc-task.json"

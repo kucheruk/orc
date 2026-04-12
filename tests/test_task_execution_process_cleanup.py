@@ -13,7 +13,7 @@ from orc_core.tasks.task_execution_types import (
     TemplateConfig,
     TimingConfig,
 )
-from orc_core.infra.task_types import Task
+from orc_core.models.task_types import Task
 
 
 class _FakeMonitor:
@@ -119,7 +119,7 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
             with patch("orc_core.tasks.task_execution_resume.write_task_file"), patch(
                 "orc_core.tasks.task_execution.update_task_restart_count"
             ), patch(
-                "orc_core.tasks.task_execution.wait_for_completion",
+                "orc_core.tasks.task_execution_launch.wait_for_completion",
                 side_effect=KeyboardInterrupt,
             ), patch(
                 "orc_core.tasks.task_agent_phases.kill_orphan_project_processes"
@@ -141,7 +141,7 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
             with patch("orc_core.tasks.task_execution_resume.write_task_file"), patch(
                 "orc_core.tasks.task_execution.update_task_restart_count"
             ), patch(
-                "orc_core.tasks.task_execution.wait_for_completion",
+                "orc_core.tasks.task_execution_launch.wait_for_completion",
                 side_effect=KeyboardInterrupt,
             ), patch(
                 "orc_core.tasks.task_agent_phases.terminate_process_group",
@@ -170,7 +170,7 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
             with patch("orc_core.tasks.task_execution_resume.write_task_file"), patch(
                 "orc_core.tasks.task_execution.update_task_restart_count"
             ), patch(
-                "orc_core.tasks.task_execution.wait_for_completion",
+                "orc_core.tasks.task_execution_launch.wait_for_completion",
                 side_effect=KeyboardInterrupt,
             ), patch(
                 "orc_core.tasks.task_agent_phases.terminate_process_group",

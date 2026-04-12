@@ -13,7 +13,7 @@ from orc_core.tasks.task_execution_types import (
     TemplateConfig,
     TimingConfig,
 )
-from orc_core.infra.task_types import Task
+from orc_core.models.task_types import Task
 
 
 class _FakeProc:
@@ -110,9 +110,9 @@ def _request(tmpdir: str) -> TaskExecutionRequest:
     )
 
 class WaitingForInputNoticeTest(unittest.TestCase):
-    @patch("orc_core.tasks.task_execution._cleanup_monitor_processes")
-    @patch("orc_core.tasks.task_execution.wait_for_completion", return_value="waiting_for_input")
-    @patch("orc_core.tasks.task_execution._logger")
+    @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
+    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="waiting_for_input")
+    @patch("orc_core.tasks.completion_handlers._logger")
     def test_waiting_for_input_prints_visible_status(self, logger_mock, *_mocks) -> None:
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
