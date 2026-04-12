@@ -13,11 +13,9 @@ from typing import Callable, Optional
 
 import yaml
 
-from .kanban_board_health import detect_wip_deadlock as _detect_wip_deadlock
+from .card_prioritizer import pick_best as _pick_best
 from .kanban_card import KanbanCard, read_card, write_card, new_card_body
 from .kanban_constants import (
-    COS_PRIORITY,
-    DEFAULT_WIP_LIMITS,
     INDEX_FILENAME,
     STAGE_CODING,
     STAGE_DONE,
@@ -31,6 +29,7 @@ from .kanban_constants import (
     STAGES,
     WIP_STAGES,
 )
+from .wip_manager import WIPManager
 
 _logger = logging.getLogger(__name__)
 
@@ -42,7 +41,7 @@ class KanbanBoard:
         self._tasks_dir = tasks_dir
         self._lock = threading.RLock()
         self._cards: list[KanbanCard] = []
-        self._wip_limits: dict[str, int] = dict(DEFAULT_WIP_LIMITS)
+        self._wip = WIPManager()
         self._card_locks: dict[str, threading.Lock] = {}
         self._last_stage_mtimes: dict[str, float] = {}
         self._move_listeners: list[Callable[[str, str, str, str], None]] = []
@@ -64,7 +63,7 @@ class KanbanBoard:
             return
         with self._lock:
             self._cards = []
-            self._wip_limits = dict(DEFAULT_WIP_LIMITS)
+            self._wip.reset()
             for stage in STAGES:
                 stage_dir = self._tasks_dir / stage
                 if not stage_dir.is_dir():
@@ -101,8 +100,7 @@ class KanbanBoard:
             if m:
                 data = yaml.safe_load(m.group(1)) or {}
                 limit = data.get("wip_limit")
-                if isinstance(limit, int) and limit > 0:
-                    self._wip_limits[stage] = limit
+                self._wip.set_limit_from_index(stage, limit)
         except Exception as exc:
             _logger.warning("Failed to read %s: %s", idx, exc)
 
@@ -173,17 +171,13 @@ class KanbanBoard:
             return sum(1 for c in self._cards if c.stage == stage)
 
     def wip_limit(self, stage: str) -> int:
-        return self._wip_limits.get(stage, 999)
+        return self._wip.wip_limit(stage)
 
     def has_wip_room(self, stage: str) -> bool:
-        if stage not in WIP_STAGES:
-            return True
-        return self.stage_count(stage) < self.wip_limit(stage)
+        return self._wip.has_wip_room(stage, self.stage_count(stage))
 
     def wip_free(self, stage: str) -> int:
-        if stage not in WIP_STAGES:
-            return 999
-        return max(0, self.wip_limit(stage) - self.stage_count(stage))
+        return self._wip.wip_free(stage, self.stage_count(stage))
 
     def looping_cards(self, threshold: int = 2) -> list[KanbanCard]:
         with self._lock:
@@ -225,7 +219,7 @@ class KanbanBoard:
     def detect_wip_deadlock(self) -> str:
         """Detect WIP deadlock conditions. Returns diagnostic string or '' if healthy."""
         with self._lock:
-            return _detect_wip_deadlock(list(self._cards), dict(self._wip_limits))
+            return self._wip.detect_deadlock(list(self._cards))
 
     def has_unmet_dependencies(self, card: KanbanCard) -> bool:
         if not card.dependencies:
@@ -252,11 +246,8 @@ class KanbanBoard:
 
         with self._lock:
             # Re-check WIP inside the lock to avoid TOCTOU race
-            if new_stage in WIP_STAGES:
-                count = sum(1 for c in self._cards if c.stage == new_stage)
-                limit = self._wip_limits.get(new_stage, 999)
-                if count >= limit:
-                    raise ValueError(f"WIP limit reached for {new_stage}")
+            count = sum(1 for c in self._cards if c.stage == new_stage)
+            self._wip.check_wip_for_move(new_stage, count)
             shutil.move(str(old_path), str(new_path))
             card.stage = new_stage
             card.file_path = new_path
@@ -293,24 +284,17 @@ class KanbanBoard:
 
     def set_wip_limit(self, stage: str, limit: int) -> None:
         """Write WIP limit to _index.md and update in-memory cache."""
-        if stage not in STAGES:
-            raise ValueError(f"Unknown stage: {stage}")
-        stage_dir = self._tasks_dir / stage
-        stage_dir.mkdir(parents=True, exist_ok=True)
-        idx = stage_dir / INDEX_FILENAME
-        idx.write_text(f"---\nwip_limit: {limit}\n---\n", encoding="utf-8")
         with self._lock:
-            self._wip_limits[stage] = limit
+            self._wip.set_limit(self._tasks_dir, stage, limit)
 
     # ── Sorting ─────────────────────────────────────────────────
 
     def pick_best(self, stage: str, action: str, *, check_deps: bool = True) -> Optional[KanbanCard]:
         candidates = self.cards_with_action(stage, action)
-        if check_deps:
-            candidates = [c for c in candidates if not self.has_unmet_dependencies(c)]
-        if not candidates:
-            return None
-        return sorted(candidates, key=_priority_key)[0]
+        return _pick_best(
+            candidates,
+            check_deps=self.has_unmet_dependencies if check_deps else None,
+        )
 
     # ── Board summary (for prompts / TUI) ───────────────────────
 
@@ -318,7 +302,7 @@ class KanbanBoard:
         result: dict[str, dict[str, int]] = {}
         for stage in STAGES:
             count = self.stage_count(stage)
-            limit = self._wip_limits.get(stage, 0)
+            limit = self._wip.wip_limit(stage) if self._wip.wip_limit(stage) != 999 else 0
             result[stage] = {"count": count, "wip_limit": limit}
         return result
 
@@ -376,9 +360,3 @@ class KanbanBoard:
                     nums.append(int(parts[1]))
             next_num = max(nums, default=0) + 1
         return f"TASK-{next_num:03d}"
-
-
-def _priority_key(card: KanbanCard) -> tuple[int, str, float]:
-    cos_rank = COS_PRIORITY.get(card.class_of_service, 9)
-    deadline = card.deadline if card.class_of_service == "fixed-date" else "9999-12-31"
-    return (cos_rank, deadline, -card.roi)
