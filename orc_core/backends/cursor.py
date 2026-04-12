@@ -3,12 +3,16 @@
 
 from __future__ import annotations
 
+import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 
 from ..cli.agent_preflight import AgentNotInstalledError
 from ..infra.logging import log_event
+
+AGENT_LS_TIMEOUT_SECONDS = 15.0
 
 
 class CursorBackend:
@@ -69,11 +73,67 @@ class CursorBackend:
         ensure_repo_hooks_config(workdir, before_path, stop_path, log_path)
 
     def get_resume_id(self, workdir: str, log_path: Path) -> Optional[str]:
-        from ..tasks.task_state import get_resume_id_from_agent_ls
-        return get_resume_id_from_agent_ls(workdir, log_path)
+        return _get_resume_id_from_agent_ls(workdir, log_path)
 
     def default_model(self) -> str:
         return "gpt-5.3-codex"
 
     def list_models_cmd(self) -> list[str] | None:
         return ["agent", "--list-models"]
+
+
+def _parse_agent_ls_output(output: str) -> Optional[str]:
+    uuid_re = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
+    generic_re = re.compile(r"\b[A-Za-z0-9_-]{8,}\b")
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    for line in reversed(lines):
+        lower = line.lower()
+        if lower.startswith(("id", "title", "name")):
+            continue
+        uuid_match = uuid_re.search(line)
+        if uuid_match:
+            return uuid_match.group(0)
+        for token in generic_re.findall(line):
+            token_lower = token.lower()
+            if token_lower in {"id", "title", "name", "today", "yesterday"}:
+                continue
+            if ":" in token and all(part.isdigit() for part in token.split(":") if part):
+                continue
+            if not any(ch.isdigit() for ch in token):
+                continue
+            return token
+    return None
+
+
+def _get_resume_id_from_agent_ls(workdir: str, log_path: Path) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ["agent", "ls"],
+            cwd=workdir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=AGENT_LS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        log_event(log_path, "ERROR", "agent ls timeout", timeout_seconds=AGENT_LS_TIMEOUT_SECONDS)
+        return None
+    except Exception as exc:
+        log_event(log_path, "ERROR", "agent ls failed", error=str(exc))
+        return None
+    if result.returncode != 0:
+        log_event(
+            log_path,
+            "ERROR",
+            "agent ls returned non-zero",
+            returncode=result.returncode,
+            stderr=result.stderr[:500],
+        )
+        return None
+    resume_id = _parse_agent_ls_output(result.stdout)
+    if resume_id:
+        log_event(log_path, "INFO", "agent ls resume id", conversation_id=resume_id)
+    else:
+        log_event(log_path, "WARN", "agent ls returned no resume id")
+    return resume_id

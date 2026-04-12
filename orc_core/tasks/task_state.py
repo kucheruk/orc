@@ -2,22 +2,17 @@
 # -*- coding: utf-8 -*-
 
 import json
-import re
-import subprocess
 from pathlib import Path
 from typing import Optional
 
 from ..infra.atomic_io import write_json_atomic
 from ..infra.logging import log_event
 from ..infra.runtime_state import (
-    TASK_RUNTIME_FILE_NAME,
     init_runtime_payload,
     load_runtime_payload,
     runtime_state_path,
 )
 from ..infra.state_paths import tmp_dir
-
-AGENT_LS_TIMEOUT_SECONDS = 15.0
 
 
 def create_temp_backlog(workdir: str, task_text: str, log_path: Path) -> tuple[Path, str]:
@@ -162,58 +157,3 @@ def update_task_conversation_id(task_path: Path, log_path: Path, conversation_id
         log_event(log_path, "ERROR", "failed to update conversation_id", error=str(exc))
 
 
-def parse_agent_ls_output(output: str) -> Optional[str]:
-    uuid_re = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
-    generic_re = re.compile(r"\b[A-Za-z0-9_-]{8,}\b")
-    lines = [line.strip() for line in output.splitlines() if line.strip()]
-    for line in reversed(lines):
-        lower = line.lower()
-        if lower.startswith(("id", "title", "name")):
-            continue
-        uuid_match = uuid_re.search(line)
-        if uuid_match:
-            return uuid_match.group(0)
-        for token in generic_re.findall(line):
-            token_lower = token.lower()
-            if token_lower in {"id", "title", "name", "today", "yesterday"}:
-                continue
-            if ":" in token and all(part.isdigit() for part in token.split(":") if part):
-                continue
-            if not any(ch.isdigit() for ch in token):
-                continue
-            return token
-    return None
-
-
-def get_resume_id_from_agent_ls(workdir: str, log_path: Path) -> Optional[str]:
-    try:
-        result = subprocess.run(
-            ["agent", "ls"],
-            cwd=workdir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=AGENT_LS_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        log_event(log_path, "ERROR", "agent ls timeout", timeout_seconds=AGENT_LS_TIMEOUT_SECONDS)
-        return None
-    except Exception as exc:
-        log_event(log_path, "ERROR", "agent ls failed", error=str(exc))
-        return None
-    if result.returncode != 0:
-        log_event(
-            log_path,
-            "ERROR",
-            "agent ls returned non-zero",
-            returncode=result.returncode,
-            stderr=result.stderr[:500],
-        )
-        return None
-    resume_id = parse_agent_ls_output(result.stdout)
-    if resume_id:
-        log_event(log_path, "INFO", "agent ls resume id", conversation_id=resume_id)
-    else:
-        log_event(log_path, "WARN", "agent ls returned no resume id")
-    return resume_id
