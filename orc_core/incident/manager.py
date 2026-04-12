@@ -17,7 +17,7 @@ from ..models.session_types import (
     SessionSlot,
     SlotStatus,
 )
-from .incident_phases import (
+from .phases import (
     handle_inject_fix,
     handle_notify_human,
     handle_scale_down,
@@ -25,7 +25,7 @@ from .incident_phases import (
     handle_triage,
     handle_wait_for_fix,
 )
-from .teamlead_incident import (
+from .domain import (
     SCALE_DOWN_WAIT_TIMEOUT,
     Incident,
     IncidentPhase,

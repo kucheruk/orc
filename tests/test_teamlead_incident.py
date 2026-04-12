@@ -15,7 +15,7 @@ from orc_core.infra.adapters.fs_card_repository import FsCardRepository
 
 write_card = FsCardRepository().write_card
 from orc_core.board.kanban_init import init_kanban_board
-from orc_core.agents.teamlead_incident import (
+from orc_core.incident.domain import (
     DECISION_FILENAME,
     FIX_CARD_PREFIX,
     Incident,

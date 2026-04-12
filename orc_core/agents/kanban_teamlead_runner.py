@@ -15,7 +15,7 @@ from ..board.kanban_card import KanbanCard
 from ..board.action_constants import Action
 from ..tasks.task_execution_types import TaskExecutionStatus
 from ..board.kanban_distributor import KanbanDistributor
-from .kanban_incident_manager import IncidentManager
+from ..incident.manager import IncidentManager
 from .kanban_protocols import DirectiveSource, RunnerLifecycle, RunnerNotifier, RunnerStateManager
 from .kanban_publisher import KanbanPublisher
 from .kanban_roles import build_teamlead_prompt
@@ -27,7 +27,7 @@ from ..models.session_types import SessionSlot, SlotStatus
 from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
 from .kanban_protocols import TaskExecutor
 from ..models.task_types import Task
-from .teamlead_incident import Incident
+from ..incident.domain import Incident
 
 _logger = logging.getLogger(__name__)
 

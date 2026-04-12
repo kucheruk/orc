@@ -14,7 +14,7 @@ from ..log import log_event
 from ..models.task_types import Task
 from ..use_cases.create_card import create_expedite_card
 from ..tasks.task_execution_types import TaskExecutionStatus
-from .teamlead_incident import (
+from .domain import (
     DECISION_FILENAME,
     FIX_CARD_PREFIX,
     INCIDENT_FIX_TIMEOUT,
