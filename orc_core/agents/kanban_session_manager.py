@@ -213,17 +213,24 @@ class KanbanSessionManager:
             self._pool.start_session(role="worker", target=self._run_worker)
             self.sleep_fn(STAGGER_DELAY_SECONDS)
         try:
-            return self._manager_loop()
+            return _manager_loop(
+                pool=self._pool,
+                distributor=self._distributor,
+                publisher=self.publisher,
+                publish_board=self._publish_board_state,
+                run_worker=self._run_worker,
+                sleep_fn=self.sleep_fn,
+            )
         except KeyboardInterrupt:
             raise
         finally:
-            self._shutdown_all()
+            _shutdown_all(self._pool)
 
     async def run_async(self, snapshot_publisher) -> int:
         return await asyncio.to_thread(self.run, snapshot_publisher)
 
     def shutdown(self) -> None:
-        self._shutdown_all()
+        _shutdown_all(self._pool)
 
     def get_summary(self) -> str:
         elapsed = time.time() - self._started_at if self._started_at > 0 else 0
@@ -275,48 +282,14 @@ class KanbanSessionManager:
         board.on_move(_on_move)
         board.on_action_change(lambda cid, old, new, role: self.publisher.log_action_change(cid, old, new, role))
 
-    # ── Manager loop ────────────────────────────────────────────
-
-    def _manager_loop(self) -> int:
-        quit_after_logged = False
-        quit_after_last_status = 0.0
-        while True:
-            self._pool.reap_finished()
-            self._publish_board_state()
-            if is_stop_requested():
-                return EXIT_INTERRUPT
-            if is_quit_after_task_requested():
-                if not quit_after_logged:
-                    self.publisher._emit("system", "", "Quit-after-task: waiting for active agents to finish...")
-                    quit_after_logged = True
-                running = self._pool.running_info()
-                now = time.time()
-                if running:
-                    if now - quit_after_last_status >= 10.0:
-                        self.publisher._emit("system", "", f"Still working: {running}")
-                        quit_after_last_status = now
-                else:
-                    self.publisher._emit("system", "", "All agents finished, exiting")
-                    return EXIT_OK
-            elif not self._pool.has_active():
-                if self._distributor.has_remaining_work():
-                    self._pool.restart_idle(target=self._run_worker)
-                    if self._pool.has_active():
-                        continue
-                return EXIT_OK
-            self.sleep_fn(MANAGER_POLL_SECONDS)
-
-    def _publish_board_state(self) -> None:
-        self._distributor.refresh()
-        self.publisher.publish_board(self._distributor.board, self._pool.session_snapshots)
-        self._flush_state_if_dirty()
-
     # ── State persistence ───────────────────────────────────────
 
     def mark_state_dirty(self) -> None:
         self._outcomes.mark_dirty()
 
-    def _flush_state_if_dirty(self) -> None:
+    def _publish_board_state(self) -> None:
+        self._distributor.refresh()
+        self.publisher.publish_board(self._distributor.board, self._pool.session_snapshots)
         if self._outcomes.is_dirty():
             snapshot = self._outcomes.state_snapshot()
             save_kanban_state(self.workdir, snapshot["card_fail_counts"], snapshot["arbitrated_at_loop"])
@@ -360,14 +333,58 @@ class KanbanSessionManager:
         total_assigned = sum(1 for c in board.cards if c.assigned_agent)
         return f"inbox={len(inbox)} (free={free_inbox}), assigned_total={total_assigned}"
 
-    def _shutdown_all(self) -> None:
-        self._pool.shutdown_threads()
-        # Kill any remaining child processes in our group.
-        for sig_name in ("SIGTERM", "SIGHUP", "SIGQUIT", "SIGABRT", "SIGINT"):
-            sig = getattr(signal, sig_name, None)
-            if sig:
-                try:
-                    signal.signal(sig, signal.SIG_IGN)
-                except Exception:
-                    pass
-        kill_own_process_group()
+
+
+# ── Standalone orchestration functions ──────────────────────────
+
+
+def _manager_loop(
+    *,
+    pool: SessionPool,
+    distributor: KanbanDistributor,
+    publisher: KanbanPublisher,
+    publish_board: Callable[[], None],
+    run_worker: Callable,
+    sleep_fn: Callable[[float], None],
+) -> int:
+    """Main event loop: reap finished sessions, check exit conditions, restart idle workers."""
+    quit_after_logged = False
+    quit_after_last_status = 0.0
+    while True:
+        pool.reap_finished()
+        publish_board()
+        if is_stop_requested():
+            return EXIT_INTERRUPT
+        if is_quit_after_task_requested():
+            if not quit_after_logged:
+                publisher._emit("system", "", "Quit-after-task: waiting for active agents to finish...")
+                quit_after_logged = True
+            running = pool.running_info()
+            now = time.time()
+            if running:
+                if now - quit_after_last_status >= 10.0:
+                    publisher._emit("system", "", f"Still working: {running}")
+                    quit_after_last_status = now
+            else:
+                publisher._emit("system", "", "All agents finished, exiting")
+                return EXIT_OK
+        elif not pool.has_active():
+            if distributor.has_remaining_work():
+                pool.restart_idle(target=run_worker)
+                if pool.has_active():
+                    continue
+            return EXIT_OK
+        sleep_fn(MANAGER_POLL_SECONDS)
+
+
+def _shutdown_all(pool: SessionPool) -> None:
+    """Shutdown all session threads and kill child processes."""
+    pool.shutdown_threads()
+    for sig_name in ("SIGTERM", "SIGHUP", "SIGQUIT", "SIGABRT", "SIGINT"):
+        sig = getattr(signal, sig_name, None)
+        if sig:
+            try:
+                signal.signal(sig, signal.SIG_IGN)
+            except Exception:
+                pass
+    kill_own_process_group()
