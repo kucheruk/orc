@@ -733,8 +733,18 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
     def test_refresh_process_status_syncs_proxy_returncode(self) -> None:
         monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
-        monitor._proc = SimpleNamespace(returncode=7)
-        monitor.proc = SimpleNamespace(returncode=None)
+        agent = SimpleNamespace(
+            proc=SimpleNamespace(returncode=None),
+            _proc=SimpleNamespace(returncode=7),
+        )
+        def _refresh() -> int | None:
+            rc = agent._proc.returncode
+            if rc is not None:
+                agent.proc.returncode = rc
+            return agent.proc.returncode
+        agent.refresh_status = _refresh
+        monitor._agent = agent
+        monitor.proc = agent.proc
 
         value = monitor.refresh_process_status()
 
@@ -816,6 +826,8 @@ class StreamMonitorFormattingTest(unittest.TestCase):
             monitor.task_id = "TASK-001"
             monitor._run_id = "run-1"
             monitor.log_path = root / ".orc" / "orc.log"
+            monitor.timeline_id = ""
+            monitor.attempt = 0
 
             monitor._update_task_runtime_state()
 
@@ -850,6 +862,8 @@ class StreamMonitorFormattingTest(unittest.TestCase):
             monitor.task_id = "TASK-001"
             monitor._run_id = "run-1"
             monitor.log_path = root / ".orc" / "orc.log"
+            monitor.timeline_id = ""
+            monitor.attempt = 0
 
             monitor._update_task_runtime_state()
 
