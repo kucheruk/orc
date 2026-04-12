@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Individual completion checks extracted from CompletionMonitor.
+"""Completion check handlers — Chain of Responsibility pattern.
 
-Each function takes the CompletionMonitor instance and returns
-Optional[TaskCompletionStatus] — None means "continue polling".
+Each check function implements the CompletionCheck protocol:
+takes a CompletionMonitor instance and returns Optional[TaskCompletionStatus].
+None means "continue to next check", a status means "done".
+
+Register new checks in DEFAULT_CHECK_CHAIN to extend without modifying
+the CompletionMonitor.check() method (OCP).
 """
 
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import psutil
 
@@ -23,6 +27,9 @@ from .task_state import delete_runtime_state_file
 if TYPE_CHECKING:
     from .supervisor_lifecycle import CompletionMonitor
     from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
+
+# Protocol for completion checks: (CompletionMonitor) -> Optional[TaskCompletionStatus]
+CompletionCheck = Callable[["CompletionMonitor"], Optional[TaskCompletionStatus]]
 
 PROCESS_EXIT_GRACE_SECONDS = 3.0
 DONE_BACKLOG_IDLE_GRACE_SECONDS = 20.0
@@ -418,3 +425,19 @@ def maybe_report(cm: CompletionMonitor) -> None:
         location="orc_core/supervisor_lifecycle.py:wait_for_completion",
         attempt=cm.attempt, result="ok",
     )
+
+
+# ── Default check chain (OCP: add/remove/reorder here) ────────
+
+DEFAULT_CHECK_CHAIN: tuple[CompletionCheck, ...] = (
+    check_escape,
+    check_task_file_removed,
+    check_pid_missing,
+    check_backlog_done_idle,
+    maybe_report,           # side-effect only (returns None)
+    check_tokens_stuck,     # side-effect only (returns None)
+    check_process_exited,
+    check_followup_prompt,
+    check_stall,
+    check_ttl,
+)

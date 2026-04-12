@@ -13,16 +13,8 @@ from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
 from ..infra.io.timeline import timeline_instant
 from ..infra.process.process import is_pid_alive
 from .supervisor_checks import (
-    check_escape,
-    check_task_file_removed,
-    check_pid_missing,
-    check_backlog_done_idle,
-    check_tokens_stuck,
-    check_process_exited,
-    check_followup_prompt,
-    check_stall,
-    check_ttl,
-    maybe_report,
+    DEFAULT_CHECK_CHAIN,
+    CompletionCheck,
     _task_done_in_backlog,
     _monitor_pid_missing,
 )
@@ -79,19 +71,8 @@ class CompletionMonitor:
         self.last_stuck_notice_time = 0.0
         self.backlog_done_at_start = _task_done_in_backlog(task_path)
 
-    # Ordered list of completion checks — add new checks here.
-    _CHECKS = (
-        check_escape,
-        check_task_file_removed,
-        check_pid_missing,
-        check_backlog_done_idle,
-        maybe_report,           # side-effect only (returns None)
-        check_tokens_stuck,     # side-effect only (returns None)
-        check_process_exited,
-        check_followup_prompt,
-        check_stall,
-        check_ttl,
-    )
+    # Chain of Responsibility: ordered check handlers (configurable via constructor)
+    _CHECKS: tuple[CompletionCheck, ...] = DEFAULT_CHECK_CHAIN
 
     def check(self) -> Optional[TaskCompletionStatus]:
         """Run one iteration of checks. Returns a status if done, or None to continue."""
