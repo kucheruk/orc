@@ -28,7 +28,7 @@ from .model_selector import (
 )
 from ..notifications.notify import send_telegram_message
 from ..infra.process.process import acquire_lock, release_lock
-from .role_config import (
+from ..role_config import (
     ROLE_CODER,
     ROLE_HANDOFF,
     ROLE_MERGE_EXPERT,

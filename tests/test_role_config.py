@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from orc_core.cli.model_selector import DEFAULT_MODEL
-from orc_core.cli.role_config import (
+from orc_core.role_config import (
     ROLE_CODER,
     ROLE_HANDOFF,
     ROLE_MERGE_EXPERT,

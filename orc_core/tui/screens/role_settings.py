@@ -10,7 +10,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Label, Switch, TextArea
 
-from ...cli.role_config import ROLE_SETTINGS_VISIBLE_IDS, RoleProfileRegistry
+from ...role_config import ROLE_SETTINGS_VISIBLE_IDS, RoleProfileRegistry
 from .model_picker import ModelPickerModal
 
 
