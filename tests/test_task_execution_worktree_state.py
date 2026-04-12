@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orc_core.tasks.task_execution import TaskExecutionEngine
+import orc_core.tasks.task_execution_preflight as task_execution_preflight
 from orc_core.tasks.task_execution_types import (
     ModelConfig,
     TaskExecutionRequest,
@@ -174,7 +175,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.task_execution.preflight_main_integration")
+    @patch("orc_core.tasks.task_execution_preflight.preflight_main_integration")
     @patch("orc_core.tasks.task_execution_finalize.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.task_execution_finalize.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.task_execution_finalize.integrate_commit_into_main")
@@ -185,7 +186,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         import orc_core.tasks.task_execution as task_execution
         import orc_core.tasks.task_execution_finalize as task_execution_finalize
 
-        task_execution.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
+        task_execution_preflight.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
         task_execution_finalize.integrate_commit_into_main.return_value = type(
             "Integration",
             (),
@@ -213,7 +214,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertNotIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.task_execution.preflight_main_integration")
+    @patch("orc_core.tasks.task_execution_preflight.preflight_main_integration")
     @patch("orc_core.tasks.task_execution_finalize.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.task_execution_finalize.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.task_execution_finalize.integrate_commit_into_main")
@@ -224,7 +225,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         import orc_core.tasks.task_execution as task_execution
         import orc_core.tasks.task_execution_finalize as task_execution_finalize
 
-        task_execution.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
+        task_execution_preflight.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
         task_execution_finalize.integrate_commit_into_main.return_value = type(
             "Integration",
             (),

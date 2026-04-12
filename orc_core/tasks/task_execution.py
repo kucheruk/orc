@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
-import json
 import logging
 import re
 
@@ -11,26 +10,23 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from ..infra.backend import Backend as BackendProtocol
 
-from ..infra.atomic_io import write_json_atomic
-from ..infra.failure_reasons import build_main_integration_preflight_reason
-from ..git.git_helpers import classify_main_integration_error
-from .hooks import update_task_restart_count, write_task_file
+from .hooks import update_task_restart_count
 from ..infra.logging import log_event
 from ..infra.debug_log import debug_log
 from ..infra.timeline import timeline_instant, timeline_step
 from ..infra.quit_signal import is_stop_requested
-from ..infra.session_state import save_active_session, save_session_manifest
 from .task_execution_types import TaskCompletionStatus, TaskExecutionStatus
 from .supervisor_lifecycle import wait_for_completion
 from .stage_artifacts import build_stage_artifact_bundle
-from .task_state import delete_runtime_state_file, read_task_active_seconds, runtime_state_path
+from .task_state import runtime_state_path
 from ..infra.text_parse import SafeDict
-from ..git.worktree_flow import preflight_main_integration
+from .task_execution_preflight import preflight_integration
+from .task_execution_resume import recover_resume_state, init_task_file
 
 from .task_execution_types import (
     LaunchConfig,
@@ -116,209 +112,13 @@ class TaskExecutionEngine:
         return self._run_stage_loop(ctx, resume)
 
     def _preflight_integration(self, ctx: _ExecutionContext) -> Optional[TaskExecutionResult]:
-        """Check main integration prerequisites. Returns failure result or None."""
-        request = ctx.request
-        if not request.integrate_to_main:
-            return None
-        preflight = preflight_main_integration(base_workdir=request.base_workdir, main_branch=request.main_branch)
-        failure_kind = classify_main_integration_error(preflight.error)
-        safe_tracked = tuple(getattr(preflight, "safe_tracked", ()) or ())
-        safe_untracked = tuple(getattr(preflight, "safe_untracked", ()) or ())
-        unsafe_tracked = tuple(getattr(preflight, "unsafe_tracked", ()) or ())
-        unsafe_untracked = tuple(getattr(preflight, "unsafe_untracked", ()) or ())
-        debug_log(
-            "MI1",
-            "orc_core/task_execution.py:TaskExecutionEngine.execute",
-            "main integration preflight evaluated",
-            {
-                "task_id": ctx.task_id,
-                "base_workdir": request.base_workdir,
-                "main_branch": request.main_branch,
-                "ok": preflight.ok,
-                "failure_kind": failure_kind,
-                "error": preflight.error,
-                "safe_tracked": list(safe_tracked[:20]),
-                "safe_untracked": list(safe_untracked[:20]),
-                "unsafe_tracked": list(unsafe_tracked[:20]),
-                "unsafe_untracked": list(unsafe_untracked[:20]),
-            },
-        )
-        if not preflight.ok:
-            log_event(
-                self.log_path,
-                "ERROR",
-                "main integration preflight failed",
-                task_id=ctx.task_id,
-                branch=request.main_branch,
-                base_workdir=request.base_workdir,
-                integration_failure_kind=failure_kind,
-                error=preflight.error[:500],
-                safe_tracked=list(safe_tracked[:20]),
-                safe_untracked=list(safe_untracked[:20]),
-                unsafe_tracked=list(unsafe_tracked[:20]),
-                unsafe_untracked=list(unsafe_untracked[:20]),
-            )
-            _logger.error(
-                f"❌ Невозможно подготовить интеграцию в {request.main_branch}: {preflight.error}"
-            )
-            ctx.ts_exec.result = "failed"
-            ctx.ts_exec.reason = f"main_integration_preflight_failed:{failure_kind}"
-            return TaskExecutionResult(
-                status=TaskExecutionStatus.FAILED,
-                reason=build_main_integration_preflight_reason(failure_kind, preflight.error),
-            )
-        return None
+        return preflight_integration(self.log_path, ctx)
 
     def _recover_resume_state(self, ctx: _ExecutionContext, resume: _ResumeState) -> Optional[TaskExecutionResult]:
-        """Recover state from existing task file. Updates ctx.task_id, ctx.task_text, resume fields."""
-        request = ctx.request
-        resume.resume_existing = request.task_path.exists()
-
-        debug_log(
-            "H2",
-            "orc_core/task_execution.py:execute:task_state",
-            "task file state",
-            {"task_path": str(request.task_path), "exists": resume.resume_existing},
-        )
-
-        if not resume.resume_existing:
-            return None
-
-        try:
-            active = json.loads(request.task_path.read_text(encoding="utf-8"))
-            active_task_id = active.get("task_id")
-            active_task_text = active.get("task_text")
-            active_backlog_raw = str(active.get("backlog_path") or "").strip()
-            raw_conversation_id = active.get("conversation_id", None)
-            resume.resume_id = str(raw_conversation_id or "").strip() or None
-            raw_restart_count = active.get("restart_count", 0)
-            try:
-                resume.persisted_restart_count = max(int(raw_restart_count), 0)
-            except (TypeError, ValueError):
-                resume.persisted_restart_count = 0
-            resume.elapsed_before_start = read_task_active_seconds(request.task_path, expected_task_id=str(active_task_id or ""))
-        except (OSError, json.JSONDecodeError, ValueError, KeyError) as exc:
-            log_event(self.log_path, "ERROR", "failed to read task file", error=str(exc))
-            _logger.warning(
-                f"⚠️ Не удалось прочитать {request.task_path}. "
-                "Исправь/удали файл состояния или запусти с --drop для чистого старта."
-            )
-            ctx.ts_exec.result = "continue"
-            ctx.ts_exec.reason = "task_file_read_failed"
-            return TaskExecutionResult(status=TaskExecutionStatus.CONTINUE, reason="task_file_read_failed", delay_seconds=max(request.timing.poll, 0.2))
-
-        same_backlog = True
-        if active_backlog_raw:
-            try:
-                same_backlog = Path(active_backlog_raw).resolve() == request.backlog_path.resolve()
-            except (OSError, ValueError):
-                same_backlog = active_backlog_raw == str(request.backlog_path)
-
-        if not same_backlog:
-            log_event(
-                self.log_path,
-                "WARN",
-                "resume state ignored: backlog mismatch",
-                task_backlog=active_backlog_raw,
-                expected_backlog=str(request.backlog_path),
-            )
-            resume.resume_existing = False
-            resume.resume_id = None
-            resume.persisted_restart_count = 0
-            resume.elapsed_before_start = 0.0
-
-        if resume.resume_existing and active_task_id and request.task_path.exists():
-            from .task_source import MarkdownTaskSource
-
-            if MarkdownTaskSource(ctx.base_backlog_path).is_task_done(active_task_id):
-                log_event(self.log_path, "INFO", "task already marked done; removing task file", task_id=active_task_id)
-                _logger.info(f"✅ {active_task_id} уже отмечена [x]. Удаляю {request.task_path} и продолжаю.")
-                try:
-                    request.task_path.unlink()
-                    delete_runtime_state_file(request.task_path, self.log_path, reason="stale_done_task_file")
-                except OSError as exc:
-                    log_event(self.log_path, "ERROR", "failed to delete task file", error=str(exc))
-                ctx.ts_exec.result = "continue"
-                ctx.ts_exec.reason = "stale_done_task_file"
-                return TaskExecutionResult(status=TaskExecutionStatus.CONTINUE, reason="stale_done_task_file")
-
-        if resume.resume_existing:
-            ctx.task_id = active_task_id or ctx.task_id
-            ctx.task_text = active_task_text or ctx.task_text
-            log_event(self.log_path, "INFO", "resume existing task", task_id=ctx.task_id)
-            _logger.info(f"↩️ Обнаружена активная задача, запускаю resume для {ctx.task_id}.")
-            if not resume.resume_id:
-                log_event(
-                    self.log_path,
-                    "WARN",
-                    "task file has no conversation_id — auto-dropping for fresh start",
-                    task_id=ctx.task_id,
-                    restart_count=resume.persisted_restart_count,
-                )
-                _logger.info(f"🗑️ Стейт {ctx.task_id} без conversation_id — авто-сброс для чистого старта.")
-                try:
-                    request.task_path.unlink()
-                    delete_runtime_state_file(request.task_path, self.log_path, reason="auto_drop_no_conversation")
-                except OSError:
-                    pass
-                resume.resume_existing = False
-                resume.resume_id = None
-                # Preserve restart_count so the agent knows it's a continuation
-                resume.elapsed_before_start = 0.0
-            log_event(
-                self.log_path,
-                "INFO",
-                "resume selection",
-                conversation_id=resume.resume_id or "",
-                resume_from_latest=False,
-                restart_count=resume.persisted_restart_count,
-                active_seconds=resume.elapsed_before_start,
-            )
-        return None
+        return recover_resume_state(self.log_path, ctx, resume)
 
     def _init_task_file(self, ctx: _ExecutionContext, resume: _ResumeState) -> None:
-        """Create or enrich task file and persist session state."""
-        request = ctx.request
-        if not resume.resume_existing:
-            write_task_file(
-                request.base_workdir,
-                request.task,
-                request.backlog_path,
-                self.log_path,
-                restart_count=0,
-                task_path_override=request.task_path,
-            )
-            if request.task_path.exists():
-                try:
-                    payload = json.loads(request.task_path.read_text(encoding="utf-8"))
-                    if ctx.worktree_path_value:
-                        payload["worktree_path"] = ctx.worktree_path_value
-                    payload["branch_name"] = str(payload.get("branch_name") or "")
-                    payload["status"] = "active"
-                    write_json_atomic(request.task_path, payload, ensure_ascii=False, indent=2)
-                except (OSError, json.JSONDecodeError, ValueError) as exc:
-                    log_event(self.log_path, "WARN", "failed to enrich task state with worktree metadata", error=str(exc))
-            # Kanban session manager handles its own notifications
-        if request.task_path.exists():
-            try:
-                session_payload = json.loads(request.task_path.read_text(encoding="utf-8"))
-                save_active_session(
-                    request.base_workdir,
-                    {
-                        "version": 1,
-                        "task_id": str(session_payload.get("task_id") or ctx.task_id),
-                        "session_id": str(session_payload.get("session_id") or ""),
-                        "task_file": str(request.task_path),
-                        "worktree_path": str(session_payload.get("worktree_path") or ctx.worktree_path_value),
-                        "conversation_id": str(session_payload.get("conversation_id") or resume.resume_id or ""),
-                        "status": "active",
-                    },
-                )
-                session_id = str(session_payload.get("session_id") or "").strip()
-                if session_id:
-                    save_session_manifest(request.base_workdir, session_id, session_payload)
-            except (OSError, json.JSONDecodeError, ValueError) as exc:
-                log_event(self.log_path, "WARN", "failed to persist active session snapshot", error=str(exc))
+        init_task_file(self.log_path, ctx, resume)
 
     def _prepare_stages(self, ctx: _ExecutionContext) -> None:
         """Initialize stage specs and artifact bundle."""

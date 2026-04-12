@@ -116,7 +116,7 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            with patch("orc_core.tasks.task_execution.write_task_file"), patch(
+            with patch("orc_core.tasks.task_execution_resume.write_task_file"), patch(
                 "orc_core.tasks.task_execution.update_task_restart_count"
             ), patch(
                 "orc_core.tasks.task_execution.wait_for_completion",
@@ -138,7 +138,7 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            with patch("orc_core.tasks.task_execution.write_task_file"), patch(
+            with patch("orc_core.tasks.task_execution_resume.write_task_file"), patch(
                 "orc_core.tasks.task_execution.update_task_restart_count"
             ), patch(
                 "orc_core.tasks.task_execution.wait_for_completion",
@@ -167,7 +167,7 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            with patch("orc_core.tasks.task_execution.write_task_file"), patch(
+            with patch("orc_core.tasks.task_execution_resume.write_task_file"), patch(
                 "orc_core.tasks.task_execution.update_task_restart_count"
             ), patch(
                 "orc_core.tasks.task_execution.wait_for_completion",
