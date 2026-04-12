@@ -509,44 +509,26 @@ class CompletionMonitor:
             data={"duration_ms": int(maybe_report_duration * 1000)},
         )
 
+    # Ordered list of completion checks — add new checks here instead of editing check().
+    _CHECKS: tuple[str, ...] = (
+        "_check_escape",
+        "_check_task_file_removed",
+        "_check_pid_missing",
+        "_check_backlog_done_idle",
+        "_maybe_report",         # side-effect only (returns None)
+        "_check_tokens_stuck",   # side-effect only (returns None)
+        "_check_process_exited",
+        "_check_followup_prompt",
+        "_check_stall",
+        "_check_ttl",
+    )
+
     def check(self) -> Optional[TaskCompletionStatus]:
         """Run one iteration of checks. Returns a status if done, or None to continue."""
-        result = self._check_escape()
-        if result is not None:
-            return result
-
-        result = self._check_task_file_removed()
-        if result is not None:
-            return result
-
-        result = self._check_pid_missing()
-        if result is not None:
-            return result
-
-        result = self._check_backlog_done_idle()
-        if result is not None:
-            return result
-
-        self._maybe_report()
-
-        self._check_tokens_stuck()
-
-        result = self._check_process_exited()
-        if result is not None:
-            return result
-
-        result = self._check_followup_prompt()
-        if result is not None:
-            return result
-
-        result = self._check_stall()
-        if result is not None:
-            return result
-
-        result = self._check_ttl()
-        if result is not None:
-            return result
-
+        for name in self._CHECKS:
+            result = getattr(self, name)()
+            if result is not None:
+                return result
         return None
 
 
