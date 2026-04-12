@@ -14,9 +14,7 @@ from typing import Optional
 from ..config import OrcConfig
 from .task_outcome_tracker import TaskOutcomeTracker
 from ..git.integration_manager import IntegrationManager
-from .kanban_agent_output import process_agent_result
-from ..board.action_constants import Action
-from ..board.stage_constants import STAGE_DONE, STAGE_HANDOFF
+from ..board.stage_constants import STAGE_DONE
 from ..tasks.task_execution_types import TaskExecutionStatus
 from ..board.kanban_distributor import KanbanDistributor
 from .kanban_protocols import CompletionNotifier, RunnerLifecycle, RunnerStateManager
@@ -25,6 +23,12 @@ from .kanban_publisher import KanbanPublisher
 from .kanban_roles import build_prompt
 from ..log import log_event
 from ..infra.state.quit_signal import is_quit_after_task_requested
+from ..use_cases.process_task_result import (
+    process_completed_task,
+    handle_task_failure,
+    escalate_if_threshold_reached,
+)
+from ..use_cases.finalize_task_worktree import finalize_completed_worktree
 from ..models.session_types import SessionSlot, SlotStatus
 from .kanban_protocols import TaskExecutor
 from ..models.task_types import Task
@@ -140,72 +144,45 @@ class KanbanWorkerRunner:
                                                               commit_phase, 1800.0))
             if result and result.status == TaskExecutionStatus.COMPLETED:
                 elapsed = time.time() - task_start
-                old_stage = card.stage
-                old_action = card.action
-                old_cos = card.class_of_service
-                errors = process_agent_result(self._distributor.board, card, role)
-                if not errors:
-                    self._outcomes.record_completed(card.id)
-                    self._publisher.log_complete(card.id, role, elapsed)
-                    self._notifier.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
-                else:
-                    self._publisher._emit("escalate", card.id,
-                                           f"{card.id} validation failed: {'; '.join(errors[:3])}")
-                    log_event(self._log_path, "WARN", "agent output validation failed",
-                              task_id=card.id, role=role, errors=str(errors))
+                errors = process_completed_task(
+                    board=self._distributor.board, card=card, role=role,
+                    elapsed=elapsed, outcomes=self._outcomes,
+                    publisher=self._publisher, notifier=self._notifier,
+                    log_path=self._log_path,
+                )
+                if errors:
                     self._outcomes.record_failed(card.id)
             else:
                 reason = result.reason if result else "no result"
-                self._publisher._emit("escalate", card.id, f"{card.id} {role} failed: {reason}")
-                self._outcomes.record_failed(card.id)
-                self.increment_fail_and_maybe_block(card, f"agent returned: {reason}")
+                handle_task_failure(card, reason, self._outcomes, self._publisher, role)
+                escalate_if_threshold_reached(
+                    card, f"agent returned: {reason}",
+                    self._distributor.board, self._outcomes,
+                    self._publisher, self._notifier, self._log_path,
+                )
         except Exception as exc:
             self._publisher._emit("escalate", card.id,
                                    f"{card.id} ERROR: {type(exc).__name__}: {exc}")
             log_event(self._log_path, "ERROR", "assignment failed",
                       task_id=card.id, error=str(exc))
             self._outcomes.record_failed(card.id)
-            self.increment_fail_and_maybe_block(card, f"{type(exc).__name__}: {exc}")
+            escalate_if_threshold_reached(
+                card, f"{type(exc).__name__}: {exc}",
+                self._distributor.board, self._outcomes,
+                self._publisher, self._notifier, self._log_path,
+            )
         else:
             # Reset failure counter on success
             self._outcomes.reset_fail_count(card.id)
         finally:
             # Integrate worktree commits into main before cleanup
             if worktree and card.stage == STAGE_DONE:
-                task_obj = slot.task or Task(task_id=card.id, text=card.title or card.id, done=True)
-                integrated = self._integrator.integrate(slot, task_obj, worktree.worktree_path)
-                if integrated:
-                    with self._worktree_lock:
-                        cleanup_task_worktree(worktree, self._log_path)
-                else:
-                    log_event(self._log_path, "WARN", "integration failed, keeping worktree",
-                              task_id=card.id, worktree=worktree.worktree_path)
-                    self._publisher._emit("escalate", card.id,
-                                           f"{card.id} cherry-pick to {self._main_branch} failed; "
-                                           f"card moved back to Handoff")
-                    board = self._distributor.board
-                    card.action = Action.INTEGRATING
-                    board.move_card(card, STAGE_HANDOFF, allow_backward=True,
-                                    reason="cherry-pick failed")
-                    board.save_card(card)
+                finalize_completed_worktree(
+                    card=card, worktree=worktree, slot=slot,
+                    board=self._distributor.board, integrator=self._integrator,
+                    cleanup_fn=cleanup_task_worktree, log_path=self._log_path,
+                    main_branch=self._main_branch, publisher=self._publisher,
+                    worktree_lock=self._worktree_lock,
+                )
             slot.task = None
             self._distributor.release_card(card.id)
-
-    # ── Failure tracking ────────────────────────────────────────
-
-    def increment_fail_and_maybe_block(self, card: KanbanCard, error_desc: str) -> None:
-        """Track consecutive failures for a card. Block it after threshold."""
-        count = self._outcomes.increment_fail_count(card.id)
-        if count >= self._FAIL_BLOCK_THRESHOLD:
-            try:
-                card.block(error_desc)
-                self._distributor.board.save_card(card)
-                self._publisher._emit("escalate", card.id,
-                                       f"{card.id} marked Blocked after {count} consecutive failures: {error_desc}")
-                log_event(self._log_path, "WARN", "card blocked after repeated failures",
-                          task_id=card.id, fail_count=count, error=error_desc)
-                self._notifier.send_telegram(
-                    f"\U0001f6ab {card.id} \u0437\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d\u0430 \u043f\u043e\u0441\u043b\u0435 {count} \u043f\u043e\u0434\u0440\u044f\u0434 \u043e\u0448\u0438\u0431\u043e\u043a: {error_desc}",
-                )
-            except (OSError, ConnectionError, TimeoutError, ValueError):
-                pass

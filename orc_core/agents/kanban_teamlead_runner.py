@@ -240,49 +240,34 @@ class KanbanTeamleadRunner:
 
     def health_check(self, slot: SessionSlot, sid: str) -> bool:
         """Run health check. Returns True if problems found and agent was invoked."""
+        from ..use_cases.check_board_health import diagnose_board_health, should_skip_repeated_diagnostic
+
         self._last_health_check = time.time()
-        board = self._distributor.board
-        deadlock = board.detect_wip_deadlock()
-        starvation = ""
-        if not deadlock:
-            if self._distributor.has_remaining_work():
-                diag = self._distributor.diagnose_no_work()
-                if diag and "board empty" not in diag:
-                    starvation = diag
-        if not deadlock and not starvation:
+        diagnostic = diagnose_board_health(self._distributor.board, self._distributor)
+        if diagnostic is None:
             self._consecutive_health_checks = 0
             self._last_health_diagnostic = ""
             return False
-        if starvation and not deadlock:
-            all_dep_blocked = all(
-                "unmet deps" in line or "action=Blocked" in line
-                or "no matching role" in line
-                for line in starvation.split(";") if line.strip()
-            )
-            if all_dep_blocked:
-                log_event(self._log_path, "INFO", "health check: dep-only starvation, skipping AI",
-                          session_id=sid)
-                return False
-        diagnostic = ""
-        if deadlock:
-            diagnostic += f"DEADLOCK: {deadlock}\n"
-        if starvation:
-            diagnostic += f"STARVATION: {starvation}\n"
-        if diagnostic == self._last_health_diagnostic and self._consecutive_health_checks > 0:
+        if diagnostic.is_dependency_only_starvation:
+            log_event(self._log_path, "INFO", "health check: dep-only starvation, skipping AI",
+                      session_id=sid)
+            return False
+        if should_skip_repeated_diagnostic(diagnostic, self._last_health_diagnostic, self._consecutive_health_checks):
             self._consecutive_health_checks += 1
             log_event(self._log_path, "INFO",
                       "health check: same diagnostic as last time, skipping AI",
                       session_id=sid, consecutive=self._consecutive_health_checks)
             return False
-        self._last_health_diagnostic = diagnostic
+        self._last_health_diagnostic = diagnostic.summary
         self._consecutive_health_checks += 1
-        self._publisher._emit("escalate", "", f"[TL] Health check: {diagnostic.strip()}")
+        diag_text = diagnostic.summary
+        self._publisher._emit("escalate", "", f"[TL] Health check: {diag_text.strip()}")
         log_event(self._log_path, "WARN", "board health issue detected",
-                  session_id=sid, diagnostic=diagnostic[:500])
+                  session_id=sid, diagnostic=diag_text[:500])
         dec_path = _teamlead_decision_path(self._workdir)
         prompt = build_teamlead_prompt(
             mode="health", board=self._distributor.board,
-            diagnostic_info=diagnostic, decision_path=str(dec_path),
+            diagnostic_info=diag_text, decision_path=str(dec_path),
             token_stats=self.load_token_stats(),
         )
         task = Task(task_id="tl-health", text="[TL] Board health check", done=False)
