@@ -163,7 +163,7 @@ class TaskWorker(Protocol):
 
 
 class AgentTaskWorker:
-    def __init__(self, backend: Optional["BackendProtocol"] = None) -> None:
+    def __init__(self, backend: "BackendProtocol") -> None:
         self._backend = backend
 
     def launch(self, config: LaunchConfig):

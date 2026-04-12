@@ -26,6 +26,7 @@ def launch_agent_stream_json(
     report_interval: float,
     summary_lines: int,
     task_id: str,
+    backend: "Backend",
     progress_done: int = 0,
     progress_total: int = 1,
     progress_in_progress: int = 0,
@@ -37,7 +38,6 @@ def launch_agent_stream_json(
     resume_prompt: Optional[str] = None,
     timeline_id: str = "",
     attempt: int = 0,
-    backend: Optional["Backend"] = None,
 ) -> StreamJsonMonitor:
     return asyncio.run(
         launch_agent_stream_json_async(
@@ -73,6 +73,7 @@ async def launch_agent_stream_json_async(
     report_interval: float,
     summary_lines: int,
     task_id: str,
+    backend: "Backend",
     progress_done: int = 0,
     progress_total: int = 1,
     progress_in_progress: int = 0,
@@ -84,7 +85,6 @@ async def launch_agent_stream_json_async(
     resume_prompt: Optional[str] = None,
     timeline_id: str = "",
     attempt: int = 0,
-    backend: Optional["Backend"] = None,
 ) -> StreamJsonMonitor:
     #region agent log
     debug_log(
@@ -108,10 +108,6 @@ async def launch_agent_stream_json_async(
         },
     )
     #endregion
-
-    if backend is None:
-        from .backend import get_backend
-        backend = get_backend()
 
     prompt_text: str | None = None
     if not resume_id and not resume_latest:
