@@ -6,10 +6,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Protocol
 
+from pathlib import Path
+
 if TYPE_CHECKING:
     from ..board.kanban_card import KanbanCard
     from ..models.session_types import SessionSlot
-    from ..tasks.task_execution_types import TaskExecutionRequest
+    from ..tasks.task_execution_types import TaskExecutionRequest, TaskExecutionResult
     from ..models.task_types import Task
 
 
@@ -67,3 +69,11 @@ class SessionController(Protocol):
 
     def add_session(self) -> Optional[str]: ...
     def remove_session(self, session_id: str) -> None: ...
+
+
+class TaskExecutor(Protocol):
+    """Port for task execution — agents depend on this, not on the concrete engine."""
+
+    log_path: Path
+
+    def execute(self, request: "TaskExecutionRequest") -> "TaskExecutionResult": ...

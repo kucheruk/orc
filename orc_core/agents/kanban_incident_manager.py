@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
     from ..board.kanban_distributor import KanbanDistributor
     from .kanban_publisher import KanbanPublisher
-    from ..tasks.task_execution import TaskExecutionEngine
+    from .kanban_protocols import TaskExecutor
 
 
 class IncidentManager:
@@ -52,7 +52,7 @@ class IncidentManager:
         *,
         distributor: KanbanDistributor,
         publisher: KanbanPublisher,
-        engine: TaskExecutionEngine,
+        engine: "TaskExecutor",
         slots: dict[str, SessionSlot],
         slots_lock: threading.Lock,
         failed_tasks: list[str],

@@ -26,7 +26,7 @@ from .kanban_roles import build_prompt
 from ..infra.io.logging import log_event
 from ..infra.state.quit_signal import is_quit_after_task_requested
 from ..models.session_types import SessionSlot, SlotStatus
-from ..tasks.task_execution import TaskExecutionEngine
+from .kanban_protocols import TaskExecutor
 from ..models.task_types import Task
 from ..git.worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
 
@@ -43,7 +43,7 @@ class KanbanWorkerRunner:
         *,
         workdir: str,
         log_path: Path,
-        engine: TaskExecutionEngine,
+        engine: TaskExecutor,
         distributor: KanbanDistributor,
         publisher: KanbanPublisher,
         config: OrcConfig,

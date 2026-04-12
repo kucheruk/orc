@@ -25,7 +25,7 @@ from ..infra.state.quit_signal import is_quit_after_task_requested
 from ..infra.state.state_paths import run_root, stats_path
 from ..models.session_types import SessionSlot, SlotStatus
 from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
-from ..tasks.task_execution import TaskExecutionEngine
+from .kanban_protocols import TaskExecutor
 from ..models.task_types import Task
 from .teamlead_incident import Incident
 
@@ -51,7 +51,7 @@ class KanbanTeamleadRunner:
         *,
         workdir: str,
         log_path: Path,
-        engine: TaskExecutionEngine,
+        engine: TaskExecutor,
         distributor: KanbanDistributor,
         publisher: KanbanPublisher,
         incident_mgr: IncidentManager,
