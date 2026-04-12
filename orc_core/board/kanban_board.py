@@ -38,10 +38,12 @@ class KanbanBoard:
     # ── Event listeners ────────────────────────────────────────
 
     def on_move(self, listener: Callable[[str, str, str, str], None]) -> None:
-        self._move_listeners.append(listener)
+        with self._lock:
+            self._move_listeners.append(listener)
 
     def on_action_change(self, listener: Callable[[str, str, str, str], None]) -> None:
-        self._action_change_listeners.append(listener)
+        with self._lock:
+            self._action_change_listeners.append(listener)
 
     # ── State hydration ─────────────────────────────────────────
 
@@ -219,8 +221,9 @@ class KanbanBoard:
                 card.stage = old_stage
                 card.file_path = old_path
                 raise
+            listeners = list(self._move_listeners)
 
-        for listener in self._move_listeners:
+        for listener in listeners:
             try:
                 listener(card.id, old_stage, new_stage, reason)
             except Exception:
@@ -233,7 +236,9 @@ class KanbanBoard:
             if card.file_path:
                 self.repo.write_card_text(card.file_path, card.to_markdown())
         if old_action and old_action != card.action:
-            for listener in self._action_change_listeners:
+            with self._lock:
+                listeners = list(self._action_change_listeners)
+            for listener in listeners:
                 try:
                     listener(card.id, old_action, card.action, role)
                 except Exception:
