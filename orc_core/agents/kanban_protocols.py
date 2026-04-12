@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional, Protocol
 if TYPE_CHECKING:
     from ..board.kanban_card import KanbanCard
     from .session_types import SessionSlot
+    from ..tasks.task_execution_types import TaskExecutionRequest
     from ..tasks.task_source import Task
 
 
@@ -31,7 +32,7 @@ class RunnerStateManager(Protocol):
         session_id: str,
         commit_phase: bool,
         ttl: float,
-    ) -> object: ...
+    ) -> TaskExecutionRequest: ...
 
 
 class RunnerNotifier(Protocol):

@@ -517,7 +517,7 @@ class _StateManagerAdapter:
     def mark_dirty(self) -> None:
         self._mgr._mark_state_dirty()
 
-    def make_request(self, task, prompt, workdir, session_id, commit_phase, ttl):
+    def make_request(self, task, prompt: str, workdir: str, session_id: str, commit_phase: bool, ttl: float):
         return self._mgr._make_request(task, prompt, workdir, session_id, commit_phase, ttl)
 
 
