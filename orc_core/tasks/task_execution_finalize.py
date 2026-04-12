@@ -16,7 +16,7 @@ from typing import Optional
 
 from ..log import log_event
 from ..infra.io.debug_log import debug_log
-from ..infra.state.quit_signal import is_quit_after_task_requested
+from ..quit_signal import is_quit_after_task_requested
 from .backlog_validator import validate_backlog_invariant
 from .main_integrator import handle_main_integration
 from .stage_artifacts import parse_stage_artifact_status, validate_stage_artifact_output
@@ -33,7 +33,7 @@ from .task_execution_types import (
     _ExecutionContext,
 )
 from .task_state import delete_runtime_state_file
-from ..infra.io.text_parse import SafeDict, clean_summary_lines
+from ..text_parse import SafeDict, clean_summary_lines
 
 _logger = logging.getLogger(__name__)
 

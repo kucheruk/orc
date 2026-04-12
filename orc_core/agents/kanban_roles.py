@@ -325,4 +325,4 @@ def build_teamlead_prompt(
     ))
 
 
-from ..infra.io.text_parse import SafeDict as _SafeDict
+from ..text_parse import SafeDict as _SafeDict

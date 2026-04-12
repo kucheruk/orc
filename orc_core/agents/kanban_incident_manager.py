@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 from ..board.action_constants import Action
 from ..log import log_event
 from ..notifications.notify import send_telegram_message
-from ..infra.state.quit_signal import is_stop_requested
+from ..quit_signal import is_stop_requested
 from ..models.session_types import (
     STAGGER_DELAY_SECONDS,
     SessionSlot,

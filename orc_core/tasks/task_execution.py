@@ -19,12 +19,12 @@ from .hooks import update_task_restart_count
 from ..log import log_event
 from ..infra.io.debug_log import debug_log
 from ..infra.io.timeline import timeline_instant, timeline_step
-from ..infra.state.quit_signal import is_stop_requested
+from ..quit_signal import is_stop_requested
 from .task_status_types import TaskCompletionStatus, TaskExecutionStatus
 from .supervisor_lifecycle import wait_for_completion
 from .stage_artifacts import build_stage_artifact_bundle
 from .task_state import runtime_state_path
-from ..infra.io.text_parse import SafeDict
+from ..text_parse import SafeDict
 from .task_execution_preflight import preflight_integration
 from .task_execution_resume import recover_resume_state, init_task_file
 from .task_source import MarkdownTaskSource

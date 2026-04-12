@@ -10,7 +10,7 @@ from typing import Optional
 from ..git.git_helpers import classify_main_integration_error, has_commits_ahead_of_branch
 from ..log import log_event
 from ..infra.io.timeline import timeline_step
-from ..infra.io.text_parse import SafeDict
+from ..text_parse import SafeDict
 from ..git.worktree_flow import get_head_commit, integrate_commit_into_main
 from .task_agent_phases import run_merge_expert_phase
 from .task_execution_types import TaskExecutionResult, TaskExecutionStatus, _ExecutionContext

@@ -9,7 +9,7 @@ import textwrap
 from collections import deque
 from typing import Deque, Dict, Optional
 
-from ..io.text_parse import clean_summary_lines
+from ...text_parse import clean_summary_lines
 
 
 class ReasoningTracker:

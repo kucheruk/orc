@@ -17,7 +17,7 @@ from collections import deque
 from typing import Deque, Dict, Optional
 
 from .monitor_types import MetricsStore, MonitorSnapshot
-from ..io.text_parse import clean_summary_lines
+from ...text_parse import clean_summary_lines
 from .token_tracker import TokenTracker
 from .reasoning_tracker import ReasoningTracker
 from .tool_call_tracker import ToolCallTracker

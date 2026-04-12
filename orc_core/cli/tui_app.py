@@ -7,7 +7,7 @@ from typing import Callable, Optional, Protocol, runtime_checkable
 from textual import work
 from textual.app import App
 
-from ..infra.state.quit_signal import clear_stop_request, request_stop, toggle_quit_after_task
+from ..quit_signal import clear_stop_request, request_stop, toggle_quit_after_task
 from ..infra.monitoring.monitor_types import MonitorSnapshot
 
 

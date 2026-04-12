@@ -24,7 +24,7 @@ from orc_core.tasks.task_execution_types import (
     TemplateConfig,
     TimingConfig,
 )
-from orc_core.infra.io.text_parse import SafeDict
+from orc_core.text_parse import SafeDict
 from orc_core.tasks.stage_artifacts import build_stage_artifact_bundle
 from orc_core.models.task_types import Task
 

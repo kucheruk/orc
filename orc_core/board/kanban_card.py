@@ -13,7 +13,7 @@ import yaml
 
 from .action_constants import Action, ClassOfService
 from .stage_constants import STAGE_INBOX, STAGE_ORDER
-from ..infra.io.text_parse import parse_frontmatter
+from ..text_parse import parse_frontmatter
 
 # Fields agents are NOT allowed to change (Python-only)
 PROTECTED_FIELDS: frozenset[str] = frozenset({

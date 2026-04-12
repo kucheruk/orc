@@ -41,7 +41,7 @@ from ..board.kanban_role_registry import ROLE_TEAMLEAD
 from ..use_cases.create_card import create_inbox_card
 from ..use_cases.unblock_card import unblock_card as unblock_card_uc
 from ..log import log_event
-from ..infra.state.quit_signal import is_quit_after_task_requested, is_stop_requested
+from ..quit_signal import is_quit_after_task_requested, is_stop_requested
 from .session_pool import SessionPool
 from .task_outcome_tracker import TaskOutcomeTracker
 from ..models.session_types import (
