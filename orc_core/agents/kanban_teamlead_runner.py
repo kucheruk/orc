@@ -20,7 +20,7 @@ from .kanban_protocols import DirectiveSource, RunnerLifecycle, RunnerNotifier, 
 from .kanban_publisher import KanbanPublisher
 from .kanban_roles import build_teamlead_prompt
 from ..git.git_helpers import run_git
-from ..infra.io.logging import log_event
+from ..log import log_event
 from ..infra.state.quit_signal import is_quit_after_task_requested
 from ..infra.state.state_paths import run_root, stats_path
 from ..models.session_types import SessionSlot, SlotStatus

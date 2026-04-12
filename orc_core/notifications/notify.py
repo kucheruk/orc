@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 from typing import Protocol
 
-from ..infra.io.logging import ORC_ROOT, log_event
+from ..log import log_event
+from ..infra.io.logging import ORC_ROOT
 from ..infra.io.debug_log import debug_log
 from .telegram import post_telegram_message, resolve_telegram_credentials, truncate_telegram_message
 

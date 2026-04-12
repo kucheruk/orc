@@ -17,7 +17,8 @@ from .agent_preflight import ensure_agent_installed
 from ..infra.backend import SUPPORTED_BACKENDS, get_backend
 from ..infra.failure_reasons import format_known_failure_message
 from ..git.gitignore_guard import validate_workspace_gitignore
-from ..infra.io.logging import ORC_LOG_NAME, log_event, set_log_context
+from ..log import log_event, set_log_context
+from ..infra.io.logging import ORC_LOG_NAME
 from ..infra.io.debug_log import init_debug_logging
 from ..infra.crash_handler import emit_crash_stdout_payload, install_crash_handlers
 from .model_selector import (

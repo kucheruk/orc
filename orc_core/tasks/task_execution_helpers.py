@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..infra.io.atomic_io import write_json_atomic
-from ..infra.io.logging import log_event
+from ..log import log_event
 from .task_execution_types import ETA_WINDOW_SIZE, TaskExecutionRequest, TaskStageSpec
 
 

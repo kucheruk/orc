@@ -84,7 +84,7 @@ def execute_teamlead_actions(
     log_path: Path,
 ) -> list[str]:
     """Execute parsed actions against the board. Returns list of error strings."""
-    from ..infra.io.logging import log_event
+    from ..log import log_event
 
     errors: list[str] = []
     if decision.summary:

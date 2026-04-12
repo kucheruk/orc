@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Optional
 import psutil
 
 from .task_execution_types import TaskCompletionStatus
-from ..infra.io.logging import log_event
+from ..log import log_event
 from ..infra.io.debug_log import debug_log, debug_mode_log
 from ..infra.io.timeline import timeline_instant
 from ..infra.process.process import is_pid_alive

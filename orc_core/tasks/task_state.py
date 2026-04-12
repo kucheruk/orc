@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..infra.io.atomic_io import write_json_atomic
-from ..infra.io.logging import log_event
+from ..log import log_event
 from ..infra.state.runtime_state import (
     init_runtime_payload,
     load_runtime_payload,

@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 
 from ..infra.io.atomic_io import write_json_atomic
-from ..infra.io.logging import log_event
+from ..log import log_event
 from ..infra.state.state_paths import kanban_state_path
 
 _logger = logging.getLogger(__name__)

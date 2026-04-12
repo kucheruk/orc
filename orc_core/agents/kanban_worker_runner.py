@@ -23,7 +23,7 @@ from .kanban_protocols import CompletionNotifier, RunnerLifecycle, RunnerStateMa
 from ..board.kanban_pull import WorkAssignment
 from .kanban_publisher import KanbanPublisher
 from .kanban_roles import build_prompt
-from ..infra.io.logging import log_event
+from ..log import log_event
 from ..infra.state.quit_signal import is_quit_after_task_requested
 from ..models.session_types import SessionSlot, SlotStatus
 from .kanban_protocols import TaskExecutor

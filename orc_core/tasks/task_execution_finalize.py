@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..git.git_helpers import classify_main_integration_error, has_commits_ahead_of_branch
-from ..infra.io.logging import log_event
+from ..log import log_event
 from ..infra.io.debug_log import debug_log
 from ..infra.io.timeline import timeline_step
 from ..infra.state.quit_signal import is_quit_after_task_requested

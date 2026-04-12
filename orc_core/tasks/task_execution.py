@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from ..infra.backend import Backend as BackendProtocol
 
 from .hooks import update_task_restart_count
-from ..infra.io.logging import log_event
+from ..log import log_event
 from ..infra.io.debug_log import debug_log
 from ..infra.io.timeline import timeline_instant, timeline_step
 from ..infra.state.quit_signal import is_stop_requested

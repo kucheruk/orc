@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from ..infra.failure_reasons import IntegrationErrorKind
-from ..infra.io.logging import log_event
+from ..log import log_event
 
 GIT_COMMAND_TIMEOUT_SECONDS = 30.0
 

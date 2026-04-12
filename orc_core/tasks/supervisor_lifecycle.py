@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .task_execution_types import TaskCompletionStatus
-from ..infra.io.logging import log_event
+from ..log import log_event
 from ..infra.io.debug_log import debug_log
 from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
 from ..infra.io.timeline import timeline_instant

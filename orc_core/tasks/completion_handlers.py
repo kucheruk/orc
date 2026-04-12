@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Protocol
 
-from ..infra.io.logging import log_event
+from ..log import log_event
 from ..infra.io.timeline import timeline_instant
 from .hooks import update_task_restart_count
 from .task_execution_types import (
