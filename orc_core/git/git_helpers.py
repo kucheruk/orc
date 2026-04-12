@@ -150,22 +150,27 @@ def has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> bo
         return False
 
 
+_ERROR_PATTERNS: list[tuple[str, IntegrationErrorKind]] = [
+    ("dirty before integration", IntegrationErrorKind.DIRTY_BASE_REPO),
+    ("git status failed", IntegrationErrorKind.GIT_STATUS_FAILED),
+    ("main branch", IntegrationErrorKind.MAIN_BRANCH_MISSING),  # also requires "not found"
+    ("checkout", IntegrationErrorKind.CHECKOUT_FAILED),
+    ("timeout", IntegrationErrorKind.GIT_TIMEOUT),
+    ("cherry-pick", IntegrationErrorKind.CHERRY_PICK_FAILED),
+    ("cherrypick", IntegrationErrorKind.CHERRY_PICK_FAILED),
+]
+
+
 def classify_main_integration_error(error: str) -> IntegrationErrorKind:
     text = (error or "").strip().lower()
     if not text:
         return IntegrationErrorKind.UNKNOWN
-    if "dirty before integration" in text:
-        return IntegrationErrorKind.DIRTY_BASE_REPO
-    if text.startswith("git status failed"):
-        return IntegrationErrorKind.GIT_STATUS_FAILED
-    if "main branch" in text and "not found" in text:
-        return IntegrationErrorKind.MAIN_BRANCH_MISSING
-    if text.startswith("checkout"):
-        return IntegrationErrorKind.CHECKOUT_FAILED
-    if "timeout" in text:
-        return IntegrationErrorKind.GIT_TIMEOUT
-    if "cherry-pick" in text or "cherrypick" in text:
-        return IntegrationErrorKind.CHERRY_PICK_FAILED
+    for marker, kind in _ERROR_PATTERNS:
+        if marker in text:
+            # "main branch" requires "not found" as a second condition
+            if kind == IntegrationErrorKind.MAIN_BRANCH_MISSING and "not found" not in text:
+                continue
+            return kind
     return IntegrationErrorKind.UNKNOWN
 
 
