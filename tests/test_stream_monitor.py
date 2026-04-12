@@ -752,18 +752,22 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(monitor.proc.returncode, 7)
 
     def test_refresh_backlog_progress_reads_counts_from_backlog_file(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        from orc_core.infra.monitor_metrics_collector import MonitorMetricsCollector
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             backlog_path = root / "BACKLOG.md"
             backlog_path.write_text("- [x] TASK-001 done\n- [ ] TASK-002 open\n- [ ] TASK-003 open\n", encoding="utf-8")
-            monitor.workdir = str(root)
-            monitor.log_path = root / ".orc" / "orc.log"
-            monitor._task_state_path = root / ".cursor" / "orc-task.json"
-            monitor._state = MagicMock()
-            monitor._refresh_backlog_progress()
+            state = MagicMock()
+            state._progress_in_progress = 0
+            collector = MonitorMetricsCollector(
+                task_id="TASK-001", workdir=str(root), log_path=root / ".orc" / "orc.log",
+                metrics=MagicMock(), task_state_path=root / ".cursor" / "orc-task.json",
+                task_runtime_state_path=root / "runtime.json", stats_path=root / "stats.json",
+                metrics_path=root / "metrics.json", timeline_id="", attempt=0, started_at=0.0,
+            )
+            collector.refresh_backlog_progress(state)
 
-        args = monitor._state.set_progress.call_args[0]
+        args = state.set_progress.call_args[0]
         self.assertEqual(args[0], 1)
         self.assertEqual(args[1], 3)
 
@@ -799,7 +803,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertFalse(detected)
 
     def test_runtime_heartbeat_updates_runtime_file_only(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        from orc_core.infra.monitor_metrics_collector import MonitorMetricsCollector
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             task_path = root / ".cursor" / "orc-task.json"
@@ -822,14 +826,15 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            monitor._task_runtime_state_path = runtime_path
-            monitor.task_id = "TASK-001"
-            monitor._run_id = "run-1"
-            monitor.log_path = root / ".orc" / "orc.log"
-            monitor.timeline_id = ""
-            monitor.attempt = 0
-
-            monitor._update_task_runtime_state()
+            collector = MonitorMetricsCollector(
+                task_id="TASK-001", workdir=str(root), log_path=root / ".orc" / "orc.log",
+                metrics=MagicMock(), task_state_path=task_path,
+                task_runtime_state_path=runtime_path, stats_path=root / "stats.json",
+                metrics_path=root / "metrics.json", timeline_id="", attempt=0, started_at=0.0,
+            )
+            # Override run_id to match the fixture
+            collector._run_id = "run-1"
+            collector.update_task_runtime_state()
 
             task_payload = json.loads(task_path.read_text(encoding="utf-8"))
             runtime_payload = json.loads(runtime_path.read_text(encoding="utf-8"))
@@ -838,7 +843,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(runtime_payload.get("run_id"), "run-1")
 
     def test_runtime_heartbeat_does_not_overwrite_task_conversation_state(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        from orc_core.infra.monitor_metrics_collector import MonitorMetricsCollector
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             task_path = root / ".cursor" / "orc-task.json"
@@ -858,14 +863,14 @@ class StreamMonitorFormattingTest(unittest.TestCase):
             task_payload = json.loads(task_path.read_text(encoding="utf-8"))
             task_payload["conversation_id"] = "conv-123"
             task_path.write_text(json.dumps(task_payload, ensure_ascii=False), encoding="utf-8")
-            monitor._task_runtime_state_path = runtime_path
-            monitor.task_id = "TASK-001"
-            monitor._run_id = "run-1"
-            monitor.log_path = root / ".orc" / "orc.log"
-            monitor.timeline_id = ""
-            monitor.attempt = 0
-
-            monitor._update_task_runtime_state()
+            collector = MonitorMetricsCollector(
+                task_id="TASK-001", workdir=str(root), log_path=root / ".orc" / "orc.log",
+                metrics=MagicMock(), task_state_path=task_path,
+                task_runtime_state_path=runtime_path, stats_path=root / "stats.json",
+                metrics_path=root / "metrics.json", timeline_id="", attempt=0, started_at=0.0,
+            )
+            collector._run_id = "run-1"
+            collector.update_task_runtime_state()
 
             final_task_payload = json.loads(task_path.read_text(encoding="utf-8"))
         self.assertEqual(final_task_payload.get("conversation_id"), "conv-123")
