@@ -10,7 +10,6 @@ import logging
 import signal
 import threading
 import time
-from argparse import Namespace
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -26,6 +25,7 @@ from ..board.kanban_constants import (
     Action,
 )
 from ..board.kanban_notifications import extract_card_summary, format_completion_message
+from ..cli.orc_config import OrcConfig
 from .kanban_publisher import KanbanPublisher
 from .kanban_request_builder import build_kanban_request
 from .kanban_protocols import (
@@ -152,7 +152,7 @@ class KanbanSessionManager:
         *,
         workdir: str,
         tasks_dir: Path,
-        args: Namespace,
+        config: OrcConfig,
         log_path: Path,
         engine: TaskExecutionEngine,
         commit_template: str = "",
@@ -166,7 +166,7 @@ class KanbanSessionManager:
         self.backend: Backend = backend or get_backend()
         self.workdir = workdir
         self.tasks_dir = tasks_dir
-        self.args = args
+        self.config = config
         self.log_path = log_path
         self.engine = engine
         self.commit_template = commit_template
@@ -227,7 +227,7 @@ class KanbanSessionManager:
             engine=self.engine,
             distributor=self._distributor,
             publisher=self.publisher,
-            args=self.args,
+            config=self.config,
             main_branch=self.main_branch,
             slots_lock=self._pool.slots_lock,
             worktree_lock=self._worktree_lock,
@@ -450,7 +450,7 @@ class KanbanSessionManager:
         return build_kanban_request(
             task=task, prompt=prompt, workdir=workdir, base_workdir=self.workdir,
             tasks_dir=self.tasks_dir, session_id=session_id, commit_phase=commit_phase,
-            task_ttl=task_ttl, args=self.args, backend=self.backend,
+            task_ttl=task_ttl, config=self.config, backend=self.backend,
             commit_template=self.commit_template, merge_expert_template=self.merge_expert_template,
             merge_expert_model=self.merge_expert_model, main_branch=self.main_branch,
             progress=self._distributor.get_progress(), snapshot_publisher=_pub,

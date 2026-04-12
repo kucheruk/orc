@@ -11,6 +11,7 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
+from ..cli.orc_config import OrcConfig
 from ..git.integration_manager import IntegrationManager
 from .kanban_agent_output import process_agent_result
 from ..board.kanban_constants import STAGE_DONE, STAGE_HANDOFF, Action
@@ -43,7 +44,7 @@ class KanbanWorkerRunner:
         engine: TaskExecutionEngine,
         distributor: KanbanDistributor,
         publisher: KanbanPublisher,
-        args: object,
+        config: OrcConfig,
         main_branch: str,
         slots_lock: threading.Lock,
         worktree_lock: threading.Lock,
@@ -60,7 +61,7 @@ class KanbanWorkerRunner:
         self._engine = engine
         self._distributor = distributor
         self._publisher = publisher
-        self._args = args
+        self._config = config
         self._main_branch = main_branch
         self._slots_lock = slots_lock
         self._worktree_lock = worktree_lock
@@ -136,7 +137,7 @@ class KanbanWorkerRunner:
             task = Task(task_id=card.id, text=card.title or card.id, done=False)
             slot.task = task
             self._publisher._emit("system", card.id, f"{card.id} launching {role} agent...")
-            commit_phase = bool(getattr(self._args, "commit_phase", True)) and assignment.needs_worktree
+            commit_phase = self._config.commit_phase and assignment.needs_worktree
             result = self._engine.execute(self._state_manager.make_request(task, prompt, wd, sid,
                                                               commit_phase, 1800.0))
             if result and result.status == TaskExecutionStatus.COMPLETED:

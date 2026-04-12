@@ -4,10 +4,10 @@
 
 from __future__ import annotations
 
-from argparse import Namespace
 from pathlib import Path
 from typing import Callable, Optional
 
+from ..cli.orc_config import OrcConfig
 from ..infra.backend import Backend
 from ..infra.state_paths import parallel_task_path
 from ..infra.state_paths import run_root as state_run_root
@@ -35,7 +35,7 @@ def build_kanban_request(
     session_id: str,
     commit_phase: bool,
     task_ttl: float,
-    args: Namespace,
+    config: OrcConfig,
     backend: Backend,
     commit_template: str,
     merge_expert_template: str,
@@ -47,8 +47,8 @@ def build_kanban_request(
     task_path = parallel_task_path(base_workdir, session_id)
     task_path.parent.mkdir(parents=True, exist_ok=True)
     done, in_progress, total = progress
-    model = str(getattr(args, "model", "") or backend.default_model())
-    commit_model = str(getattr(args, "commit_model", "") or model)
+    model = config.model or backend.default_model()
+    commit_model = config.commit_model or model
 
     return TaskExecutionRequest(
         task=task,
@@ -59,17 +59,17 @@ def build_kanban_request(
         base_workdir=base_workdir,
         run_root=state_run_root(base_workdir, f"kanban-{session_id}"),
         timing=TimingConfig(
-            poll=float(getattr(args, "poll", 0.5)),
-            stall_timeout=float(getattr(args, "stall_timeout", 300.0)),
+            poll=config.poll,
+            stall_timeout=config.stall_timeout,
             task_ttl=task_ttl,
-            max_restarts=int(getattr(args, "max_restarts", 1)),
-            report_interval=float(getattr(args, "report_interval", 30.0)),
-            summary_lines=int(getattr(args, "summary_lines", 5)),
-            nudge_after=int(getattr(args, "nudge_after", 0)),
-            nudge_cooldown=float(getattr(args, "nudge_cooldown", 120.0)),
-            nudge_text=str(getattr(args, "nudge_text", "")),
-            commit_stall_timeout=float(getattr(args, "commit_stall_timeout", 120.0)),
-            commit_ttl=float(getattr(args, "commit_ttl", 300.0)),
+            max_restarts=config.max_restarts,
+            report_interval=config.report_interval,
+            summary_lines=config.summary_lines,
+            nudge_after=config.nudge_after,
+            nudge_cooldown=config.nudge_cooldown,
+            nudge_text=config.nudge_text,
+            commit_stall_timeout=config.commit_stall_timeout,
+            commit_ttl=config.commit_ttl,
         ),
         models=ModelConfig(
             model=model,
