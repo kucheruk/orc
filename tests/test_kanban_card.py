@@ -9,10 +9,13 @@ from orc_core.board.kanban_card import (
     KanbanCard,
     new_card_body,
     parse_card,
-    read_card,
     validate_card,
-    write_card,
 )
+from orc_core.board.card_repository import FsCardRepository
+
+_repo = FsCardRepository()
+read_card = _repo.read_card
+write_card = _repo.write_card
 
 
 SAMPLE_CARD = """\
