@@ -11,7 +11,7 @@ from orc_core.board.kanban_card import (
     parse_card,
     validate_card,
 )
-from orc_core.board.card_repository import FsCardRepository
+from orc_core.infra.adapters.fs_card_repository import FsCardRepository
 
 _repo = FsCardRepository()
 read_card = _repo.read_card

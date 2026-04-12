@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .card_prioritizer import pick_best as _pick_best
-from .card_repository import CardRepository, FsCardRepository
+from .card_repository import CardRepository
+from ..infra.adapters.fs_card_repository import FsCardRepository
 from .kanban_card import KanbanCard, parse_card, new_card_body
 from .limits_constants import WIP_STAGES
 from .stage_constants import STAGES, STAGE_CODING, STAGE_INBOX, STAGE_ORDER
