@@ -30,7 +30,7 @@ class KanbanBoard:
 
     def __init__(self, tasks_dir: Path, *, repo: CardRepository | None = None) -> None:
         self._tasks_dir = tasks_dir
-        self._repo: CardRepository = repo or FsCardRepository()
+        self.repo: CardRepository = repo or FsCardRepository()
         self._lock = threading.RLock()
         self._cards: list[KanbanCard] = []
         self._wip = WIPManager()
@@ -63,17 +63,17 @@ class KanbanBoard:
                 self._read_index(stage_dir, stage)
                 self._read_cards(stage_dir, stage)
             self._recompute_roi()
-            self._last_stage_mtimes = self._repo.scan_stage_mtimes(self._tasks_dir)
+            self._last_stage_mtimes = self.repo.scan_stage_mtimes(self._tasks_dir)
 
     def _is_fresh(self) -> bool:
         """Check if any stage directory has been modified since last refresh."""
         if not self._last_stage_mtimes:
             return False
-        return self._repo.scan_stage_mtimes(self._tasks_dir) == self._last_stage_mtimes
+        return self.repo.scan_stage_mtimes(self._tasks_dir) == self._last_stage_mtimes
 
     def _read_index(self, stage_dir: Path, stage: str) -> None:
         try:
-            data = self._repo.read_index_data(stage_dir)
+            data = self.repo.read_index_data(stage_dir)
             if data:
                 limit = data.get("wip_limit")
                 self._wip.set_limit_from_index(stage, limit)
@@ -81,9 +81,9 @@ class KanbanBoard:
             _logger.warning("Failed to read index in %s: %s", stage_dir, exc)
 
     def _read_cards(self, stage_dir: Path, stage: str) -> None:
-        for md in self._repo.list_card_files(stage_dir):
+        for md in self.repo.list_card_files(stage_dir):
             try:
-                text = self._repo.read_card_text(md)
+                text = self.repo.read_card_text(md)
                 card = parse_card(text, file_path=md)
                 card.stage = stage  # trust folder over frontmatter
                 self._cards.append(card)
@@ -209,11 +209,11 @@ class KanbanBoard:
             # Re-check WIP inside the lock to avoid TOCTOU race
             count = sum(1 for c in self._cards if c.stage == new_stage)
             self._wip.check_wip_for_move(new_stage, count)
-            new_path = self._repo.move_card_file(old_path, new_dir)
+            new_path = self.repo.move_card_file(old_path, new_dir)
             card.stage = new_stage
             card.file_path = new_path
             card.touch()
-            self._repo.write_card_text(new_path, card.to_markdown())
+            self.repo.write_card_text(new_path, card.to_markdown())
 
         for listener in self._move_listeners:
             try:
@@ -226,7 +226,7 @@ class KanbanBoard:
             card.touch()
             card.refresh_roi()
             if card.file_path:
-                self._repo.write_card_text(card.file_path, card.to_markdown())
+                self.repo.write_card_text(card.file_path, card.to_markdown())
         if old_action and old_action != card.action:
             for listener in self._action_change_listeners:
                 try:
@@ -238,18 +238,18 @@ class KanbanBoard:
         with self._lock:
             card.assign(agent_id)
             if card.file_path:
-                self._repo.write_card_text(card.file_path, card.to_markdown())
+                self.repo.write_card_text(card.file_path, card.to_markdown())
 
     def release_agent(self, card: KanbanCard) -> None:
         with self._lock:
             card.release()
             if card.file_path:
-                self._repo.write_card_text(card.file_path, card.to_markdown())
+                self.repo.write_card_text(card.file_path, card.to_markdown())
 
     def set_wip_limit(self, stage: str, limit: int) -> None:
         """Write WIP limit to _index.md and update in-memory cache."""
         with self._lock:
-            self._wip.set_limit(self._tasks_dir, stage, limit, repo=self._repo)
+            self._wip.set_limit(self._tasks_dir, stage, limit, repo=self.repo)
 
     # ── Sorting ─────────────────────────────────────────────────
 
@@ -280,9 +280,9 @@ class KanbanBoard:
             body=new_card_body(),
         )
         inbox_dir = self._tasks_dir / STAGE_INBOX
-        self._repo.ensure_dir(inbox_dir)
+        self.repo.ensure_dir(inbox_dir)
         path = inbox_dir / f"{card_id}.md"
-        self._repo.write_card_text(path, card.to_markdown())
+        self.repo.write_card_text(path, card.to_markdown())
         card.file_path = path
         with self._lock:
             self._cards.append(card)
@@ -309,9 +309,9 @@ class KanbanBoard:
             body=body,
         )
         stage_dir = self._tasks_dir / stage
-        self._repo.ensure_dir(stage_dir)
+        self.repo.ensure_dir(stage_dir)
         path = stage_dir / f"{card_id}.md"
-        self._repo.write_card_text(path, card.to_markdown())
+        self.repo.write_card_text(path, card.to_markdown())
         card.file_path = path
         with self._lock:
             self._cards.append(card)

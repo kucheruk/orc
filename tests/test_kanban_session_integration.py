@@ -7,7 +7,10 @@ import unittest
 from pathlib import Path
 
 from orc_core.board.kanban_board import KanbanBoard
-from orc_core.board.kanban_card import KanbanCard, write_card
+from orc_core.board.kanban_card import KanbanCard
+from orc_core.board.card_repository import FsCardRepository
+
+write_card = FsCardRepository().write_card
 from orc_core.board.kanban_init import init_kanban_board
 from orc_core.agents.kanban_agent_output import process_agent_result
 from orc_core.board.kanban_pull import find_next_work, find_teamlead_work
@@ -36,8 +39,7 @@ def _simulate_agent(board: KanbanBoard, card: KanbanCard, role: str, **overrides
     assert fresh is not None, f"Card {card.id} not found on board"
 
     # Read card from disk, apply overrides, write back (as the agent would)
-    from orc_core.board.kanban_card import read_card
-    disk_card = read_card(fresh.file_path)
+    disk_card = board.repo.read_card(fresh.file_path)
     for key, value in overrides.items():
         setattr(disk_card, key, value)
     write_card(disk_card)

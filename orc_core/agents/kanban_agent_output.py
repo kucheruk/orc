@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ..board.kanban_card import PROTECTED_FIELDS, KanbanCard, read_card, validate_card
+from ..board.kanban_card import PROTECTED_FIELDS, KanbanCard, validate_card
 from ..board.kanban_constants import (
     STAGE_CODING,
     STAGE_DONE,
@@ -102,7 +102,7 @@ def process_agent_result(
             file_path = found
             card.file_path = found
 
-        updated = read_card(file_path)
+        updated = board.repo.read_card(file_path)
         errors = _validate_agent_changes(card, updated, role)
         if errors:
             _logger.warning("Agent output validation errors for %s: %s", card.id, errors)

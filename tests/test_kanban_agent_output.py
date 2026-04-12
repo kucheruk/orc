@@ -6,7 +6,10 @@ import unittest
 from pathlib import Path
 
 from orc_core.board.kanban_board import KanbanBoard
-from orc_core.board.kanban_card import KanbanCard, write_card
+from orc_core.board.kanban_card import KanbanCard
+from orc_core.board.card_repository import FsCardRepository
+
+write_card = FsCardRepository().write_card
 from orc_core.board.kanban_init import init_kanban_board
 from orc_core.agents.kanban_agent_output import process_agent_result
 

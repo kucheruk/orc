@@ -12,6 +12,7 @@ from typing import Any, Optional, Protocol
 import yaml
 
 from .kanban_constants import INDEX_FILENAME, STAGES
+from .kanban_card import KanbanCard, parse_card
 
 
 class CardRepository(Protocol):
@@ -32,6 +33,10 @@ class CardRepository(Protocol):
     def ensure_dir(self, path: Path) -> None: ...
 
     def scan_stage_mtimes(self, tasks_dir: Path) -> dict[str, float]: ...
+
+    def read_card(self, path: Path) -> "KanbanCard": ...
+
+    def write_card(self, card: "KanbanCard", path: Path | None = None) -> None: ...
 
 
 class FsCardRepository:
@@ -84,3 +89,14 @@ class FsCardRepository:
                 except OSError:
                     pass
         return result
+
+    def read_card(self, path: Path) -> KanbanCard:
+        text = self.read_card_text(path)
+        return parse_card(text, file_path=path)
+
+    def write_card(self, card: KanbanCard, path: Path | None = None) -> None:
+        target = path or card.file_path
+        if target is None:
+            raise ValueError("No path specified for card write")
+        self.write_card_text(target, card.to_markdown())
+        card.file_path = target

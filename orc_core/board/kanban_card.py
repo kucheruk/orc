@@ -173,21 +173,6 @@ def parse_card(text: str, file_path: Path | None = None) -> KanbanCard:
     return card
 
 
-def read_card(path: Path) -> KanbanCard:
-    text = path.read_text(encoding="utf-8", errors="replace")
-    return parse_card(text, file_path=path)
-
-
-def write_card(card: KanbanCard, path: Path | None = None) -> None:
-    from ..infra.io.atomic_io import write_text_atomic
-
-    target = path or card.file_path
-    if target is None:
-        raise ValueError("No path specified for card write")
-    write_text_atomic(target, card.to_markdown())
-    card.file_path = target
-
-
 def validate_card(card: KanbanCard) -> list[str]:
     """Validate card invariants. Delegates to card.validate()."""
     return card.validate()
