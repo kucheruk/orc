@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from ..board.action_constants import COS_PRIORITY
 from ..board.stage_constants import STAGES, STAGE_DONE
@@ -218,6 +218,74 @@ def _truncate_card_for_prompt(card_md: str) -> str:
     return card_md[:_CARD_PROMPT_MAX_CHARS] + "\n\n[... truncated ...]"
 
 
+def _mode_arbitration(card, agent_log_path, **_kw) -> tuple[str, str]:
+    if not card:
+        return "", ""
+    card_content = _escape_braces(_truncate_card_for_prompt(card.to_markdown()))
+    card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
+    log_hint = ""
+    if agent_log_path:
+        log_hint = (
+            f"\n\n### Last Agent Session Log\n"
+            f"The most recent agent session log for this card is at:\n"
+            f"`{agent_log_path}`\n"
+            f"**Read this file** to understand what the agent actually did — "
+            f"tool calls, errors, commands run. Don't trust the card's claims alone."
+        )
+    context = (
+        f"## Problem Card\n"
+        f"This card has bounced **{card.loop_count}** times between roles.\n"
+        f"File: `{card_path}`\n"
+        f"````\n{card_content}\n````\n\n"
+        f"Read feedback in section \"# 4. Feedback & Checklist\", analyze the conflict.\n"
+        f"Use `set_action` + `write_feedback` in the decision file to resolve — "
+        f"do NOT edit the card file directly."
+        f"{log_hint}"
+    )
+    return card_path, context
+
+
+def _mode_directive(directive_text, **_kw) -> tuple[str, str]:
+    return "", (
+        f"## User Directive\n"
+        f"The user sent this command:\n"
+        f"> {_escape_braces(directive_text)}\n\n"
+        f"Interpret this directive. It could be:\n"
+        f"- A new task to create (→ create_card action)\n"
+        f"- An instruction about existing cards (→ move/set_action/modify_deps/etc.)\n"
+        f"- A question about the board (→ respond with answer)\n"
+        f"- A problem report (→ investigate card files and act)\n\n"
+        f"Read relevant card files in `tasks/` if needed to understand context."
+    )
+
+
+def _mode_health(diagnostic_info, **_kw) -> tuple[str, str]:
+    return "", (
+        f"## Board Health Alert\n"
+        f"The system detected a problem:\n"
+        f"{diagnostic_info}\n\n"
+        f"Diagnose the root cause and take corrective action.\n"
+        f"Common patterns:\n"
+        f"- WIP deadlock: move dep-blocked cards back, remove non-critical deps, adjust WIP limits\n"
+        f"- Starvation: promote cards from earlier stages, reduce blockers\n"
+        f"- Single-card thrashing: reset loop_count, split large cards"
+    )
+
+
+_MODE_HANDLERS: dict[str, Callable[..., tuple[str, str]]] = {
+    "arbitration": _mode_arbitration,
+    "directive": _mode_directive,
+    "health": _mode_health,
+}
+
+
+def _build_mode_context(mode: str, **kwargs) -> tuple[str, str]:
+    handler = _MODE_HANDLERS.get(mode)
+    if handler:
+        return handler(**kwargs)
+    return "", ""
+
+
 def build_teamlead_prompt(
     *,
     mode: str,
@@ -237,57 +305,11 @@ def build_teamlead_prompt(
     board_detail = _escape_braces(format_board_detail(board, token_stats=token_stats))
     board_summary = format_board_summary(board)
 
-    # Build mode-specific context
-    if mode == "arbitration" and card:
-        card_content = _escape_braces(_truncate_card_for_prompt(card.to_markdown()))
-        card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
-        log_hint = ""
-        if agent_log_path:
-            log_hint = (
-                f"\n\n### Last Agent Session Log\n"
-                f"The most recent agent session log for this card is at:\n"
-                f"`{agent_log_path}`\n"
-                f"**Read this file** to understand what the agent actually did — "
-                f"tool calls, errors, commands run. Don't trust the card's claims alone."
-            )
-        mode_context = (
-            f"## Problem Card\n"
-            f"This card has bounced **{card.loop_count}** times between roles.\n"
-            f"File: `{card_path}`\n"
-            f"````\n{card_content}\n````\n\n"
-            f"Read feedback in section \"# 4. Feedback & Checklist\", analyze the conflict.\n"
-            f"Use `set_action` + `write_feedback` in the decision file to resolve — "
-            f"do NOT edit the card file directly."
-            f"{log_hint}"
-        )
-    elif mode == "directive":
-        card_path = ""
-        mode_context = (
-            f"## User Directive\n"
-            f"The user sent this command:\n"
-            f"> {_escape_braces(directive_text)}\n\n"
-            f"Interpret this directive. It could be:\n"
-            f"- A new task to create (→ create_card action)\n"
-            f"- An instruction about existing cards (→ move/set_action/modify_deps/etc.)\n"
-            f"- A question about the board (→ respond with answer)\n"
-            f"- A problem report (→ investigate card files and act)\n\n"
-            f"Read relevant card files in `tasks/` if needed to understand context."
-        )
-    elif mode == "health":
-        card_path = ""
-        mode_context = (
-            f"## Board Health Alert\n"
-            f"The system detected a problem:\n"
-            f"{diagnostic_info}\n\n"
-            f"Diagnose the root cause and take corrective action.\n"
-            f"Common patterns:\n"
-            f"- WIP deadlock: move dep-blocked cards back, remove non-critical deps, adjust WIP limits\n"
-            f"- Starvation: promote cards from earlier stages, reduce blockers\n"
-            f"- Single-card thrashing: reset loop_count, split large cards"
-        )
-    else:
-        card_path = ""
-        mode_context = ""
+    # Build mode-specific context via dispatch
+    card_path, mode_context = _build_mode_context(
+        mode, card=card, directive_text=directive_text,
+        diagnostic_info=diagnostic_info, agent_log_path=agent_log_path,
+    )
 
     return template.format_map(_SafeDict(
         board_summary=board_summary,

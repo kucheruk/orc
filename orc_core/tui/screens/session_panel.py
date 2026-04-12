@@ -361,6 +361,16 @@ def _format_stats(*, elapsed, detail, done, remaining, total, delta,
     return f"{elapsed} | {_short_io(input_bytes, output_bytes)} | Ln: {lines}"
 
 
+_PHASE_FORMATS: dict[str, tuple[str, str]] = {
+    "failed":          ("bold red", "FAILED"),
+    "completed":       ("bold green", "DONE"),
+    "starting":        ("blue", "BOOT"),
+    "thinking":        ("blue", "THINK"),
+    "network_problem": ("red", "NETWORK"),
+    "assistant":       ("green", "OUTPUT"),
+}
+
+
 def _format_activity(*, phase, status, since, tool_count, is_subagent, detail) -> str:
     phase = str(phase or "starting").strip().lower()
     max_len = _STATUS_TRUNCATE.get(detail, STATUS_TRUNCATE_COMPACT)
@@ -369,23 +379,18 @@ def _format_activity(*, phase, status, since, tool_count, is_subagent, detail) -
     age_text = _format_duration(age)
     role = "SUBAGENT" if is_subagent else "AGENT"
 
-    if phase == "failed":
-        return f"[bold red]{role} FAILED {status}[/bold red]"
-    if phase == "completed":
-        return f"[bold green]{role} DONE {status}[/bold green]"
-    if phase == "starting":
-        return f"[blue]{role} BOOT {status}[/blue]"
-    if phase == "thinking":
-        return f"[blue]{role} THINK {status} [{age_text}][/blue]"
     if phase in ("tool_call", "subagent"):
         count = max(int(tool_count or 0), 0)
         suffix = f" x{count}" if count > 1 else ""
         color = "magenta" if is_subagent else "cyan"
         return f"[{color}]{role} EXEC {status}{suffix} [{age_text}][/{color}]"
-    if phase == "network_problem":
-        return f"[red]{role} NETWORK {status} [{age_text}][/red]"
-    if phase == "assistant":
-        return f"[green]{role} OUTPUT {status} [{age_text}][/green]"
+
+    fmt = _PHASE_FORMATS.get(phase)
+    if fmt:
+        color, label = fmt
+        timed = f" [{age_text}]" if phase not in ("failed", "completed", "starting") else ""
+        return f"[{color}]{role} {label} {status}{timed}[/{color}]"
+
     if age < STALL_THRESHOLD_SECONDS:
         return f"[yellow]{role} WAIT {status} [{age_text}][/yellow]"
     return f"[red]{role} STALL? {status} [{age_text}][/red]"
