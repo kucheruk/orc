@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 
-from ..cli.agent_preflight import AgentNotInstalledError
+from ..infra.exceptions import AgentNotInstalledError
 
 
 class ClaudeNotInstalledError(AgentNotInstalledError):

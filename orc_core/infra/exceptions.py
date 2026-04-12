@@ -33,3 +33,7 @@ class BacklogError(OrcError):
 
 class ConfigError(OrcError):
     """Invalid configuration."""
+
+
+class AgentNotInstalledError(RuntimeError):
+    """Required AI agent CLI tool is not installed."""

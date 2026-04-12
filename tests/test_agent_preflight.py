@@ -4,7 +4,8 @@
 import unittest
 from unittest.mock import patch
 
-from orc_core.cli.agent_preflight import AgentNotInstalledError, ensure_agent_installed
+from orc_core.infra.exceptions import AgentNotInstalledError
+from orc_core.cli.agent_preflight import ensure_agent_installed
 
 
 class AgentPreflightTest(unittest.TestCase):

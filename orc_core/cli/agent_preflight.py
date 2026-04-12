@@ -9,10 +9,6 @@ if TYPE_CHECKING:
     from ..infra.backend import Backend
 
 
-class AgentNotInstalledError(RuntimeError):
-    pass
-
-
 def ensure_agent_installed(backend: Optional["Backend"] = None) -> None:
     if backend is None:
         from ..infra.backend import get_backend

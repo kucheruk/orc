@@ -12,7 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from .agent_preflight import AgentNotInstalledError, ensure_agent_installed
+from ..infra.exceptions import AgentNotInstalledError
+from .agent_preflight import ensure_agent_installed
 from ..infra.backend import SUPPORTED_BACKENDS, get_backend
 from ..infra.failure_reasons import format_known_failure_message
 from ..git.gitignore_guard import validate_workspace_gitignore
