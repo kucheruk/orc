@@ -164,6 +164,11 @@ class KanbanSessionManager:
         max_sessions: int = 4,
         backend: Backend | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
+        # ── Injectable dependencies (None = create defaults) ───
+        distributor: Optional[KanbanDistributor] = None,
+        integrator: Optional[IntegrationManager] = None,
+        publisher: Optional[KanbanPublisher] = None,
+        pool: Optional[SessionPool] = None,
     ) -> None:
         self.backend: Backend = backend or get_backend()
         self.workdir = workdir
@@ -177,14 +182,14 @@ class KanbanSessionManager:
         self.main_branch = (main_branch or "main").strip() or "main"
         self.sleep_fn = sleep_fn
 
-        self._distributor = KanbanDistributor(tasks_dir)
-        self._integrator = IntegrationManager(
+        self._distributor = distributor or KanbanDistributor(tasks_dir)
+        self._integrator = integrator or IntegrationManager(
             workdir=workdir, main_branch=self.main_branch, log_path=log_path,
             safe_tracked_paths=frozenset(),
         )
         self._worktree_lock = threading.Lock()
 
-        self.publisher = KanbanPublisher()
+        self.publisher = publisher or KanbanPublisher()
         self.last_failure_reason = ""
         self._started_at = 0.0
         card_fail_counts, arbitrated_at_loop = _load_kanban_state(workdir)
@@ -195,15 +200,17 @@ class KanbanSessionManager:
         self._directive_queue: list[str] = []
         self._directive_lock = threading.Lock()
 
-        # ── Session pool ────────────────────────────────────────
-        self._pool = SessionPool(
+        self._pool = pool or SessionPool(
             max_sessions=max_sessions,
             publisher=self.publisher,
             log_path=log_path,
             sleep_fn=sleep_fn,
         )
 
-        # ── Protocol adapters ───────────────────────────────────
+        self._wire_runners()
+
+    def _wire_runners(self) -> None:
+        """Build protocol adapters and wire up runners with all dependencies."""
         self._lifecycle_adapter = _LifecycleAdapter(self._pool)
         self._notifier_adapter = _NotifierAdapter(self)
         self._state_adapter = _StateManagerAdapter(self)
