@@ -205,10 +205,20 @@ class KanbanBoard:
             count = sum(1 for c in self._cards if c.stage == new_stage)
             self._wip.check_wip_for_move(new_stage, count)
             new_path = self.repo.move_card_file(old_path, new_dir)
-            card.stage = new_stage
-            card.file_path = new_path
-            card.touch()
-            self.repo.write_card_text(new_path, card.to_markdown())
+            try:
+                card.stage = new_stage
+                card.file_path = new_path
+                card.touch()
+                self.repo.write_card_text(new_path, card.to_markdown())
+            except Exception:
+                # Rollback: move file back, restore card state
+                try:
+                    self.repo.move_card_file(new_path, old_path.parent)
+                except Exception:
+                    _logger.error("rollback move_card_file failed for %s", card.id, exc_info=True)
+                card.stage = old_stage
+                card.file_path = old_path
+                raise
 
         for listener in self._move_listeners:
             try:
