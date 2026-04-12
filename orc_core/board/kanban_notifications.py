@@ -3,7 +3,7 @@
 """Notification formatting for kanban card lifecycle events."""
 
 from .kanban_card import KanbanCard
-from .kanban_constants import STAGE_DONE, STAGE_SHORT_NAMES
+from .stage_constants import STAGE_DONE, STAGE_SHORT_NAMES
 
 
 def extract_card_summary(card: KanbanCard) -> str:

@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from ..board.kanban_constants import STAGE_DONE, STAGE_INBOX, STAGES, Action
+from ..board.action_constants import Action
+from ..board.stage_constants import STAGES, STAGE_DONE, STAGE_INBOX
 from ..infra.io.text_parse import parse_frontmatter
 from ..use_cases.create_card import create_expedite_card, create_inbox_card
 

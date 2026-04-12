@@ -8,18 +8,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from ..board.kanban_card import PROTECTED_FIELDS, KanbanCard, validate_card
-from ..board.kanban_constants import (
-    STAGE_CODING,
-    STAGE_DONE,
-    STAGE_ESTIMATE,
-    STAGE_HANDOFF,
-    STAGE_INBOX,
-    STAGE_ORDER,
-    STAGE_REVIEW,
-    STAGE_TESTING,
-    STAGE_TODO,
-    Action,
-)
+from ..board.action_constants import Action
+from ..board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_INBOX, STAGE_ORDER, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
 
 if TYPE_CHECKING:
     from ..board.kanban_board import KanbanBoard

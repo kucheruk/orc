@@ -6,7 +6,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..board.kanban_constants import COS_PRIORITY, STAGE_DONE, STAGES
+from ..board.action_constants import COS_PRIORITY
+from ..board.stage_constants import STAGES, STAGE_DONE
 from ..board.kanban_role_registry import (
     ROLE_ARCHITECT,
     ROLE_CODER,

@@ -15,10 +15,7 @@ from ..infra.backend import Backend, get_backend
 from ..git.integration_manager import IntegrationManager
 from .kanban_incident_manager import IncidentManager
 from ..board.kanban_distributor import KanbanDistributor
-from ..board.kanban_constants import (
-    STAGE_INBOX,
-    STAGE_SHORT_NAMES,
-)
+from ..board.stage_constants import STAGE_INBOX, STAGE_SHORT_NAMES
 from ..config import OrcConfig
 from .kanban_adapters import (
     DirectiveAdapter,

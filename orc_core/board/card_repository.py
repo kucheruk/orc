@@ -11,7 +11,8 @@ from typing import Any, Optional, Protocol
 
 import yaml
 
-from .kanban_constants import INDEX_FILENAME, STAGES
+from .limits_constants import INDEX_FILENAME
+from .stage_constants import STAGES
 from .kanban_card import KanbanCard, parse_card
 
 

@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
-from ..board.kanban_constants import Action
+from ..board.action_constants import Action
 from ..infra.io.logging import log_event
 from ..notifications.notify import send_telegram_message
 from ..infra.state.quit_signal import is_stop_requested

@@ -10,7 +10,8 @@ from typing import Callable
 
 from .kanban_board_health import detect_wip_deadlock as _detect_wip_deadlock
 from .kanban_card import KanbanCard
-from .kanban_constants import DEFAULT_WIP_LIMITS, INDEX_FILENAME, STAGES, WIP_STAGES
+from .limits_constants import DEFAULT_WIP_LIMITS, INDEX_FILENAME, WIP_STAGES
+from .stage_constants import STAGES
 
 _logger = logging.getLogger(__name__)
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..board.kanban_card import KanbanCard
-from ..board.kanban_constants import Action
+from ..board.action_constants import Action
 from ..tasks.task_execution_types import TaskExecutionStatus
 from ..board.kanban_distributor import KanbanDistributor
 from .kanban_incident_manager import IncidentManager

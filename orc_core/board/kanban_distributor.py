@@ -11,7 +11,7 @@ from typing import Optional
 
 from .kanban_board import KanbanBoard
 from .kanban_card import KanbanCard
-from .kanban_constants import STAGE_DONE
+from .stage_constants import STAGE_DONE
 from .kanban_pull import WorkAssignment, find_next_work, find_teamlead_work
 
 _logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ class KanbanDistributor:
                 return deadlock
             # Summarize why unassigned cards can't be picked
             reasons: list[str] = []
-            from .kanban_constants import WIP_STAGES
+            from .limits_constants import WIP_STAGES
             for c in unassigned:
                 if c.stage in WIP_STAGES and not self._board.has_wip_room(c.stage):
                     reasons.append(f"{c.id}: WIP full in {c.stage}")
@@ -85,7 +85,7 @@ class KanbanDistributor:
 
     def _log_why_no_work(self, worker_id: str) -> None:
         """Log diagnostic info when no work is found."""
-        from .kanban_constants import STAGES
+        from .stage_constants import STAGES
         diag: list[str] = []
         for stage in STAGES:
             cards = self._board.cards_in_stage(stage)

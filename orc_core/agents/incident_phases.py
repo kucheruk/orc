@@ -8,14 +8,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from ..board.kanban_constants import (
-    STAGE_CODING,
-    STAGE_DONE,
-    STAGE_ESTIMATE,
-    STAGE_HANDOFF,
-    STAGE_REVIEW,
-    Action,
-)
+from ..board.action_constants import Action
+from ..board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_REVIEW
 from ..infra.io.logging import log_event
 from ..models.task_types import Task
 from ..use_cases.create_card import create_expedite_card

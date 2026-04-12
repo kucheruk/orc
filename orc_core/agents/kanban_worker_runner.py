@@ -15,7 +15,8 @@ from ..config import OrcConfig
 from .task_outcome_tracker import TaskOutcomeTracker
 from ..git.integration_manager import IntegrationManager
 from .kanban_agent_output import process_agent_result
-from ..board.kanban_constants import STAGE_DONE, STAGE_HANDOFF, Action
+from ..board.action_constants import Action
+from ..board.stage_constants import STAGE_DONE, STAGE_HANDOFF
 from ..tasks.task_execution_types import TaskExecutionStatus
 from ..board.kanban_distributor import KanbanDistributor
 from .kanban_protocols import CompletionNotifier, RunnerLifecycle, RunnerStateManager

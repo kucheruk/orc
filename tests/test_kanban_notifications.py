@@ -5,7 +5,7 @@
 import unittest
 
 from orc_core.board.kanban_card import KanbanCard
-from orc_core.board.kanban_constants import STAGE_CODING, STAGE_DONE, STAGE_REVIEW, STAGE_TODO
+from orc_core.board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_REVIEW, STAGE_TODO
 from orc_core.board.kanban_notifications import extract_card_summary, format_completion_message
 
 

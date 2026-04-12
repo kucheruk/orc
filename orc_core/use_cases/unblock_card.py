@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..board.kanban_board import KanbanBoard
-from ..board.kanban_constants import Action
+from ..board.action_constants import Action
 from ..infra.io.logging import log_event
 
 

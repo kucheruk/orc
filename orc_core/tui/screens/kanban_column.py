@@ -9,7 +9,8 @@ from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Label
 
-from ...board.kanban_constants import STAGE_ABBREV_NAMES, WIP_STAGES
+from ...board.limits_constants import WIP_STAGES
+from ...board.stage_constants import STAGE_ABBREV_NAMES
 from ...board.kanban_snapshot import StageSnapshot
 from .kanban_card_widget import KanbanCardWidget
 

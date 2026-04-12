@@ -8,16 +8,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
-from .kanban_constants import (
-    STAGE_CODING,
-    STAGE_ESTIMATE,
-    STAGE_HANDOFF,
-    STAGE_INBOX,
-    STAGE_REVIEW,
-    STAGE_TESTING,
-    STAGE_TODO,
-    Action,
-)
+from .action_constants import Action
+from .stage_constants import STAGE_CODING, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_INBOX, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
 
 _pull_logger = logging.getLogger(__name__)
 

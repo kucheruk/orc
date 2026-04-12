@@ -4,13 +4,7 @@
 
 from __future__ import annotations
 
-from .kanban_constants import (
-    STAGE_CODING,
-    STAGE_DONE,
-    STAGE_HANDOFF,
-    STAGE_REVIEW,
-    STAGE_TESTING,
-)
+from .stage_constants import STAGE_CODING, STAGE_DONE, STAGE_HANDOFF, STAGE_REVIEW, STAGE_TESTING
 
 # (current_stage, action) → target_stage
 # Add new rules here without modifying KanbanBoard.

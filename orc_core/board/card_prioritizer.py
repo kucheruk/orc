@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from .kanban_card import KanbanCard
-from .kanban_constants import COS_PRIORITY
+from .action_constants import COS_PRIORITY
 
 
 def priority_key(card: KanbanCard) -> tuple[int, str, float]:

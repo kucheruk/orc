@@ -11,7 +11,8 @@ from typing import Any
 
 import yaml
 
-from .kanban_constants import STAGE_INBOX, STAGE_ORDER, Action, ClassOfService
+from .action_constants import Action, ClassOfService
+from .stage_constants import STAGE_INBOX, STAGE_ORDER
 from ..infra.io.text_parse import parse_frontmatter
 
 # Fields agents are NOT allowed to change (Python-only)
@@ -64,7 +65,7 @@ class KanbanCard:
 
     @property
     def is_done(self) -> bool:
-        from .kanban_constants import STAGE_DONE
+        from .stage_constants import STAGE_DONE
         return self.stage == STAGE_DONE
 
     def is_looping(self, threshold: int = 2) -> bool:

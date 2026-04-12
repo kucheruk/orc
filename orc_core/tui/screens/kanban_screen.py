@@ -22,7 +22,7 @@ from textual.events import Key
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Input, Label, RichLog
 
-from ...board.kanban_constants import STAGES
+from ...board.stage_constants import STAGES
 from ...board.kanban_snapshot import CardSnapshot, JournalEntry, KanbanBoardSnapshot
 from ..kanban_messages import InboxCardRequested, TeamleadDirectiveRequested, UnblockCardRequested
 from .kanban_card_widget import KanbanCardWidget

@@ -11,15 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from .kanban_constants import (
-    STAGE_CODING,
-    STAGE_DONE,
-    STAGE_ESTIMATE,
-    STAGE_HANDOFF,
-    STAGE_REVIEW,
-    STAGE_TESTING,
-    STAGE_TODO,
-)
+from .stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
 
 if TYPE_CHECKING:
     from .kanban_card import KanbanCard

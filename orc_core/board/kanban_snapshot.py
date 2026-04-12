@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from .kanban_constants import STAGE_DONE, STAGES
+from .stage_constants import STAGES, STAGE_DONE
 
 if TYPE_CHECKING:
     from .kanban_board import KanbanBoard

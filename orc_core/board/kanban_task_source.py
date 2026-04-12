@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .kanban_board import KanbanBoard
-from .kanban_constants import STAGE_DONE
+from .stage_constants import STAGE_DONE
 from ..models.task_types import Task
 
 

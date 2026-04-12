@@ -4,7 +4,8 @@
 
 from pathlib import Path
 
-from .kanban_constants import DEFAULT_WIP_LIMITS, INDEX_FILENAME, STAGE_DONE, STAGES, WIP_STAGES
+from .limits_constants import DEFAULT_WIP_LIMITS, INDEX_FILENAME, WIP_STAGES
+from .stage_constants import STAGES, STAGE_DONE
 
 
 def init_kanban_board(root: Path) -> Path:

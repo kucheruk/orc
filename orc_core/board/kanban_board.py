@@ -12,13 +12,8 @@ from typing import Callable, Optional
 from .card_prioritizer import pick_best as _pick_best
 from .card_repository import CardRepository, FsCardRepository
 from .kanban_card import KanbanCard, parse_card, new_card_body
-from .kanban_constants import (
-    STAGE_CODING,
-    STAGE_INBOX,
-    STAGE_ORDER,
-    STAGES,
-    WIP_STAGES,
-)
+from .limits_constants import WIP_STAGES
+from .stage_constants import STAGES, STAGE_CODING, STAGE_INBOX, STAGE_ORDER
 from .movement_rules import resolve_deferred_target
 from .wip_manager import WIPManager
 
