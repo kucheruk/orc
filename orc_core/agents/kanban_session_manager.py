@@ -53,6 +53,7 @@ from ..infra.monitor_types import MonitorSnapshot
 from ..tasks.task_execution import TaskExecutionEngine
 from ..git.worktree_flow import WorktreeSession, cleanup_task_worktree, create_task_worktree
 from ..infra.atomic_io import write_json_atomic
+from ..infra.process_groups import kill_own_process_group
 from ..infra.state_paths import kanban_state_path
 
 EXIT_OK = 0
@@ -473,7 +474,6 @@ class KanbanSessionManager:
                     signal.signal(sig, signal.SIG_IGN)
                 except Exception:
                     pass
-        from ..infra.process_groups import kill_own_process_group
         kill_own_process_group()
 
 

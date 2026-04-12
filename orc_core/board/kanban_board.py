@@ -13,7 +13,8 @@ from typing import Callable, Optional
 
 import yaml
 
-from .kanban_card import KanbanCard, read_card, write_card
+from .kanban_board_health import detect_wip_deadlock as _detect_wip_deadlock
+from .kanban_card import KanbanCard, read_card, write_card, new_card_body
 from .kanban_constants import (
     COS_PRIORITY,
     DEFAULT_WIP_LIMITS,
@@ -215,9 +216,8 @@ class KanbanBoard:
 
     def detect_wip_deadlock(self) -> str:
         """Detect WIP deadlock conditions. Returns diagnostic string or '' if healthy."""
-        from .kanban_board_health import detect_wip_deadlock as _detect
         with self._lock:
-            return _detect(list(self._cards), dict(self._wip_limits))
+            return _detect_wip_deadlock(list(self._cards), dict(self._wip_limits))
 
     def has_unmet_dependencies(self, card: KanbanCard) -> bool:
         if not card.dependencies:
@@ -316,9 +316,8 @@ class KanbanBoard:
     # ── Card creation ───────────────────────────────────────────
 
     def create_inbox_card(self, card_id: str, title: str) -> KanbanCard:
-        from .kanban_card import KanbanCard as KC, new_card_body, write_card
         from datetime import datetime, timezone
-        card = KC(
+        card = KanbanCard(
             id=card_id, title=title, stage=STAGE_INBOX, action="Product",
             created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             body=new_card_body(),
@@ -342,9 +341,8 @@ class KanbanBoard:
         cos_justification: str = "",
     ) -> KanbanCard:
         """Create an expedite card directly at the given stage, bypassing inbox."""
-        from .kanban_card import KanbanCard as KC, write_card
         from datetime import datetime, timezone
-        card = KC(
+        card = KanbanCard(
             id=card_id, title=title, stage=stage, action=action,
             class_of_service="expedite",
             cos_justification=cos_justification,

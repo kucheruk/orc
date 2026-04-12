@@ -225,7 +225,7 @@ class StreamJsonMonitor:
     # ── Periodic reporting ──────────────────────────────────────
 
     def _update_git_stats(self) -> None:
-        from ..git.git_helpers import git_diff_numstat
+        from ..git.git_helpers import git_diff_numstat  # lazy: breaks infra→git→infra cycle
 
         started_ms = now_ms()
         unstaged = git_diff_numstat(self.workdir, timeout=GIT_STATS_TIMEOUT_SECONDS)

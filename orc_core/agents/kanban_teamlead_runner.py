@@ -19,9 +19,12 @@ from .kanban_incident_manager import IncidentManager
 from .kanban_protocols import DirectiveSource, RunnerLifecycle, RunnerNotifier, RunnerStateManager
 from .kanban_publisher import KanbanPublisher
 from .kanban_roles import build_teamlead_prompt
+from ..git.git_helpers import run_git
 from ..infra.logging import log_event
 from ..infra.quit_signal import is_quit_after_task_requested
+from ..infra.state_paths import run_root, stats_path
 from .session_types import SessionSlot, SlotStatus
+from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
 from ..tasks.task_execution import TaskExecutionEngine
 from ..tasks.task_source import Task
 from .teamlead_incident import Incident
@@ -297,8 +300,6 @@ class KanbanTeamleadRunner:
 
     def process_decision(self, dec_path: Path) -> None:
         """Parse and execute a teamlead decision file if it exists."""
-        from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
-
         if not dec_path.exists():
             return
         try:
@@ -340,7 +341,6 @@ class KanbanTeamleadRunner:
 
     def find_latest_agent_log(self, card_id: str) -> str:
         """Find the most recent raw-stream log for a card across all kanban sessions."""
-        from ..infra.state_paths import run_root
         runs_dir = run_root(self._workdir, "").parent / "runs"
         if not runs_dir.exists():
             return ""
@@ -359,7 +359,6 @@ class KanbanTeamleadRunner:
     def load_token_stats(self) -> dict[str, int]:
         """Load per-task token stats from analytics."""
         import json
-        from ..infra.state_paths import stats_path
         path = stats_path(self._workdir)
         if not path.exists():
             return {}
@@ -377,7 +376,6 @@ class KanbanTeamleadRunner:
             return
         self._last_auto_commit = now
         try:
-            from ..git.git_helpers import run_git
             wd = self._workdir
             ok, stdout, _, _ = run_git(wd, ["git", "status", "--porcelain"])
             if not ok or not stdout.strip():
