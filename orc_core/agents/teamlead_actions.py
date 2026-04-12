@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from ..board.kanban_constants import STAGE_DONE, STAGE_INBOX, STAGES, Action
 from ..infra.io.text_parse import parse_frontmatter
+from ..use_cases.create_card import create_expedite_card, create_inbox_card
 
 if TYPE_CHECKING:
     from ..board.kanban_board import KanbanBoard
@@ -189,10 +190,10 @@ def _do_create_card(board, p, reason, publisher, log_path=None):
     except ValueError:
         raise ValueError(f"Invalid action: {action_str}")
     if stage == STAGE_INBOX:
-        card = board.create_inbox_card(board.next_card_id(), title)
+        card = create_inbox_card(board, title)
     else:
-        card = board.create_expedite_card(
-            board.next_card_id(), title, body or "",
+        card = create_expedite_card(
+            board, title, body or "",
             stage=stage, action=action_str, cos_justification=reason,
         )
     publisher._emit("teamlead", card.id, f"Created {card.id}: {title}: {reason}")

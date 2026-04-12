@@ -18,6 +18,7 @@ from ..board.kanban_constants import (
 )
 from ..infra.io.logging import log_event
 from ..models.task_types import Task
+from ..use_cases.create_card import create_expedite_card
 from ..tasks.task_execution_types import TaskExecutionStatus
 from .teamlead_incident import (
     DECISION_FILENAME,
@@ -123,10 +124,11 @@ def handle_inject_fix(ctx, incident: Incident) -> Incident:
     }
     stage, action = _ROLE_PLACEMENT.get(incident.target_role, (STAGE_CODING, Action.CODING))
 
-    board.create_expedite_card(
+    create_expedite_card(
+        board,
+        incident.fix_title,
+        incident.fix_body,
         card_id=fix_card_id,
-        title=incident.fix_title,
-        body=incident.fix_body,
         stage=stage,
         action=action,
         cos_justification=f"Incident {incident.id}: {incident.error_type}",

@@ -18,7 +18,6 @@ from ..board.kanban_distributor import KanbanDistributor
 from ..board.kanban_constants import (
     STAGE_INBOX,
     STAGE_SHORT_NAMES,
-    Action,
 )
 from ..config import OrcConfig
 from .kanban_adapters import (
@@ -42,6 +41,8 @@ from .kanban_teamlead_runner import KanbanTeamleadRunner
 from .kanban_worker_runner import KanbanWorkerRunner
 from ..git.project_hooks import fire_hooks
 from ..board.kanban_role_registry import ROLE_TEAMLEAD
+from ..use_cases.create_card import create_inbox_card
+from ..use_cases.unblock_card import unblock_card as unblock_card_uc
 from ..infra.io.logging import log_event
 from ..infra.state.quit_signal import is_quit_after_task_requested, is_stop_requested
 from .session_pool import SessionPool
@@ -242,20 +243,13 @@ class KanbanSessionManager:
 
     def add_inbox_card(self, text: str) -> None:
         board = self._distributor.board
-        card_id = board.next_card_id()
-        board.create_inbox_card(card_id, text)
-        self.publisher.log_inbox(card_id, text)
-        log_event(self.log_path, "INFO", "inbox card created", card_id=card_id, title=text)
+        card = create_inbox_card(board, text, log_path=self.log_path)
+        self.publisher.log_inbox(card.id, text)
 
     def unblock_card(self, card_id: str, directive: str) -> None:
         board = self._distributor.board
-        card = board.card_by_id(card_id)
-        if card is None or card.action != Action.BLOCKED:
-            return
-        card.unblock(directive)
-        board.save_card(card)
-        self.publisher.log_unblock(card_id, directive)
-        log_event(self.log_path, "INFO", "card unblocked", card_id=card_id, directive=directive)
+        if unblock_card_uc(board, card_id, directive, log_path=self.log_path):
+            self.publisher.log_unblock(card_id, directive)
 
     def queue_teamlead_directive(self, text: str) -> None:
         self._directives.push(text)
