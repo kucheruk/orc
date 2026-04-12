@@ -25,7 +25,7 @@ from ..board.kanban_constants import (
     Action,
 )
 from ..board.kanban_notifications import extract_card_summary, format_completion_message
-from ..cli.orc_config import OrcConfig
+from ..config import OrcConfig
 from .kanban_publisher import KanbanPublisher
 from .kanban_request_builder import build_kanban_request
 from .kanban_protocols import (

@@ -209,7 +209,7 @@ def main() -> int:
 
             from ..board.kanban_init import init_kanban_board
             from ..agents.kanban_session_manager import KanbanSessionManager
-            from .orc_config import OrcConfig
+            from ..config import OrcConfig
             tasks_dir = init_kanban_board(Path(workdir))
             orc_config = OrcConfig.from_namespace(args)
             manager = KanbanSessionManager(

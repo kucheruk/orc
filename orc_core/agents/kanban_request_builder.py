@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..cli.orc_config import OrcConfig
+from ..config import OrcConfig
 from ..infra.backend import Backend
 from ..infra.state_paths import parallel_task_path
 from ..infra.state_paths import run_root as state_run_root

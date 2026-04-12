@@ -11,7 +11,7 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
-from ..cli.orc_config import OrcConfig
+from ..config import OrcConfig
 from .task_outcome_tracker import TaskOutcomeTracker
 from ..git.integration_manager import IntegrationManager
 from .kanban_agent_output import process_agent_result
