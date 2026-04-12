@@ -319,7 +319,7 @@ class KanbanSessionManager:
 
     # ── State persistence ───────────────────────────────────────
 
-    def _mark_state_dirty(self) -> None:
+    def mark_state_dirty(self) -> None:
         self._outcomes.mark_dirty()
 
     def _flush_state_if_dirty(self) -> None:
@@ -347,7 +347,7 @@ class KanbanSessionManager:
     def _notify_completion(self, card, role, old_stage, old_action, old_cos, elapsed) -> None:
         self._notifications.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
 
-    def _make_request(self, task, prompt, workdir, session_id, commit_phase, task_ttl):
+    def make_request(self, task, prompt, workdir, session_id, commit_phase, task_ttl):
         def _pub(snapshot: MonitorSnapshot) -> None:
             self._pool.publish_snapshot(session_id, snapshot)
         return build_kanban_request(

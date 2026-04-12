@@ -48,10 +48,10 @@ class StateManagerAdapter:
         self._mgr = mgr
 
     def mark_dirty(self) -> None:
-        self._mgr._mark_state_dirty()
+        self._mgr.mark_state_dirty()
 
     def make_request(self, task, prompt: str, workdir: str, session_id: str, commit_phase: bool, ttl: float):
-        return self._mgr._make_request(task, prompt, workdir, session_id, commit_phase, ttl)
+        return self._mgr.make_request(task, prompt, workdir, session_id, commit_phase, ttl)
 
 
 class DirectiveAdapter:
