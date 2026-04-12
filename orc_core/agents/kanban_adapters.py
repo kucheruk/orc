@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Protocol adapter classes that bridge KanbanSessionManager to Runner protocols."""
+"""Protocol adapter classes that bridge extracted services to Runner protocols."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .kanban_directive_queue import DirectiveQueue
+    from .kanban_notification_service import NotificationService
     from .kanban_session_manager import KanbanSessionManager
     from .session_pool import SessionPool
 
@@ -27,16 +29,16 @@ class LifecycleAdapter:
 
 
 class NotifierAdapter:
-    __slots__ = ("_mgr",)
+    __slots__ = ("_svc",)
 
-    def __init__(self, mgr: KanbanSessionManager) -> None:
-        self._mgr = mgr
+    def __init__(self, svc: NotificationService) -> None:
+        self._svc = svc
 
     def send_telegram(self, message: str) -> None:
-        self._mgr._send_telegram(message)
+        self._svc.send_telegram(message)
 
     def notify_completion(self, card, role, old_stage, old_action, old_cos, elapsed) -> None:
-        self._mgr._notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
+        self._svc.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
 
 
 class StateManagerAdapter:
@@ -53,13 +55,13 @@ class StateManagerAdapter:
 
 
 class DirectiveAdapter:
-    __slots__ = ("_mgr",)
+    __slots__ = ("_queue",)
 
-    def __init__(self, mgr: KanbanSessionManager) -> None:
-        self._mgr = mgr
+    def __init__(self, queue: DirectiveQueue) -> None:
+        self._queue = queue
 
     def pop_directive(self):
-        return self._mgr._pop_directive()
+        return self._queue.pop()
 
 
 class SessionControllerAdapter:

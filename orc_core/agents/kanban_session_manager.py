@@ -14,14 +14,12 @@ from typing import Callable, Optional
 from ..infra.backend import Backend, get_backend
 from ..git.integration_manager import IntegrationManager
 from .kanban_incident_manager import IncidentManager
-from ..board.kanban_card import KanbanCard
 from ..board.kanban_distributor import KanbanDistributor
 from ..board.kanban_constants import (
     STAGE_INBOX,
     STAGE_SHORT_NAMES,
     Action,
 )
-from ..board.kanban_notifications import format_completion_message
 from ..config import OrcConfig
 from .kanban_adapters import (
     DirectiveAdapter,
@@ -30,6 +28,8 @@ from .kanban_adapters import (
     SessionControllerAdapter,
     StateManagerAdapter,
 )
+from .kanban_directive_queue import DirectiveQueue
+from .kanban_notification_service import NotificationService
 from .kanban_publisher import KanbanPublisher
 from .kanban_request_builder import build_kanban_request
 from .kanban_state_persistence import (
@@ -40,7 +40,6 @@ from .kanban_state_persistence import (
 )
 from .kanban_teamlead_runner import KanbanTeamleadRunner
 from .kanban_worker_runner import KanbanWorkerRunner
-from ..notifications.notify import send_telegram_message
 from ..git.project_hooks import fire_hooks
 from ..board.kanban_role_registry import ROLE_TEAMLEAD
 from ..infra.logging import log_event
@@ -112,8 +111,11 @@ class KanbanSessionManager:
             card_fail_counts=card_fail_counts,
             arbitrated_at_loop=arbitrated_at_loop,
         )
-        self._directive_queue: list[str] = []
-        self._directive_lock = threading.Lock()
+        self._directives = DirectiveQueue()
+        self._notifications = NotificationService(
+            workdir=workdir, log_path=log_path,
+            get_progress=lambda: self._distributor.get_progress(),
+        )
 
         self._pool = pool or SessionPool(
             max_sessions=max_sessions,
@@ -127,9 +129,9 @@ class KanbanSessionManager:
     def _wire_runners(self) -> None:
         """Build protocol adapters and wire up runners with all dependencies."""
         self._lifecycle_adapter = LifecycleAdapter(self._pool)
-        self._notifier_adapter = NotifierAdapter(self)
+        self._notifier_adapter = NotifierAdapter(self._notifications)
         self._state_adapter = StateManagerAdapter(self)
-        self._directive_adapter = DirectiveAdapter(self)
+        self._directive_adapter = DirectiveAdapter(self._directives)
         self._session_ctrl_adapter = SessionControllerAdapter(self)
 
         self._incident_mgr = IncidentManager(
@@ -256,8 +258,7 @@ class KanbanSessionManager:
         log_event(self.log_path, "INFO", "card unblocked", card_id=card_id, directive=directive)
 
     def queue_teamlead_directive(self, text: str) -> None:
-        with self._directive_lock:
-            self._directive_queue.append(text)
+        self._directives.push(text)
         self.publisher._emit("directive", "", f"Directive queued for teamlead: {text}")
         log_event(self.log_path, "INFO", "teamlead directive queued", directive=text[:200])
 
@@ -338,37 +339,13 @@ class KanbanSessionManager:
     # ── Helpers ──────────────────────────────────────────────────
 
     def _pop_directive(self) -> Optional[str]:
-        with self._directive_lock:
-            if self._directive_queue:
-                return self._directive_queue.pop(0)
-        return None
+        return self._directives.pop()
 
     def _send_telegram(self, message: str) -> None:
-        send_telegram_message(message, self.log_path, orc_root=Path(self.workdir))
+        self._notifications.send_telegram(message)
 
-    def _notify_completion(
-        self, card: KanbanCard, role: str,
-        old_stage: str, old_action: str, old_cos: str,
-        elapsed: float,
-    ) -> None:
-        msg = format_completion_message(
-            card, role, old_stage, old_action, old_cos, elapsed,
-            self._distributor.get_progress(),
-        )
-        if msg:
-            self._send_telegram(msg)
-
-        fr = STAGE_SHORT_NAMES.get(old_stage, old_stage)
-        to = STAGE_SHORT_NAMES.get(card.stage, card.stage)
-        fire_hooks(self.workdir, "on_complete", {
-            "ORC_CARD_ID": card.id,
-            "ORC_CARD_TITLE": card.title,
-            "ORC_FROM_STAGE": fr,
-            "ORC_TO_STAGE": to,
-            "ORC_ROLE": role,
-            "ORC_REASON": f"{old_action} -> {card.action}",
-            "ORC_ELAPSED_MIN": f"{elapsed / 60.0:.1f}",
-        })
+    def _notify_completion(self, card, role, old_stage, old_action, old_cos, elapsed) -> None:
+        self._notifications.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
 
     def _make_request(self, task, prompt, workdir, session_id, commit_phase, task_ttl):
         def _pub(snapshot: MonitorSnapshot) -> None:
