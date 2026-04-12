@@ -14,17 +14,12 @@ from .card_repository import CardRepository, FsCardRepository
 from .kanban_card import KanbanCard, parse_card, new_card_body
 from .kanban_constants import (
     STAGE_CODING,
-    STAGE_DONE,
-    STAGE_ESTIMATE,
-    STAGE_HANDOFF,
     STAGE_INBOX,
     STAGE_ORDER,
-    STAGE_REVIEW,
-    STAGE_TESTING,
-    STAGE_TODO,
     STAGES,
     WIP_STAGES,
 )
+from .movement_rules import resolve_deferred_target
 from .wip_manager import WIPManager
 
 _logger = logging.getLogger(__name__)
@@ -173,22 +168,10 @@ class KanbanBoard:
 
     def _apply_deferred_moves(self) -> None:
         """Move cards whose action doesn't match their stage (stuck after restart)."""
-        _EXPECTED_STAGE = {
-            (STAGE_TESTING, "Integrating"): STAGE_HANDOFF,
-            (STAGE_HANDOFF, "Done"): STAGE_DONE,
-            (STAGE_CODING, "Reviewing"): STAGE_REVIEW,
-            (STAGE_REVIEW, "Testing"): STAGE_TESTING,
-            # Integrator reject paths
-            (STAGE_HANDOFF, "Reviewing"): STAGE_REVIEW,
-            (STAGE_HANDOFF, "Testing"): STAGE_TESTING,
-            # Tester/reviewer bounce-back
-            (STAGE_TESTING, "Coding"): STAGE_CODING,
-            (STAGE_REVIEW, "Coding"): STAGE_CODING,
-        }
         for card in list(self._cards):
             if card.assigned_agent:
                 continue
-            target = _EXPECTED_STAGE.get((card.stage, card.action))
+            target = resolve_deferred_target(card.stage, card.action)
             if target and self.has_wip_room(target):
                 _logger.info("Deferred move: %s %s → %s (action=%s)",
                              card.id, card.stage, target, card.action)
