@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from .kanban_constants import STAGE_INBOX, STAGE_ORDER, Action, ClassOfService
-from ..infra.text_parse import parse_frontmatter
+from ..infra.io.text_parse import parse_frontmatter
 
 # Fields agents are NOT allowed to change (Python-only)
 PROTECTED_FIELDS: frozenset[str] = frozenset({
@@ -179,7 +179,7 @@ def read_card(path: Path) -> KanbanCard:
 
 
 def write_card(card: KanbanCard, path: Path | None = None) -> None:
-    from ..infra.atomic_io import write_text_atomic
+    from ..infra.io.atomic_io import write_text_atomic
 
     target = path or card.file_path
     if target is None:

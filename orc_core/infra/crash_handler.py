@@ -12,7 +12,7 @@ import traceback
 from pathlib import Path
 from typing import Dict
 
-from .logging import _CRASH_HANDLER_LOCK, _cfg, log_event, now_iso
+from .io.logging import _CRASH_HANDLER_LOCK, _cfg, log_event, now_iso
 
 
 def build_crash_stdout_payload(
@@ -141,7 +141,7 @@ def install_crash_handlers(
             _CRASH_HANDLER_LOCK.release()
         if not _killpg_fired:
             _killpg_fired = True
-            from .process_groups import kill_own_process_group
+            from .process.process_groups import kill_own_process_group
             kill_own_process_group()
         raise SystemExit(128 + int(signum))
 

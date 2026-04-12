@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..cli.agent_preflight import AgentNotInstalledError
-from ..infra.logging import log_event
+from ..infra.io.logging import log_event
 
 AGENT_LS_TIMEOUT_SECONDS = 15.0
 

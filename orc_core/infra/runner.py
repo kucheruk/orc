@@ -6,13 +6,13 @@ import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping, Optional
 
-from .logging import log_event, now_ms
-from .debug_log import debug_log
-from .timeline import timeline_instant
-from .process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
-from .process_groups import terminate_process_group
-from .stream_monitor import StreamJsonMonitor
-from .monitor_types import MonitorSnapshot
+from .io.logging import log_event, now_ms
+from .io.debug_log import debug_log
+from .io.timeline import timeline_instant
+from .process.process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
+from .process.process_groups import terminate_process_group
+from .monitoring.stream_monitor import StreamJsonMonitor
+from .monitoring.monitor_types import MonitorSnapshot
 
 if TYPE_CHECKING:
     from .backend import Backend

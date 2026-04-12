@@ -42,8 +42,8 @@ from .kanban_teamlead_runner import KanbanTeamleadRunner
 from .kanban_worker_runner import KanbanWorkerRunner
 from ..git.project_hooks import fire_hooks
 from ..board.kanban_role_registry import ROLE_TEAMLEAD
-from ..infra.logging import log_event
-from ..infra.quit_signal import is_quit_after_task_requested, is_stop_requested
+from ..infra.io.logging import log_event
+from ..infra.state.quit_signal import is_quit_after_task_requested, is_stop_requested
 from .session_pool import SessionPool
 from .task_outcome_tracker import TaskOutcomeTracker
 from ..models.session_types import (
@@ -51,9 +51,9 @@ from ..models.session_types import (
     STAGGER_DELAY_SECONDS,
     SessionSlot,
 )
-from ..infra.monitor_types import MonitorSnapshot
+from ..infra.monitoring.monitor_types import MonitorSnapshot
 from ..tasks.task_execution import TaskExecutionEngine
-from ..infra.process_groups import kill_own_process_group
+from ..infra.process.process_groups import kill_own_process_group
 
 EXIT_OK = 0
 EXIT_FAILURE = 1

@@ -20,18 +20,18 @@ from ..git.git_helpers import (
     runtime_artifact_paths_from_porcelain_lines as _runtime_artifact_paths_from_porcelain_lines,
 )
 from .task_execution_types import LaunchConfig, TaskCompletionStatus, TaskExecutionStatus
-from ..infra.logging import log_event
-from ..infra.monitor_protocol import StreamMonitorProtocol
-from ..infra.timeline import timeline_step
-from ..infra.process import (
+from ..infra.io.logging import log_event
+from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
+from ..infra.io.timeline import timeline_step
+from ..infra.process.process import (
     ORPHAN_SWEEP_COMMAND_MARKERS,
     build_process_tree,
     is_pid_alive,
     kill_orphan_project_processes,
     kill_process_tree,
 )
-from ..infra.process_groups import terminate_process_group
-from ..infra.quit_signal import is_stop_requested
+from ..infra.process.process_groups import terminate_process_group
+from ..infra.state.quit_signal import is_stop_requested
 from .supervisor_lifecycle import wait_for_process_exit
 from .task_execution_helpers import _write_prompt_file
 from .task_execution_types import (
@@ -40,7 +40,7 @@ from .task_execution_types import (
     TaskExecutionResult,
     TaskWorker,
 )
-from ..infra.text_parse import SafeDict
+from ..infra.io.text_parse import SafeDict
 
 _logger = logging.getLogger(__name__)
 

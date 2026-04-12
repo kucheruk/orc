@@ -17,9 +17,9 @@ from ..board.kanban_constants import (
     Action,
 )
 from ..tasks.task_execution_types import TaskExecutionStatus
-from ..infra.logging import log_event
+from ..infra.io.logging import log_event
 from ..notifications.notify import send_telegram_message
-from ..infra.quit_signal import is_stop_requested
+from ..infra.state.quit_signal import is_stop_requested
 from ..models.session_types import (
     STAGGER_DELAY_SECONDS,
     SessionSlot,

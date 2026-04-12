@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from .task_execution_types import TaskExecutionResult, _ExecutionContext
 
-from ..infra.debug_log import debug_log
+from ..infra.io.debug_log import debug_log
 from ..infra.failure_reasons import build_main_integration_preflight_reason
-from ..infra.logging import log_event
+from ..infra.io.logging import log_event
 from ..git.git_helpers import classify_main_integration_error
 from ..git.worktree_flow import preflight_main_integration
 from .task_execution_types import TaskExecutionResult, TaskExecutionStatus

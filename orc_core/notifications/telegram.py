@@ -12,7 +12,7 @@ LogFn = Callable[[Path, str, str], None]
 
 
 def load_telegram_config(*, orc_root: Path, log_path: Path, log_event: LogFn) -> dict:
-    from ..infra.logging import ORC_ROOT
+    from ..infra.io.logging import ORC_ROOT
 
     candidates = [
         orc_root / ".orc" / "telegram.json",
@@ -21,7 +21,7 @@ def load_telegram_config(*, orc_root: Path, log_path: Path, log_event: LogFn) ->
     if orc_root.resolve() != ORC_ROOT.resolve():
         candidates.append(ORC_ROOT / ".orc" / "telegram.json")
     # Fall back to global user config
-    from ..infra.state_paths import telegram_config_path
+    from ..infra.state.state_paths import telegram_config_path
     candidates.append(telegram_config_path())
 
     for config_path in candidates:

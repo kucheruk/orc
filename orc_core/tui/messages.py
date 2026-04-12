@@ -3,7 +3,7 @@
 
 from textual.message import Message
 
-from ..infra.stream_monitor_state import MonitorSnapshot
+from ..infra.monitoring.stream_monitor_state import MonitorSnapshot
 
 
 class SnapshotUpdated(Message):

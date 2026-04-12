@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from .task_execution_types import TaskExecutionResult, _ExecutionContext, _ResumeState
 
-from ..infra.atomic_io import write_json_atomic
-from ..infra.debug_log import debug_log
-from ..infra.logging import log_event
-from ..infra.session_state import save_active_session, save_session_manifest
+from ..infra.io.atomic_io import write_json_atomic
+from ..infra.io.debug_log import debug_log
+from ..infra.io.logging import log_event
+from ..infra.state.session_state import save_active_session, save_session_manifest
 from .hooks import write_task_file
 from .task_execution_types import TaskExecutionResult, TaskExecutionStatus
 from .task_state import delete_runtime_state_file, read_task_active_seconds

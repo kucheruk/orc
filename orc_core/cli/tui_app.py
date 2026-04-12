@@ -7,8 +7,8 @@ from typing import Callable
 from textual import work
 from textual.app import App
 
-from ..infra.quit_signal import clear_stop_request, request_stop, toggle_quit_after_task
-from ..infra.monitor_types import MonitorSnapshot
+from ..infra.state.quit_signal import clear_stop_request, request_stop, toggle_quit_after_task
+from ..infra.monitoring.monitor_types import MonitorSnapshot
 from ..tui.kanban_messages import (
     BoardUpdated,
     InboxCardRequested,

@@ -12,15 +12,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..infra.atomic_io import write_json_atomic
-from ..infra.logging import log_event
+from ..infra.io.atomic_io import write_json_atomic
+from ..infra.io.logging import log_event
 from ..models.session_types import (
     ERROR_TRUNCATE,
     REASON_TRUNCATE,
     TRACEBACK_TRUNCATE,
     SessionSlot,
 )
-from ..infra.state_paths import integration_report_path
+from ..infra.state.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
 from ..models.task_types import Task
 from .conflict_resolver import ConflictResolver

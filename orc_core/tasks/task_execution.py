@@ -16,15 +16,15 @@ if TYPE_CHECKING:
     from ..infra.backend import Backend as BackendProtocol
 
 from .hooks import update_task_restart_count
-from ..infra.logging import log_event
-from ..infra.debug_log import debug_log
-from ..infra.timeline import timeline_instant, timeline_step
-from ..infra.quit_signal import is_stop_requested
+from ..infra.io.logging import log_event
+from ..infra.io.debug_log import debug_log
+from ..infra.io.timeline import timeline_instant, timeline_step
+from ..infra.state.quit_signal import is_stop_requested
 from .task_execution_types import TaskCompletionStatus, TaskExecutionStatus
 from .supervisor_lifecycle import wait_for_completion
 from .stage_artifacts import build_stage_artifact_bundle
 from .task_state import runtime_state_path
-from ..infra.text_parse import SafeDict
+from ..infra.io.text_parse import SafeDict
 from .task_execution_preflight import preflight_integration
 from .task_execution_resume import recover_resume_state, init_task_file
 from .task_source import MarkdownTaskSource

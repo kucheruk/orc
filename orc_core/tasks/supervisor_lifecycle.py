@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .task_execution_types import TaskCompletionStatus
-from ..infra.logging import log_event
-from ..infra.debug_log import debug_log
-from ..infra.monitor_protocol import StreamMonitorProtocol
-from ..infra.timeline import timeline_instant
-from ..infra.process import is_pid_alive
+from ..infra.io.logging import log_event
+from ..infra.io.debug_log import debug_log
+from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
+from ..infra.io.timeline import timeline_instant
+from ..infra.process.process import is_pid_alive
 from .supervisor_checks import (
     check_escape,
     check_task_file_removed,

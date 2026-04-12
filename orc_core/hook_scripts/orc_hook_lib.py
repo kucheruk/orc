@@ -13,10 +13,10 @@ LOG_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
 DEFAULT_LOG_LEVEL = "WARN"
 if str(ORC_ROOT) not in sys.path:
     sys.path.insert(0, str(ORC_ROOT))
-from orc_core.infra.atomic_io import write_json_atomic
-from orc_core.infra.state_paths import artifacts_dir as external_artifacts_dir
-from orc_core.infra.state_paths import metrics_path as external_metrics_path
-from orc_core.infra.state_paths import stats_path as external_stats_path
+from orc_core.infra.io.atomic_io import write_json_atomic
+from orc_core.infra.state.state_paths import artifacts_dir as external_artifacts_dir
+from orc_core.infra.state.state_paths import metrics_path as external_metrics_path
+from orc_core.infra.state.state_paths import stats_path as external_stats_path
 from orc_core.tasks.task_source import MarkdownTaskSource
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0

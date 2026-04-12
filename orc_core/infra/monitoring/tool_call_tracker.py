@@ -9,7 +9,7 @@ import time
 from collections import deque
 from typing import Deque, Dict
 
-from .debug_log import debug_mode_log
+from ..io.debug_log import debug_mode_log
 
 
 class ToolCallTracker:

@@ -41,7 +41,7 @@ class FsCardRepository:
         return path.read_text(encoding="utf-8", errors="replace")
 
     def write_card_text(self, path: Path, text: str) -> None:
-        from ..infra.atomic_io import write_text_atomic
+        from ..infra.io.atomic_io import write_text_atomic
         write_text_atomic(path, text)
 
     def move_card_file(self, old_path: Path, new_dir: Path) -> Path:

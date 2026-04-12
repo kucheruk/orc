@@ -11,7 +11,7 @@ from ..board.kanban_snapshot import JournalEntry, KanbanBoardSnapshot, build_boa
 
 if TYPE_CHECKING:
     from ..board.kanban_board import KanbanBoard
-    from ..infra.monitor_types import MonitorSnapshot
+    from ..infra.monitoring.monitor_types import MonitorSnapshot
 
 
 class KanbanPublisher:

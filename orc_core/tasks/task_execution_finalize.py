@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import Optional
 
 from ..git.git_helpers import classify_main_integration_error, has_commits_ahead_of_branch
-from ..infra.logging import log_event
-from ..infra.debug_log import debug_log
-from ..infra.timeline import timeline_step
-from ..infra.quit_signal import is_quit_after_task_requested
+from ..infra.io.logging import log_event
+from ..infra.io.debug_log import debug_log
+from ..infra.io.timeline import timeline_step
+from ..infra.state.quit_signal import is_quit_after_task_requested
 from .stage_artifacts import parse_stage_artifact_status, validate_stage_artifact_output
 from .task_agent_phases import run_commit_phase, run_merge_expert_phase
 from .task_execution_helpers import (
@@ -29,7 +29,7 @@ from .task_execution_types import (
     _ExecutionContext,
 )
 from .task_state import delete_runtime_state_file
-from ..infra.text_parse import SafeDict, clean_summary_lines
+from ..infra.io.text_parse import SafeDict, clean_summary_lines
 from ..git.worktree_flow import get_head_commit, integrate_commit_into_main
 
 _logger = logging.getLogger(__name__)

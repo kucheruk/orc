@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import orc_hook_lib as lib
-from orc_core.infra.state_paths import active_task_path, hook_log_path
+from orc_core.infra.state.state_paths import active_task_path, hook_log_path
 
 
 def _norm_path(raw: str) -> str:

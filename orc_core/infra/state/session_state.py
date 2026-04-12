@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from .atomic_io import write_json_atomic
+from ..io.atomic_io import write_json_atomic
 from .state_paths import (
     active_session_path,
     ensure_parent,

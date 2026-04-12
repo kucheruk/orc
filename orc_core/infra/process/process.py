@@ -11,8 +11,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import psutil
 
-from .atomic_io import write_json_atomic
-from .logging import log_event, now_iso
+from ..io.atomic_io import write_json_atomic
+from ..io.logging import log_event, now_iso
 
 ORPHAN_SWEEP_COMMAND_MARKERS = (
     "agent",

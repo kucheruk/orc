@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from ..infra.state_paths import artifacts_dir as external_artifacts_dir
+from ..infra.state.state_paths import artifacts_dir as external_artifacts_dir
 
 
 _ARTIFACT_SUFFIX_BY_STAGE_ID = {

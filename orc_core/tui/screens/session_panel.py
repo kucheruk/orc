@@ -39,7 +39,7 @@ from ...models.session_types import (
     STATUS_TRUNCATE_FULL,
     STATUS_TRUNCATE_MEDIUM,
 )
-from ...infra.stream_monitor_state import MonitorSnapshot
+from ...infra.monitoring.stream_monitor_state import MonitorSnapshot
 
 
 _STATUS_TRUNCATE = {

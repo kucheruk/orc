@@ -8,12 +8,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from ..models.task_types import Task
+from ...models.task_types import Task
 
-from .atomic_io import write_json_atomic
-from .logging import log_event, now_ms
+from ..io.atomic_io import write_json_atomic
+from ..io.logging import log_event, now_ms
 from .monitor_types import MetricsStore, MonitorSnapshot
-from .timeline import timeline_instant
+from ..io.timeline import timeline_instant
 
 
 class MonitorMetricsCollector:
@@ -169,7 +169,7 @@ class MonitorMetricsCollector:
         state.set_eta_seconds(avg_seconds * remaining if remaining > 0 else 0.0)
 
     def update_task_runtime_state(self) -> None:
-        from .runtime_state import init_runtime_payload, load_runtime_payload
+        from ..state.runtime_state import init_runtime_payload, load_runtime_payload
 
         started_ms = now_ms()
         now = time.time()

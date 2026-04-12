@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
-from .state_paths import resolve_state_root
+from ..state.state_paths import resolve_state_root
 
 ORC_ROOT = Path(__file__).resolve().parents[2]
 ORC_LOG_DIR = resolve_state_root() / "logs"

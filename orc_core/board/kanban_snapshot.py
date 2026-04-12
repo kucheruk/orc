@@ -13,7 +13,7 @@ from .kanban_constants import STAGE_DONE, STAGES
 
 if TYPE_CHECKING:
     from .kanban_board import KanbanBoard
-    from ..infra.monitor_types import MonitorSnapshot
+    from ..infra.monitoring.monitor_types import MonitorSnapshot
 
 
 @dataclass(frozen=True)

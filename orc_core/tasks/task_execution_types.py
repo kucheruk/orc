@@ -25,7 +25,7 @@ class TaskCompletionStatus(StrEnum):
     WAITING_FOR_INPUT = "waiting_for_input"
     MODEL_UNAVAILABLE = "model_unavailable"
 from ..infra.runner import launch_agent_stream_json
-from ..infra.monitor_types import MonitorSnapshot
+from ..infra.monitoring.monitor_types import MonitorSnapshot
 from ..models.task_types import Task
 
 

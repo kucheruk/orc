@@ -14,15 +14,15 @@ from typing import TYPE_CHECKING, Optional
 import psutil
 
 from .task_execution_types import TaskCompletionStatus
-from ..infra.logging import log_event
-from ..infra.debug_log import debug_log, debug_mode_log
-from ..infra.timeline import timeline_instant
-from ..infra.process import is_pid_alive
+from ..infra.io.logging import log_event
+from ..infra.io.debug_log import debug_log, debug_mode_log
+from ..infra.io.timeline import timeline_instant
+from ..infra.process.process import is_pid_alive
 from .task_state import delete_runtime_state_file
 
 if TYPE_CHECKING:
     from .supervisor_lifecycle import CompletionMonitor
-    from ..infra.monitor_protocol import StreamMonitorProtocol
+    from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
 
 PROCESS_EXIT_GRACE_SECONDS = 3.0
 DONE_BACKLOG_IDLE_GRACE_SECONDS = 20.0

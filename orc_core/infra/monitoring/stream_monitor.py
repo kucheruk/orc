@@ -8,12 +8,12 @@ import uuid
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Mapping, Optional, TextIO
 
-from .agent_process import AgentProcess
-from .atomic_io import write_json_atomic
-from .logging import log_event, now_ms
+from ..process.agent_process import AgentProcess
+from ..io.atomic_io import write_json_atomic
+from ..io.logging import log_event, now_ms
 from .monitor_metrics_collector import MonitorMetricsCollector
-from .timeline import timeline_instant
-from .state_paths import active_task_path, metrics_path, stats_path
+from ..io.timeline import timeline_instant
+from ..state.state_paths import active_task_path, metrics_path, stats_path
 
 from .monitor_types import MonitorSnapshot
 from .stream_monitor_state import StreamMonitorState
@@ -74,7 +74,7 @@ class StreamJsonMonitor:
         if runtime_override:
             self._task_runtime_state_path = Path(runtime_override)
         else:
-            from .runtime_state import runtime_state_path
+            from ..state.runtime_state import runtime_state_path
             self._task_runtime_state_path = runtime_state_path(self._task_state_path)
         stats_override = child_env.get("ORC_STATS_FILE", "").strip()
         self._stats_path = Path(stats_override) if stats_override else stats_path(self.workdir)

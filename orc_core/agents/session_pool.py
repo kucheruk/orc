@@ -8,9 +8,9 @@ import logging
 import threading
 from typing import Callable, Optional
 
-from ..infra.logging import log_event
-from ..infra.monitor_types import MonitorSnapshot
-from ..infra.quit_signal import is_stop_requested, is_session_stop_requested
+from ..infra.io.logging import log_event
+from ..infra.monitoring.monitor_types import MonitorSnapshot
+from ..infra.state.quit_signal import is_stop_requested, is_session_stop_requested
 from .kanban_publisher import KanbanPublisher
 from ..models.session_types import (
     MAX_SESSIONS,

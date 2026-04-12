@@ -7,9 +7,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from ..infra.atomic_io import write_json_atomic
-from ..infra.logging import log_event
-from ..infra.state_paths import kanban_state_path
+from ..infra.io.atomic_io import write_json_atomic
+from ..infra.io.logging import log_event
+from ..infra.state.state_paths import kanban_state_path
 
 _logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ def cleanup_done_worktrees(
 ) -> None:
     """Remove worktrees for cards that reached Done."""
     from ..git.worktree_flow import WorktreeSession, _safe_name, cleanup_task_worktree
-    from ..infra.state_paths import worktrees_root
+    from ..infra.state.state_paths import worktrees_root
 
     wt_root = worktrees_root(workdir)
     if not wt_root.exists():

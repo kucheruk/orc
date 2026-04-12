@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..board.kanban_constants import STAGE_DONE, STAGE_INBOX, STAGES, Action
-from ..infra.text_parse import parse_frontmatter
+from ..infra.io.text_parse import parse_frontmatter
 
 if TYPE_CHECKING:
     from ..board.kanban_board import KanbanBoard
@@ -82,7 +82,7 @@ def execute_teamlead_actions(
     log_path: Path,
 ) -> list[str]:
     """Execute parsed actions against the board. Returns list of error strings."""
-    from ..infra.logging import log_event
+    from ..infra.io.logging import log_event
 
     errors: list[str] = []
     if decision.summary:

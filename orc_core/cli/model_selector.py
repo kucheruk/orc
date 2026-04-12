@@ -9,8 +9,8 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from ..infra.atomic_io import write_json_atomic
-from ..infra.state_paths import model_selection_path
+from ..infra.io.atomic_io import write_json_atomic
+from ..infra.state.state_paths import model_selection_path
 
 if TYPE_CHECKING:
     from ..infra.backend import Backend

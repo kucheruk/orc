@@ -8,8 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from ..infra.atomic_io import write_json_atomic
-from ..infra.logging import log_event
+from ..infra.io.atomic_io import write_json_atomic
+from ..infra.io.logging import log_event
 from .task_execution_types import ETA_WINDOW_SIZE, TaskExecutionRequest, TaskStageSpec
 
 
@@ -22,7 +22,7 @@ def _update_completion_stats(
     log_path: Path,
 ) -> None:
     """Record token usage and task duration in stats file (replaces stop hook stats logic)."""
-    from ..infra.state_paths import stats_path as get_stats_path
+    from ..infra.state.state_paths import stats_path as get_stats_path
     from .task_state import read_task_active_seconds
 
     stats_file = get_stats_path(workdir)

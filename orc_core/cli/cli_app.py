@@ -16,8 +16,8 @@ from .agent_preflight import AgentNotInstalledError, ensure_agent_installed
 from ..infra.backend import SUPPORTED_BACKENDS, get_backend
 from ..infra.failure_reasons import format_known_failure_message
 from ..git.gitignore_guard import validate_workspace_gitignore
-from ..infra.logging import ORC_LOG_NAME, log_event, set_log_context
-from ..infra.debug_log import init_debug_logging
+from ..infra.io.logging import ORC_LOG_NAME, log_event, set_log_context
+from ..infra.io.debug_log import init_debug_logging
 from ..infra.crash_handler import emit_crash_stdout_payload, install_crash_handlers
 from .model_selector import (
     DEFAULT_MODEL,
@@ -26,19 +26,19 @@ from .model_selector import (
     save_last_selected_model,
 )
 from ..notifications.notify import send_telegram_message
-from ..infra.process import acquire_lock, release_lock
+from ..infra.process.process import acquire_lock, release_lock
 from .role_config import (
     ROLE_CODER,
     ROLE_HANDOFF,
     ROLE_MERGE_EXPERT,
     RoleProfileRegistry,
 )
-from ..infra.monitor_types import MonitorSnapshot
+from ..infra.monitoring.monitor_types import MonitorSnapshot
 from ..tasks.task_execution import TaskExecutionEngine
 from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn
 from ..git.worktree_flow import detect_base_branch
-from ..infra.state_paths import app_log_path, lock_path as state_lock_path
+from ..infra.state.state_paths import app_log_path, lock_path as state_lock_path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -118,7 +118,7 @@ def _atexit_kill_group() -> None:
                 signal.signal(sig, signal.SIG_IGN)
             except Exception:
                 pass
-    from ..infra.process_groups import kill_own_process_group
+    from ..infra.process.process_groups import kill_own_process_group
     kill_own_process_group()
 
 
