@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Use case: create a kanban card (inbox or expedite)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from ..board.kanban_board import KanbanBoard
+from ..board.kanban_card import KanbanCard
+from ..infra.io.logging import log_event
+
+
+def create_inbox_card(
+    board: KanbanBoard,
+    title: str,
+    *,
+    log_path: Path | None = None,
+) -> KanbanCard:
+    """Create a new inbox card and add it to the board."""
+    card_id = board.next_card_id()
+    card = board.create_inbox_card(card_id, title)
+    if log_path:
+        log_event(log_path, "INFO", "inbox card created", card_id=card_id, title=title)
+    return card
+
+
+def create_expedite_card(
+    board: KanbanBoard,
+    title: str,
+    body: str,
+    *,
+    stage: str = "3-coding",
+    action: str = "Coding",
+    cos_justification: str = "",
+    log_path: Path | None = None,
+) -> KanbanCard:
+    """Create an expedite card directly at the given stage."""
+    card_id = board.next_card_id()
+    card = board.create_expedite_card(
+        card_id, title, body,
+        stage=stage, action=action,
+        cos_justification=cos_justification,
+    )
+    if log_path:
+        log_event(log_path, "INFO", "expedite card created", card_id=card_id, title=title, stage=stage)
+    return card
