@@ -20,7 +20,7 @@ from ..infra.io.logging import log_event
 from ..infra.io.debug_log import debug_log
 from ..infra.io.timeline import timeline_instant, timeline_step
 from ..infra.state.quit_signal import is_stop_requested
-from .task_execution_types import TaskCompletionStatus, TaskExecutionStatus
+from .task_status_types import TaskCompletionStatus, TaskExecutionStatus
 from .supervisor_lifecycle import wait_for_completion
 from .stage_artifacts import build_stage_artifact_bundle
 from .task_state import runtime_state_path
@@ -30,6 +30,7 @@ from .task_execution_resume import recover_resume_state, init_task_file
 from .task_source import MarkdownTaskSource
 from ..git.git_helpers import git_diff_numstat
 
+from .task_status_types import RESTART_REASON_TEXT
 from .task_execution_types import (
     LaunchConfig,
     TaskStageSpec,
@@ -39,7 +40,6 @@ from .task_execution_types import (
     _ResumeState,
     TaskWorker,
     AgentTaskWorker,
-    RESTART_REASON_TEXT,
 )
 
 from .task_execution_helpers import (

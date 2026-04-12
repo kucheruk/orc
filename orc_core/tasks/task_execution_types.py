@@ -3,7 +3,6 @@
 """Data classes, protocols, and constants for task execution."""
 
 from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping, Optional, Protocol
 
@@ -11,19 +10,11 @@ if TYPE_CHECKING:
     from ..infra.backend import Backend as BackendProtocol
 
 
-class TaskExecutionStatus(StrEnum):
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CONTINUE = "continue"
-
-
-class TaskCompletionStatus(StrEnum):
-    COMPLETED = "completed"
-    STALLED = "stalled"
-    TTL_EXCEEDED = "ttl_exceeded"
-    PROCESS_EXITED = "process_exited"
-    WAITING_FOR_INPUT = "waiting_for_input"
-    MODEL_UNAVAILABLE = "model_unavailable"
+from .task_status_types import (  # noqa: F401
+    TaskCompletionStatus,
+    TaskExecutionStatus,
+    RESTART_REASON_TEXT,
+)
 from ..infra.runner import launch_agent_stream_json
 from ..infra.monitoring.monitor_types import MonitorSnapshot
 from ..models.task_types import Task
@@ -192,13 +183,6 @@ class AgentTaskWorker:
             backlog_task_lister=config.backlog_task_lister,
             git_diff_fn=config.git_diff_fn,
         )
-
-
-RESTART_REASON_TEXT = {
-    TaskCompletionStatus.STALLED: "Ты перестал выдавать результат (завис). Переоцени свой подход.",
-    TaskCompletionStatus.TTL_EXCEEDED: "Ты превысил лимит времени. Сделай коммит текущего прогресса или выбери более простой путь.",
-    TaskCompletionStatus.PROCESS_EXITED: "Твой процесс неожиданно завершился (возможно, ошибка синтаксиса в bash).",
-}
 
 
 @dataclass(frozen=True)
