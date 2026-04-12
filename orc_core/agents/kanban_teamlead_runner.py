@@ -140,7 +140,7 @@ class KanbanTeamleadRunner:
         except KeyboardInterrupt:
             raise
         except Exception as exc:
-            slot.error = f"teamlead_crashed:{type(exc).__name__}"
+            slot.mark_crashed(exc, traceback.format_exc())
             log_event(self._log_path, "ERROR", "teamlead crashed",
                       session_id=sid, error=str(exc),
                       traceback=traceback.format_exc()[:2000])

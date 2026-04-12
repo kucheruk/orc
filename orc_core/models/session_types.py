@@ -87,6 +87,20 @@ class SessionSlot:
     crash_traceback: str = ""
     role: str = ""
 
+    @property
+    def is_active(self) -> bool:
+        return self.status in (SlotStatus.RUNNING, SlotStatus.CLOSING)
+
+    def assign_task(self, task: Task) -> None:
+        self.task = task
+
+    def clear_task(self) -> None:
+        self.task = None
+
+    def mark_crashed(self, exc: BaseException, traceback_text: str = "") -> None:
+        self.crash_traceback = traceback_text[:TRACEBACK_TRUNCATE]
+        self.error = f"crashed:{type(exc).__name__}"
+
 
 @dataclass
 class TaskContext:

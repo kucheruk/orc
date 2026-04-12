@@ -100,8 +100,7 @@ class KanbanWorkerRunner:
         except KeyboardInterrupt:
             raise
         except Exception as exc:
-            slot.crash_traceback = traceback.format_exc()[:2000]
-            slot.error = f"worker_crashed:{type(exc).__name__}"
+            slot.mark_crashed(exc, traceback.format_exc())
             self._publisher._emit("escalate", "", f"{sid} CRASHED: {type(exc).__name__}: {exc}")
             log_event(self._log_path, "ERROR", "worker crashed",
                       session_id=sid, error=str(exc),
