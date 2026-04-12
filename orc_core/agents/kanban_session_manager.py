@@ -138,7 +138,7 @@ class KanbanSessionManager:
             engine=self.engine,
             slots=self._pool.slots,
             slots_lock=self._pool.slots_lock,
-            failed_tasks=self._outcomes.failed_tasks,
+            outcomes=self._outcomes,
             log_path=self.log_path,
             workdir=self.workdir,
             max_sessions=self._pool.max_sessions,

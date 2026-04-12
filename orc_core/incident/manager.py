@@ -31,6 +31,7 @@ from .domain import (
     IncidentPhase,
 )
 
+from ..agents.task_outcome_tracker import TaskOutcomeTracker
 from .kanban_protocols import RunnerStateManager, SessionController
 
 if TYPE_CHECKING:
@@ -55,7 +56,7 @@ class IncidentManager:
         engine: "TaskExecutor",
         slots: dict[str, SessionSlot],
         slots_lock: threading.Lock,
-        failed_tasks: list[str],
+        outcomes: TaskOutcomeTracker,
         log_path: Path,
         workdir: str,
         max_sessions: int,
@@ -68,7 +69,7 @@ class IncidentManager:
         self.engine = engine
         self._slots = slots
         self._slots_lock = slots_lock
-        self._failed_tasks = failed_tasks
+        self._outcomes = outcomes
         self.log_path = log_path
         self.workdir = workdir
         self.max_sessions = max_sessions
@@ -137,8 +138,8 @@ class IncidentManager:
         return self._state_manager
 
     @property
-    def failed_tasks(self):
-        return self._failed_tasks
+    def failed_tasks(self) -> list[str]:
+        return self._outcomes.failed_tasks
 
     # ── Helpers ───────────────────────────────────────────────────
 
