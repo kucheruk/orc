@@ -25,13 +25,14 @@ if TYPE_CHECKING:
     from .kanban_board import KanbanBoard
     from .kanban_card import KanbanCard
 
-# Role names returned by the pull system (mapped to prompt templates)
-ROLE_INTEGRATOR = "integrator"
-ROLE_TESTER = "tester"
-ROLE_REVIEWER = "reviewer"
-ROLE_CODER = "coder"
-ROLE_ARCHITECT = "architect"
-ROLE_PRODUCT = "product"
+from .kanban_role_registry import (
+    ROLE_ARCHITECT,
+    ROLE_CODER,
+    ROLE_INTEGRATOR,
+    ROLE_PRODUCT,
+    ROLE_REVIEWER,
+    ROLE_TESTER,
+)
 
 
 @dataclass(frozen=True)

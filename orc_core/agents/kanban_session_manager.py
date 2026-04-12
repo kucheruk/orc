@@ -42,7 +42,7 @@ from .kanban_teamlead_runner import KanbanTeamleadRunner
 from .kanban_worker_runner import KanbanWorkerRunner
 from ..notifications.notify import send_telegram_message
 from ..git.project_hooks import fire_hooks
-from .kanban_roles import ROLE_TEAMLEAD
+from ..board.kanban_role_registry import ROLE_TEAMLEAD
 from ..infra.logging import log_event
 from ..infra.quit_signal import is_quit_after_task_requested, is_stop_requested
 from .session_pool import SessionPool

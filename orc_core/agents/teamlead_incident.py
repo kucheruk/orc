@@ -62,7 +62,7 @@ class Incident:
 
 # ── Prompt builder ────────────────────────────────────────────────
 
-ROLE_TEAMLEAD_TRIAGE = "teamlead_triage"
+from ..board.kanban_role_registry import ROLE_TEAMLEAD_TRIAGE
 
 _FRONT_RE = re.compile(r"\A---\n(.*?\n?)---\n?(.*)", re.DOTALL)
 
@@ -82,7 +82,8 @@ def build_incident_prompt(
     Writes the full traceback to a file at ``orc_root / TRACEBACK_FILENAME``
     so the agent can read the untruncated version.
     """
-    from .kanban_roles import _load_template, format_board_summary, _SafeDict
+    from ..board.kanban_role_registry import load_role_template
+    from .kanban_roles import format_board_summary, _SafeDict
 
     # Write full traceback to a separate file so the agent isn't limited by prompt size
     traceback_path = orc_root / TRACEBACK_FILENAME
@@ -92,7 +93,7 @@ def build_incident_prompt(
     # ORC install path — agent can read orc_core/ files for ORC error analysis
     orc_install_path = str(Path(__file__).resolve().parent)
 
-    template = _load_template(ROLE_TEAMLEAD_TRIAGE)
+    template = load_role_template(ROLE_TEAMLEAD_TRIAGE)
     return template.format_map(_SafeDict(
         board_summary=format_board_summary(board),
         error_type=incident.error_type,

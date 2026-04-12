@@ -4,28 +4,25 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..board.kanban_constants import COS_PRIORITY, STAGE_DONE, STAGES
-from ..board.kanban_pull import (
+from ..board.kanban_role_registry import (
     ROLE_ARCHITECT,
     ROLE_CODER,
     ROLE_INTEGRATOR,
     ROLE_PRODUCT,
     ROLE_REVIEWER,
+    ROLE_TEAMLEAD,
+    ROLE_TEAMLEAD_TRIAGE,
     ROLE_TESTER,
+    clear_template_cache,
+    load_role_template,
 )
 
 if TYPE_CHECKING:
     from ..board.kanban_board import KanbanBoard
     from ..board.kanban_card import KanbanCard
-
-_BASE_DIR = Path(__file__).resolve().parents[2]
-_PROMPTS_DIR = _BASE_DIR / "prompts"
-
-ROLE_TEAMLEAD = "teamlead"
-ROLE_TEAMLEAD_TRIAGE = "teamlead_triage"
 
 # ── Shared prompt blocks (DRY) ────────────────────────────────────
 
@@ -53,21 +50,6 @@ _FEEDBACK_LOOP_BLOCK = (
     "or are you and the coder going in circles over something minor?"
 )
 
-_PROMPT_FILES: dict[str, str] = {
-    ROLE_PRODUCT: "kanban_product.txt",
-    ROLE_ARCHITECT: "kanban_architect.txt",
-    ROLE_CODER: "kanban_coder.txt",
-    ROLE_REVIEWER: "kanban_reviewer.txt",
-    ROLE_TESTER: "kanban_tester.txt",
-    ROLE_INTEGRATOR: "kanban_integrator.txt",
-    ROLE_TEAMLEAD: "kanban_teamlead.txt",
-    ROLE_TEAMLEAD_TRIAGE: "kanban_teamlead_triage.txt",
-}
-
-# Cache loaded templates
-_template_cache: dict[str, str] = {}
-
-
 def _escape_braces(text: str) -> str:
     """Escape ``{`` / ``}`` so they survive ``str.format_map`` without being
     interpreted as format specifiers.  Required for any user-authored content
@@ -78,7 +60,7 @@ def _escape_braces(text: str) -> str:
 def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard",
                  *, main_branch: str = "main") -> str:
     """Build a complete prompt for the given role, card, and board state."""
-    template = _load_template(role)
+    template = load_role_template(role)
     card_content = _escape_braces(card.to_markdown())
     card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
     board_summary = format_board_summary(board)
@@ -250,7 +232,7 @@ def build_teamlead_prompt(
 
     Modes: 'arbitration', 'directive', 'health'.
     """
-    template = _load_template(ROLE_TEAMLEAD)
+    template = load_role_template(ROLE_TEAMLEAD)
     board_detail = _escape_braces(format_board_detail(board, token_stats=token_stats))
     board_summary = format_board_summary(board)
 
@@ -318,22 +300,6 @@ def build_teamlead_prompt(
         loop_count=str(card.loop_count) if card else "0",
         decision_path=decision_path,
     ))
-
-
-def _load_template(role: str) -> str:
-    if role in _template_cache:
-        return _template_cache[role]
-    filename = _PROMPT_FILES.get(role)
-    if not filename:
-        raise ValueError(f"Unknown kanban role: {role}")
-    path = _PROMPTS_DIR / filename
-    template = path.read_text(encoding="utf-8")
-    _template_cache[role] = template
-    return template
-
-
-def clear_template_cache() -> None:
-    _template_cache.clear()
 
 
 from ..infra.text_parse import SafeDict as _SafeDict
