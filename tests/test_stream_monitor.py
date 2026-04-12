@@ -129,7 +129,8 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
         state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
         event = {"type": "assistant", "subtype": "reasoning"}
-        state._reasoning._remember_reasoning(event, "**Checking for existing technical specs**", state._iter_values)
+        from orc_core.infra.monitoring.event_text import iter_event_values
+        state._reasoning._remember_reasoning(event, "**Checking for existing technical specs**", iter_event_values)
 
         self.assertEqual(len(state._reasoning._recent_reasoning), 1)
         self.assertNotIn("**", state._reasoning._recent_reasoning[-1])
@@ -145,10 +146,9 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertGreater(len(lines), 1)
 
     def test_extract_text_reads_message_content_list(self) -> None:
-        from orc_core.infra.monitoring.stream_monitor_state import StreamMonitorState
+        from orc_core.infra.monitoring.event_text import extract_text
 
-        state = StreamMonitorState(task_id="TASK-1", started_at=time.time(), summary_lines=25)
-        text = state._extract_text(
+        text = extract_text(
             {
                 "type": "assistant",
                 "message": {
