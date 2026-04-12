@@ -123,6 +123,56 @@ def _atexit_kill_group() -> None:
     kill_own_process_group()
 
 
+def _resolve_model(args, workdir: str, role_registry: RoleProfileRegistry) -> str:
+    """Resolve the effective model from CLI args, role config, or saved preference."""
+    if str(args.model).strip():
+        return args.model
+    coder_config = role_registry.resolve_role(workdir, ROLE_CODER)
+    return coder_config.model or load_last_selected_model(workdir) or DEFAULT_MODEL
+
+
+def _resolve_templates(args, workdir: str, role_registry: RoleProfileRegistry) -> tuple[str, str, str, str]:
+    """Resolve commit/merge templates. Returns (commit_model, commit_template, merge_model, merge_template)."""
+    commit_template = ""
+    merge_expert_template = ""
+    merge_expert_model = ""
+    commit_model = str(args.commit_model).strip()
+    if args.commit_phase:
+        handoff_config = role_registry.resolve_role(workdir, ROLE_HANDOFF, cli_model=commit_model)
+        commit_model = handoff_config.model
+        commit_template = handoff_config.prompt
+    merge_expert_config = role_registry.resolve_role(workdir, ROLE_MERGE_EXPERT)
+    merge_expert_model = merge_expert_config.model
+    merge_expert_template = merge_expert_config.prompt
+    return commit_model, commit_template, merge_expert_model, merge_expert_template
+
+
+def _build_orchestrator(args, workdir: str, log_path: Path, backend, base_branch: str,
+                        commit_template: str, merge_expert_template: str, merge_expert_model: str):
+    """Create TaskExecutionEngine + KanbanSessionManager."""
+    from ..board.kanban_init import init_kanban_board
+    from ..agents.kanban_session_manager import KanbanSessionManager
+    from ..config import OrcConfig
+
+    engine = TaskExecutionEngine(log_path=log_path, backend=backend)
+    tasks_dir = init_kanban_board(Path(workdir))
+    orc_config = OrcConfig.from_namespace(args)
+    manager = KanbanSessionManager(
+        workdir=workdir,
+        tasks_dir=tasks_dir,
+        config=orc_config,
+        log_path=log_path,
+        engine=engine,
+        commit_template=commit_template,
+        merge_expert_template=merge_expert_template,
+        merge_expert_model=merge_expert_model,
+        main_branch=base_branch,
+        max_sessions=max(2, min(int(getattr(args, "max_sessions", 0) or 4), 4)),
+        backend=backend,
+    )
+    return manager
+
+
 def main() -> int:
     os.setpgrp()  # ORC becomes process group leader
     atexit.register(_atexit_kill_group)
@@ -160,10 +210,7 @@ def main() -> int:
             ui_error(str(exc))
             return 2
 
-        # Resolve model
-        if not str(args.model).strip():
-            coder_config = role_registry.resolve_role(workdir, ROLE_CODER)
-            args.model = coder_config.model or load_last_selected_model(workdir) or DEFAULT_MODEL
+        args.model = _resolve_model(args, workdir, role_registry)
 
         debug_log_path = init_debug_logging(enabled=bool(args.debug), workdir=workdir)
         if debug_log_path is not None:
@@ -186,45 +233,18 @@ def main() -> int:
         acquire_lock(lock_path, log_path)
         lock_acquired = True
         try:
-            # Resolve commit/merge templates
-            commit_template = ""
-            merge_expert_template = ""
-            merge_expert_model = ""
             try:
-                if args.commit_phase:
-                    handoff_config = role_registry.resolve_role(
-                        workdir, ROLE_HANDOFF,
-                        cli_model=str(args.commit_model).strip(),
-                    )
-                    args.commit_model = handoff_config.model
-                    commit_template = handoff_config.prompt
-                merge_expert_config = role_registry.resolve_role(workdir, ROLE_MERGE_EXPERT)
-                merge_expert_model = merge_expert_config.model
-                merge_expert_template = merge_expert_config.prompt
+                args.commit_model, commit_template, merge_expert_model, merge_expert_template = (
+                    _resolve_templates(args, workdir, role_registry)
+                )
             except FileNotFoundError as exc:
                 log_event(log_path, "ERROR", "prompt file missing", error=str(exc))
                 ui_error(str(exc))
                 return 2
 
-            engine = TaskExecutionEngine(log_path=log_path, backend=backend)
-
-            from ..board.kanban_init import init_kanban_board
-            from ..agents.kanban_session_manager import KanbanSessionManager
-            from ..config import OrcConfig
-            tasks_dir = init_kanban_board(Path(workdir))
-            orc_config = OrcConfig.from_namespace(args)
-            manager = KanbanSessionManager(
-                workdir=workdir,
-                tasks_dir=tasks_dir,
-                config=orc_config,
-                log_path=log_path,
-                engine=engine,
-                commit_template=commit_template,
-                merge_expert_template=merge_expert_template,
-                merge_expert_model=merge_expert_model,
-                main_branch=base_branch,
-                max_sessions=max(2, min(int(getattr(args, "max_sessions", 0) or 4), 4)),
-                backend=backend,
+            manager = _build_orchestrator(
+                args, workdir, log_path, backend, base_branch,
+                commit_template, merge_expert_template, merge_expert_model,
             )
 
             def _run_orchestrator(snapshot_publisher: Callable[[str, MonitorSnapshot | None], None]) -> int:
