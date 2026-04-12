@@ -23,7 +23,7 @@ from ..infra.session_types import (
 )
 from ..infra.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
-from ..tasks.task_source import Task
+from ..infra.task_types import Task
 from .worktree_flow import (
     get_head_commit,
     integrate_commit_into_main,

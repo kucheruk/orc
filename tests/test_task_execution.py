@@ -25,7 +25,7 @@ from orc_core.tasks.task_execution_types import (
 )
 from orc_core.infra.text_parse import SafeDict
 from orc_core.tasks.stage_artifacts import build_stage_artifact_bundle
-from orc_core.tasks.task_source import Task
+from orc_core.infra.task_types import Task
 
 
 class _FakeProc:

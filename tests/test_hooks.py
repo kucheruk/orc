@@ -13,8 +13,9 @@ from unittest.mock import patch
 from orc_core.infra.atomic_io import write_json_atomic
 from orc_core.tasks.hooks import ensure_repo_hooks, ensure_repo_hooks_config, write_task_file
 from orc_core.tasks.hooks import update_task_restart_count
-from orc_core.tasks.task_state import runtime_state_path
-from orc_core.tasks.task_source import MarkdownTaskSource, Task
+from orc_core.infra.runtime_state import runtime_state_path
+from orc_core.infra.task_types import Task
+from orc_core.tasks.task_source import MarkdownTaskSource
 
 
 def _git(args: list[str], cwd: Path) -> None:

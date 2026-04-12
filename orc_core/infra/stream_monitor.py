@@ -72,7 +72,7 @@ class StreamJsonMonitor:
         if runtime_override:
             self._task_runtime_state_path = Path(runtime_override)
         else:
-            from ..tasks.task_state import runtime_state_path
+            from .runtime_state import runtime_state_path
             self._task_runtime_state_path = runtime_state_path(self._task_state_path)
         stats_override = child_env.get("ORC_STATS_FILE", "").strip()
         self._stats_path = Path(stats_override) if stats_override else stats_path(self.workdir)
@@ -88,7 +88,13 @@ class StreamJsonMonitor:
             stats_path=self._stats_path, metrics_path=self._metrics_path,
             timeline_id=self.timeline_id, attempt=self.attempt,
             started_at=self.started_at,
+            backlog_task_lister=self._list_backlog_tasks,
         )
+
+    @staticmethod
+    def _list_backlog_tasks(backlog_path):
+        from ..tasks.task_source import MarkdownTaskSource
+        return MarkdownTaskSource(backlog_path).list_tasks()
 
         # Spawn agent subprocess — callbacks run on the asyncio reader thread
         self._agent = AgentProcess(

@@ -25,7 +25,7 @@ from ..infra.session_types import (
     SessionSlot,
     SlotStatus,
 )
-from ..tasks.task_source import Task
+from ..infra.task_types import Task
 from .teamlead_incident import (
     DECISION_FILENAME,
     FIX_CARD_PREFIX,

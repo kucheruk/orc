@@ -26,7 +26,7 @@ from ..infra.state_paths import run_root, stats_path
 from ..infra.session_types import SessionSlot, SlotStatus
 from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
 from ..tasks.task_execution import TaskExecutionEngine
-from ..tasks.task_source import Task
+from ..infra.task_types import Task
 from .teamlead_incident import Incident
 
 _logger = logging.getLogger(__name__)

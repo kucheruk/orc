@@ -753,6 +753,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
     def test_refresh_backlog_progress_reads_counts_from_backlog_file(self) -> None:
         from orc_core.infra.monitor_metrics_collector import MonitorMetricsCollector
+        from orc_core.tasks.task_source import MarkdownTaskSource
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             backlog_path = root / "BACKLOG.md"
@@ -764,6 +765,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
                 metrics=MagicMock(), task_state_path=root / ".cursor" / "orc-task.json",
                 task_runtime_state_path=root / "runtime.json", stats_path=root / "stats.json",
                 metrics_path=root / "metrics.json", timeline_id="", attempt=0, started_at=0.0,
+                backlog_task_lister=lambda p: MarkdownTaskSource(p).list_tasks(),
             )
             collector.refresh_backlog_progress(state)
 

@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from .kanban_board import KanbanBoard
 from .kanban_constants import STAGE_DONE
-from ..tasks.task_source import Task
+from ..infra.task_types import Task
 
 
 class KanbanTaskSource:

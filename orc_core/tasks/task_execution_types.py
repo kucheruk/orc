@@ -26,7 +26,7 @@ class TaskCompletionStatus(StrEnum):
     MODEL_UNAVAILABLE = "model_unavailable"
 from ..infra.runner import launch_agent_stream_json
 from ..infra.monitor_types import MonitorSnapshot
-from .task_source import Task
+from ..infra.task_types import Task
 
 
 SDLC_FEEDBACK_MAX_ITERATIONS = 3

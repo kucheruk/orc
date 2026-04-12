@@ -3,7 +3,7 @@
 
 import unittest
 
-from orc_core.tasks.task_contract import extract_task_id
+from orc_core.board.task_contract import extract_task_id
 
 
 class TaskContractTest(unittest.TestCase):

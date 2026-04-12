@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Protocol
 
 from ..board.backlog_markdown_parser import mark_task_done_in_lines, parse_backlog_markdown
-
-
-@dataclass(frozen=True)
-class Task:
-    task_id: str
-    text: str
-    done: bool
+from ..infra.task_types import Task
 
 
 class TaskSource(Protocol):

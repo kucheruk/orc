@@ -9,10 +9,15 @@ from typing import Optional
 
 from ..infra.atomic_io import write_json_atomic
 from ..infra.logging import log_event
+from ..infra.runtime_state import (
+    TASK_RUNTIME_FILE_NAME,
+    init_runtime_payload,
+    load_runtime_payload,
+    runtime_state_path,
+)
 from ..infra.state_paths import tmp_dir
 
 AGENT_LS_TIMEOUT_SECONDS = 15.0
-TASK_RUNTIME_FILE_NAME = "orc-task-runtime.json"
 
 
 def create_temp_backlog(workdir: str, task_text: str, log_path: Path) -> tuple[Path, str]:
@@ -33,28 +38,6 @@ def load_task_payload(task_path: Path) -> dict:
         return payload if isinstance(payload, dict) else {}
     except Exception:
         return {}
-
-
-def runtime_state_path(task_path: Path) -> Path:
-    return task_path.with_name(TASK_RUNTIME_FILE_NAME)
-
-
-def load_runtime_payload(runtime_path: Path) -> dict:
-    try:
-        payload = json.loads(runtime_path.read_text(encoding="utf-8"))
-        return payload if isinstance(payload, dict) else {}
-    except Exception:
-        return {}
-
-
-def init_runtime_payload(task_id: str) -> dict:
-    return {
-        "version": 1,
-        "task_id": str(task_id or "").strip(),
-        "active_seconds": 0.0,
-        "last_heartbeat_at": 0.0,
-        "run_id": "",
-    }
 
 
 def write_task_runtime_state(task_path: Path, task_id: str) -> Path:

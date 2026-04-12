@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
-from ..tasks.task_source import Task
+from .task_types import Task
 
 if TYPE_CHECKING:
     from .monitor_types import MonitorSnapshot

@@ -13,7 +13,7 @@ from ..infra.state_paths import parallel_task_path
 from ..infra.state_paths import run_root as state_run_root
 from ..infra.monitor_types import MonitorSnapshot
 from ..tasks.task_execution_types import ModelConfig, TaskExecutionRequest, TemplateConfig, TimingConfig
-from ..tasks.task_source import Task
+from ..infra.task_types import Task
 
 
 def _ensure_board_sentinel(tasks_dir: Path) -> Path:

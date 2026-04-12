@@ -6,7 +6,9 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, List, Optional
+
+from .task_types import Task
 
 from .atomic_io import write_json_atomic
 from .logging import log_event, now_ms
@@ -31,6 +33,7 @@ class MonitorMetricsCollector:
         timeline_id: str,
         attempt: int,
         started_at: float,
+        backlog_task_lister: Optional[Callable[[Path], List[Task]]] = None,
     ) -> None:
         self._task_id = task_id
         self._workdir = workdir
@@ -43,6 +46,7 @@ class MonitorMetricsCollector:
         self._timeline_id = timeline_id
         self._attempt = attempt
         self._started_at = started_at
+        self._backlog_task_lister = backlog_task_lister
         self._run_id = f"{int(started_at)}-{task_id}"
         self._last_git_stats_time = 0.0
 
@@ -128,9 +132,10 @@ class MonitorMetricsCollector:
             return
         if not backlog_path.exists():
             return
+        if self._backlog_task_lister is None:
+            return
         try:
-            from ..tasks.task_source import MarkdownTaskSource
-            tasks = MarkdownTaskSource(backlog_path).list_tasks()
+            tasks = self._backlog_task_lister(backlog_path)
         except Exception as exc:
             log_event(self._log_path, "WARN", "backlog progress refresh failed", error=str(exc))
             return
@@ -161,7 +166,7 @@ class MonitorMetricsCollector:
         state.set_eta_seconds(avg_seconds * remaining if remaining > 0 else 0.0)
 
     def update_task_runtime_state(self) -> None:
-        from ..tasks.task_state import init_runtime_payload, load_runtime_payload
+        from .runtime_state import init_runtime_payload, load_runtime_payload
 
         started_ms = now_ms()
         now = time.time()

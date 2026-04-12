@@ -8,7 +8,7 @@ from typing import Sequence
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-from ..tasks.task_contract import extract_task_id
+from .task_contract import extract_task_id
 
 CHECKBOX_TEXT_RE = re.compile(r"^\[(?P<mark>[ xX])\]\s*(?P<text>.*)$", re.UNICODE)
 LIST_ITEM_CHECKBOX_RE = re.compile(r"^\s*[-+*]\s*\[[ xX]\]")

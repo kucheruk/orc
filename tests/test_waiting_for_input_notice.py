@@ -13,7 +13,7 @@ from orc_core.tasks.task_execution_types import (
     TemplateConfig,
     TimingConfig,
 )
-from orc_core.tasks.task_source import Task
+from orc_core.infra.task_types import Task
 
 
 class _FakeProc:
