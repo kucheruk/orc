@@ -45,9 +45,17 @@ class KanbanBoard:
         self._wip_limits: dict[str, int] = dict(DEFAULT_WIP_LIMITS)
         self._card_locks: dict[str, threading.Lock] = {}
         self._last_stage_mtimes: dict[str, float] = {}
-        self.on_move: Optional[Callable[[str, str, str, str], None]] = None  # (card_id, from, to, reason)
-        self.on_action_change: Optional[Callable[[str, str, str, str], None]] = None  # (card_id, old, new, role)
+        self._move_listeners: list[Callable[[str, str, str, str], None]] = []
+        self._action_change_listeners: list[Callable[[str, str, str, str], None]] = []
         self.refresh(force=True)
+
+    # ── Event listeners ────────────────────────────────────────
+
+    def on_move(self, listener: Callable[[str, str, str, str], None]) -> None:
+        self._move_listeners.append(listener)
+
+    def on_action_change(self, listener: Callable[[str, str, str, str], None]) -> None:
+        self._action_change_listeners.append(listener)
 
     # ── State hydration ─────────────────────────────────────────
 
@@ -255,22 +263,23 @@ class KanbanBoard:
             card.touch()
             write_card(card, new_path)
 
-        if self.on_move:
+        for listener in self._move_listeners:
             try:
-                self.on_move(card.id, old_stage, new_stage, reason)
+                listener(card.id, old_stage, new_stage, reason)
             except Exception:
-                _logger.warning("on_move callback failed for %s", card.id, exc_info=True)
+                _logger.warning("on_move listener failed for %s", card.id, exc_info=True)
 
     def save_card(self, card: KanbanCard, *, old_action: str = "", role: str = "") -> None:
         with self._lock:
             card.touch()
             card.refresh_roi()
             write_card(card)
-        if old_action and old_action != card.action and self.on_action_change:
-            try:
-                self.on_action_change(card.id, old_action, card.action, role)
-            except Exception:
-                _logger.warning("on_action_change callback failed for %s", card.id, exc_info=True)
+        if old_action and old_action != card.action:
+            for listener in self._action_change_listeners:
+                try:
+                    listener(card.id, old_action, card.action, role)
+                except Exception:
+                    _logger.warning("on_action_change listener failed for %s", card.id, exc_info=True)
 
     def assign_agent(self, card: KanbanCard, agent_id: str) -> None:
         with self._lock:

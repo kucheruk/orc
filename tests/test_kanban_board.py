@@ -240,7 +240,7 @@ class TestCallbackWarnings(unittest.TestCase):
             tasks_dir, _ = _make_board(tmp)
             _add_card(tasks_dir, KanbanCard(id="CB-1", stage="4_Coding", action="Coding"))
             board = KanbanBoard(tasks_dir)
-            board.on_move = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
+            board.on_move(lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
 
             card = board.card_by_id("CB-1")
             board.move_card(card, "5_Review")
@@ -252,7 +252,7 @@ class TestCallbackWarnings(unittest.TestCase):
             tasks_dir, _ = _make_board(tmp)
             _add_card(tasks_dir, KanbanCard(id="CB-2", stage="4_Coding", action="Coding"))
             board = KanbanBoard(tasks_dir)
-            board.on_action_change = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
+            board.on_action_change(lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
 
             card = board.card_by_id("CB-2")
             card.action = "Reviewing"

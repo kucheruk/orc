@@ -353,8 +353,8 @@ class KanbanSessionManager:
                 "ORC_REASON": reason,
             })
 
-        board.on_move = _on_move
-        board.on_action_change = lambda cid, old, new, role: self.publisher.log_action_change(cid, old, new, role)
+        board.on_move(_on_move)
+        board.on_action_change(lambda cid, old, new, role: self.publisher.log_action_change(cid, old, new, role))
 
     # ── Manager loop ────────────────────────────────────────────
 
