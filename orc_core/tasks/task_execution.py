@@ -398,7 +398,7 @@ class TaskExecutionEngine:
                         stage_total=len(stage_specs),
                     )
                     try:
-                        active_monitor = self.worker.launch(LaunchConfig(
+                        launch_cfg = LaunchConfig(
                             workdir=request.workdir,
                             prompt_path=prompt_path,
                             model=stage_model,
@@ -417,7 +417,13 @@ class TaskExecutionEngine:
                             resume_prompt=resume_prompt_text if stage_resume_existing else None,
                             timeline_id=timeline_id,
                             attempt=attempt_number,
-                        ))
+                        )
+                        active_monitor, result = self._launch_and_wait(
+                            ctx, launch_cfg,
+                            elapsed_before_start=elapsed_before_start_stage,
+                            ignore_initial_backlog_done=enforce_stage_artifacts and stage_index > 0,
+                            attempt_number=attempt_number,
+                        )
                     except FileNotFoundError:
                         _logger.error("❌ agent не найден. Установите Cursor CLI (agent) и попробуйте снова.")
                         ts_attempt.result = "failed"
@@ -425,54 +431,6 @@ class TaskExecutionEngine:
                         ts_exec.result = "failed"
                         ts_exec.reason = "agent_not_found"
                         return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="agent_not_found")
-
-                    try:
-                        with timeline_step(
-                            timeline_id=timeline_id,
-                            task_id=task_id,
-                            step="wait_for_completion",
-                            location="orc_core/task_execution.py:TaskExecutionEngine.execute",
-                            attempt=attempt_number,
-                        ) as ts_wait:
-                            result = wait_for_completion(
-                                task_path=request.task_path,
-                                monitor=active_monitor,
-                                poll=request.timing.poll,
-                                stall_timeout=request.timing.stall_timeout,
-                                task_ttl=request.timing.task_ttl,
-                                elapsed_before_start=elapsed_before_start_stage,
-                                ignore_initial_backlog_done=enforce_stage_artifacts and stage_index > 0,
-                                log_path=self.log_path,
-                                nudge_after=request.timing.nudge_after,
-                                nudge_cooldown=request.timing.nudge_cooldown,
-                                nudge_text=request.timing.nudge_text,
-                                task_id=task_id,
-                                task_text=task_text,
-                                timeline_id=timeline_id,
-                                attempt=attempt_number,
-                                escape_requested=is_stop_requested,
-                            )
-                            ts_wait.result = result
-                    finally:
-                        try:
-                            active_monitor.stop()
-                        except Exception:
-                            pass
-                        _cleanup_monitor_processes(active_monitor, self.log_path, label="agent")
-
-                    debug_log(
-                        "H8",
-                        "orc_core/task_execution.py:execute:completion_state",
-                        "completion state",
-                        {
-                            "result": result,
-                            "monitor_is_none": active_monitor is None,
-                            "lines": active_monitor.metrics.total_lines,
-                            "commands": active_monitor.metrics.command_count,
-                            "tokens_total": active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-",
-                            "stage_id": stage_id,
-                        },
-                    )
 
                     if result == TaskCompletionStatus.COMPLETED:
                         stage_failure, stage_next_index, stage_completed_final = self._complete_stage_impl(
@@ -625,6 +583,61 @@ class TaskExecutionEngine:
         ts_exec.result = "failed"
         ts_exec.reason = "no_final_stage_completion"
         return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="no_final_stage_completion")
+
+    def _launch_and_wait(
+        self, ctx: _ExecutionContext, launch_config: LaunchConfig,
+        *, elapsed_before_start: float, ignore_initial_backlog_done: bool,
+        attempt_number: int,
+    ) -> tuple[object, TaskCompletionStatus]:
+        """Launch agent, wait for completion, cleanup. Returns (monitor, status)."""
+        request = ctx.request
+        active_monitor = self.worker.launch(launch_config)
+        try:
+            with timeline_step(
+                timeline_id=ctx.timeline_id,
+                task_id=ctx.task_id,
+                step="wait_for_completion",
+                location="orc_core/task_execution.py:TaskExecutionEngine._launch_and_wait",
+                attempt=attempt_number,
+            ) as ts_wait:
+                result = wait_for_completion(
+                    task_path=request.task_path,
+                    monitor=active_monitor,
+                    poll=request.timing.poll,
+                    stall_timeout=request.timing.stall_timeout,
+                    task_ttl=request.timing.task_ttl,
+                    elapsed_before_start=elapsed_before_start,
+                    ignore_initial_backlog_done=ignore_initial_backlog_done,
+                    log_path=self.log_path,
+                    nudge_after=request.timing.nudge_after,
+                    nudge_cooldown=request.timing.nudge_cooldown,
+                    nudge_text=request.timing.nudge_text,
+                    task_id=ctx.task_id,
+                    task_text=ctx.task_text,
+                    timeline_id=ctx.timeline_id,
+                    attempt=attempt_number,
+                    escape_requested=is_stop_requested,
+                )
+                ts_wait.result = result
+        finally:
+            try:
+                active_monitor.stop()
+            except Exception:
+                pass
+            _cleanup_monitor_processes(active_monitor, self.log_path, label="agent")
+        debug_log(
+            "H8",
+            "orc_core/task_execution.py:execute:completion_state",
+            "completion state",
+            {
+                "result": result,
+                "monitor_is_none": active_monitor is None,
+                "lines": active_monitor.metrics.total_lines,
+                "commands": active_monitor.metrics.command_count,
+                "tokens_total": active_monitor.metrics.tokens_total if active_monitor.metrics.tokens_total is not None else "-",
+            },
+        )
+        return active_monitor, result
 
     def _finalize_completed_impl(self, ctx: _ExecutionContext, current_task_id: str, current_task_text: str, current_tag: str, monitor) -> TaskExecutionResult:
         return _finalize_completed(self, ctx, current_task_id, current_task_text, current_tag, monitor)
