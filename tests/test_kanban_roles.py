@@ -37,7 +37,7 @@ class TestBuildPrompt(unittest.TestCase):
         card = KanbanCard(id="T-1", title="Test task", stage="4_Coding", action="Coding", body="body")
         stage_dir = self.tasks_dir / "4_Coding"
         write_card(card, stage_dir / "T-1.md")
-        self.board = KanbanBoard(self.tasks_dir)
+        self.board = KanbanBoard(self.tasks_dir, repo=FsCardRepository())
         self.card = self.board.card_by_id("T-1")
 
     def tearDown(self):
@@ -71,7 +71,7 @@ class TestBoardSummary(unittest.TestCase):
     def test_format_has_all_stages(self):
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir = init_kanban_board(Path(tmp))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             summary = format_board_summary(board)
             self.assertIn("1_Inbox", summary)
             self.assertIn("8_Done", summary)

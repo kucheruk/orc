@@ -11,6 +11,7 @@ from typing import Optional
 
 from .kanban_board import KanbanBoard
 from .kanban_card import KanbanCard
+from ..infra.adapters.fs_card_repository import FsCardRepository
 from .stage_constants import STAGE_DONE
 from .kanban_pull import WorkAssignment, find_next_work, find_teamlead_work
 
@@ -25,7 +26,7 @@ class KanbanDistributor:
 
     def __init__(self, tasks_dir: Path) -> None:
         self._tasks_dir = tasks_dir
-        self._board = KanbanBoard(tasks_dir)
+        self._board = KanbanBoard(tasks_dir, repo=FsCardRepository())
         self._lock = threading.Lock()
 
     @property

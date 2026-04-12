@@ -30,7 +30,7 @@ from orc_core.incident.domain import (
 def _make_board(tmp: str) -> tuple[Path, KanbanBoard]:
     root = Path(tmp)
     tasks_dir = init_kanban_board(root)
-    return tasks_dir, KanbanBoard(tasks_dir)
+    return tasks_dir, KanbanBoard(tasks_dir, repo=FsCardRepository())
 
 
 def _add_card(tasks_dir: Path, card: KanbanCard) -> None:

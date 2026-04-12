@@ -20,7 +20,7 @@ from orc_core.board.kanban_snapshot import (
 
 def _setup(tmp: str) -> tuple[Path, KanbanBoard]:
     tasks_dir = init_kanban_board(Path(tmp))
-    return tasks_dir, KanbanBoard(tasks_dir)
+    return tasks_dir, KanbanBoard(tasks_dir, repo=FsCardRepository())
 
 
 def _add(tasks_dir: Path, card: KanbanCard) -> None:
@@ -47,7 +47,7 @@ class TestBuildBoardSnapshot(unittest.TestCase):
             _add(td, KanbanCard(id="T-1", stage="4_Coding", action="Coding"))
             _add(td, KanbanCard(id="T-2", stage="4_Coding", action="Coding"))
             _add(td, KanbanCard(id="T-3", stage="8_Done", action="Done"))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             snap = build_board_snapshot(board, {})
             self.assertEqual(snap.metrics.total_cards, 3)
             self.assertEqual(snap.metrics.done_cards, 1)
@@ -59,7 +59,7 @@ class TestBuildBoardSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
             _add(td, KanbanCard(id="B-1", stage="5_Review", action="Blocked"))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             snap = build_board_snapshot(board, {})
             self.assertEqual(snap.metrics.blocked_cards, 1)
 
@@ -67,7 +67,7 @@ class TestBuildBoardSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
             _add(td, KanbanCard(id="A-1", stage="4_Coding", action="Coding", assigned_agent="s2"))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             snap = build_board_snapshot(board, {})
             coding = [s for s in snap.stages if s.name == "4_Coding"][0]
             self.assertEqual(coding.cards[0].assigned_agent, "s2")
@@ -82,7 +82,7 @@ class TestBuildBoardSnapshot(unittest.TestCase):
                 created_at=ago.isoformat(timespec="seconds"),
                 updated_at=now.isoformat(timespec="seconds"),
             ))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             snap = build_board_snapshot(board, {})
             self.assertGreater(snap.metrics.avg_lead_time_minutes, 9.0)
             self.assertLess(snap.metrics.avg_lead_time_minutes, 11.0)
@@ -93,7 +93,7 @@ class TestBuildBoardSnapshot(unittest.TestCase):
             td, _ = _setup(tmp)
             _add(td, KanbanCard(id="D-1", stage="8_Done", action="Done"))
             _add(td, KanbanCard(id="D-2", stage="8_Done", action="Done"))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             started = time.time() - 3600  # 1 hour ago
             snap = build_board_snapshot(board, {}, started_at=started)
             self.assertAlmostEqual(snap.metrics.throughput_per_hour, 2.0, delta=0.2)
@@ -157,7 +157,7 @@ class TestBoardCreateInbox(unittest.TestCase):
             td, _ = _setup(tmp)
             _add(td, KanbanCard(id="TASK-005", stage="4_Coding", action="Coding"))
             _add(td, KanbanCard(id="TASK-010", stage="1_Inbox", action="Product"))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             next_id = board.next_card_id()
             self.assertEqual(next_id, "TASK-011")
 

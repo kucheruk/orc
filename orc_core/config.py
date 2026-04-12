@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+DEFAULT_MODEL = "gpt-5.3-codex"
+
 
 @dataclass(frozen=True)
 class OrcConfig:

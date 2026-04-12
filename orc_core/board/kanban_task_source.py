@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from .kanban_board import KanbanBoard
 from .stage_constants import STAGE_DONE
+from ..infra.adapters.fs_card_repository import FsCardRepository
 from ..models.task_types import Task
 
 
@@ -21,7 +22,7 @@ class KanbanTaskSource:
 
     def __init__(self, tasks_dir: Path) -> None:
         self._tasks_dir = tasks_dir
-        self._board = KanbanBoard(tasks_dir)
+        self._board = KanbanBoard(tasks_dir, repo=FsCardRepository())
 
     @property
     def board(self) -> KanbanBoard:

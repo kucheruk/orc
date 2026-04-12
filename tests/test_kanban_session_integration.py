@@ -18,7 +18,7 @@ from orc_core.board.kanban_pull import find_next_work, find_teamlead_work
 
 def _setup(tmp: str) -> tuple[Path, KanbanBoard]:
     tasks_dir = init_kanban_board(Path(tmp))
-    return tasks_dir, KanbanBoard(tasks_dir)
+    return tasks_dir, KanbanBoard(tasks_dir, repo=FsCardRepository())
 
 
 def _add(tasks_dir: Path, board: KanbanBoard, card: KanbanCard) -> KanbanCard:

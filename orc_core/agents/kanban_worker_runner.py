@@ -16,10 +16,9 @@ from .task_outcome_tracker import TaskOutcomeTracker
 from ..git.integration_manager import IntegrationManager
 from ..board.stage_constants import STAGE_DONE
 from ..tasks.task_execution_types import TaskExecutionStatus
-from ..board.kanban_distributor import KanbanDistributor
-from .kanban_protocols import CompletionNotifier, RunnerLifecycle, RunnerStateManager
+from .kanban_protocols import CompletionNotifier, EventPublisher, RunnerLifecycle, RunnerStateManager, WorkDistributor
 from ..board.kanban_pull import WorkAssignment
-from .kanban_publisher import KanbanPublisher
+from .kanban_agent_output import process_agent_result
 from .kanban_roles import build_prompt
 from ..log import log_event
 from ..quit_signal import is_quit_after_task_requested
@@ -49,8 +48,8 @@ class KanbanWorkerRunner:
         workdir: str,
         log_path: Path,
         engine: TaskExecutor,
-        distributor: KanbanDistributor,
-        publisher: KanbanPublisher,
+        distributor: WorkDistributor,
+        publisher: EventPublisher,
         config: OrcConfig,
         main_branch: str,
         slots_lock: threading.Lock,
@@ -149,6 +148,7 @@ class KanbanWorkerRunner:
                     elapsed=elapsed, outcomes=self._outcomes,
                     publisher=self._publisher, notifier=self._notifier,
                     log_path=self._log_path,
+                    agent_result_processor=process_agent_result,
                 )
                 if errors:
                     self._outcomes.record_failed(card.id)

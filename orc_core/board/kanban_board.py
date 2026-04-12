@@ -11,7 +11,6 @@ from typing import Callable, Optional
 
 from .card_prioritizer import pick_best as _pick_best
 from .card_repository import CardRepository
-from ..infra.adapters.fs_card_repository import FsCardRepository
 from .kanban_card import KanbanCard, parse_card, new_card_body
 from .limits_constants import WIP_STAGES
 from .stage_constants import STAGES, STAGE_CODING, STAGE_INBOX, STAGE_ORDER
@@ -24,9 +23,9 @@ _logger = logging.getLogger(__name__)
 class KanbanBoard:
     """In-memory snapshot of the kanban board backed by the tasks/ folder tree."""
 
-    def __init__(self, tasks_dir: Path, *, repo: CardRepository | None = None) -> None:
+    def __init__(self, tasks_dir: Path, *, repo: CardRepository) -> None:
         self._tasks_dir = tasks_dir
-        self.repo: CardRepository = repo or FsCardRepository()
+        self.repo: CardRepository = repo
         self._lock = threading.RLock()
         self._cards: list[KanbanCard] = []
         self._wip = WIPManager()

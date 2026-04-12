@@ -16,7 +16,7 @@ from orc_core.board.kanban_init import init_kanban_board
 def _make_board(tmp: str) -> tuple[Path, KanbanBoard]:
     root = Path(tmp)
     tasks_dir = init_kanban_board(root)
-    return tasks_dir, KanbanBoard(tasks_dir)
+    return tasks_dir, KanbanBoard(tasks_dir, repo=FsCardRepository())
 
 
 def _add_card(tasks_dir: Path, card: KanbanCard) -> None:
@@ -39,7 +39,7 @@ class TestBoardRefresh(unittest.TestCase):
             tasks_dir, _ = _make_board(tmp)
             _add_card(tasks_dir, KanbanCard(id="T-1", stage="1_Inbox", action="Product"))
             _add_card(tasks_dir, KanbanCard(id="T-2", stage="4_Coding", action="Coding"))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             self.assertEqual(len(board.cards), 2)
             self.assertEqual(board.stage_count("1_Inbox"), 1)
             self.assertEqual(board.stage_count("4_Coding"), 1)
@@ -51,7 +51,7 @@ class TestBoardRefresh(unittest.TestCase):
             card = KanbanCard(id="T-X", stage="3_Todo", action="Coding")
             stage_dir = tasks_dir / "4_Coding"
             write_card(card, stage_dir / "T-X.md")
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             loaded = board.card_by_id("T-X")
             self.assertIsNotNone(loaded)
             self.assertEqual(loaded.stage, "4_Coding")
@@ -70,7 +70,7 @@ class TestWIPLimits(unittest.TestCase):
             tasks_dir, _ = _make_board(tmp)
             idx = tasks_dir / "4_Coding" / "_index.md"
             idx.write_text("---\nstage: 4_Coding\nwip_limit: 1\n---\n")
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             self.assertEqual(board.wip_limit("4_Coding"), 1)
 
     def test_has_wip_room(self):
@@ -79,7 +79,7 @@ class TestWIPLimits(unittest.TestCase):
             idx = tasks_dir / "4_Coding" / "_index.md"
             idx.write_text("---\nstage: 4_Coding\nwip_limit: 1\n---\n")
             _add_card(tasks_dir, KanbanCard(id="C-1", stage="4_Coding", action="Coding"))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             self.assertFalse(board.has_wip_room("4_Coding"))
 
     def test_inbox_has_no_wip_limit(self):
@@ -103,7 +103,7 @@ class TestPickBest(unittest.TestCase):
                 class_of_service="expedite", cos_justification="fire",
                 value_score=10, effort_score=90,
             ))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             best = board.pick_best("4_Coding", "Coding")
             self.assertEqual(best.id, "E-1")
 
@@ -118,7 +118,7 @@ class TestPickBest(unittest.TestCase):
                 id="H-1", stage="3_Todo", action="Coding",
                 value_score=80, effort_score=20,
             ))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             best = board.pick_best("3_Todo", "Coding")
             self.assertEqual(best.id, "H-1")
 
@@ -128,7 +128,7 @@ class TestPickBest(unittest.TestCase):
             _add_card(tasks_dir, KanbanCard(
                 id="A-1", stage="4_Coding", action="Coding", assigned_agent="s2",
             ))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             best = board.pick_best("4_Coding", "Coding")
             self.assertIsNone(best)
 
@@ -139,7 +139,7 @@ class TestPickBest(unittest.TestCase):
                 id="D-1", stage="3_Todo", action="Coding",
                 dependencies=["D-0"],
             ))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             best = board.pick_best("3_Todo", "Coding")
             self.assertIsNone(best)
 
@@ -150,7 +150,7 @@ class TestMoveCard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, _ = _make_board(tmp)
             _add_card(tasks_dir, KanbanCard(id="M-1", stage="4_Coding", action="Coding"))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             card = board.card_by_id("M-1")
             board.move_card(card, "5_Review")
             self.assertEqual(card.stage, "5_Review")
@@ -161,7 +161,7 @@ class TestMoveCard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, _ = _make_board(tmp)
             _add_card(tasks_dir, KanbanCard(id="M-2", stage="5_Review", action="Coding"))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             card = board.card_by_id("M-2")
             with self.assertRaises(ValueError):
                 board.move_card(card, "4_Coding")
@@ -173,7 +173,7 @@ class TestMoveCard(unittest.TestCase):
             idx.write_text("---\nstage: 5_Review\nwip_limit: 1\n---\n")
             _add_card(tasks_dir, KanbanCard(id="W-1", stage="5_Review", action="Reviewing"))
             _add_card(tasks_dir, KanbanCard(id="W-2", stage="4_Coding", action="Reviewing"))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             card = board.card_by_id("W-2")
             with self.assertRaises(ValueError):
                 board.move_card(card, "5_Review")
@@ -185,7 +185,7 @@ class TestBoardSummary(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, _ = _make_board(tmp)
             _add_card(tasks_dir, KanbanCard(id="S-1", stage="4_Coding", action="Coding"))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             summary = board.summary()
             self.assertIn("4_Coding", summary)
             self.assertEqual(summary["4_Coding"]["count"], 1)
@@ -242,7 +242,7 @@ class TestCallbackWarnings(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, _ = _make_board(tmp)
             _add_card(tasks_dir, KanbanCard(id="CB-1", stage="4_Coding", action="Coding"))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             board.on_move(lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
 
             card = board.card_by_id("CB-1")
@@ -254,7 +254,7 @@ class TestCallbackWarnings(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, _ = _make_board(tmp)
             _add_card(tasks_dir, KanbanCard(id="CB-2", stage="4_Coding", action="Coding"))
-            board = KanbanBoard(tasks_dir)
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             board.on_action_change(lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
 
             card = board.card_by_id("CB-2")

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Optional
 from .task_types import Task
 
 if TYPE_CHECKING:
-    from ..infra.monitoring.monitor_types import MonitorSnapshot
+    from .monitor_types import MonitorSnapshot
 
 from .git_types import WorktreeSession
 
@@ -36,37 +36,7 @@ RATE_LIMIT_MAX_RETRIES = 3
 RATE_LIMIT_BASE_BACKOFF_SECONDS = 30.0
 RATE_LIMIT_MAX_BACKOFF_SECONDS = 240.0
 
-# ── Display constants ───────────────────────────────────────────
-
-REASONING_LINES_FULL = 9
-REASONING_LINES_MEDIUM = 5
-REASONING_LINES_COMPACT = 3
-EVENTS_LINES_FULL = 8
-EVENTS_LINES_MEDIUM = 4
-RECENT_LOG_MAX_LINES = 10
-RECENT_COMMANDS_COUNT = 6
-RECENT_FILES_COUNT = 6
-
-HEADING_MAX_LENGTH = 120
-HEADING_TRUNCATE_MEDIUM = 50
-HEADING_TRUNCATE_COMPACT = 30
-STATUS_TRUNCATE_FULL = 96
-STATUS_TRUNCATE_MEDIUM = 60
-STATUS_TRUNCATE_COMPACT = 40
-
-TOKEN_THRESHOLD_MILLIONS = 1_000_000
-TOKEN_THRESHOLD_THOUSANDS = 1_000
-
-LAST_LINE_COMMAND_TRUNCATE = 30
-LAST_LINE_FILE_TRUNCATE = 30
-LAST_LINE_SOLO_TRUNCATE = 60
-
-PLACEHOLDER_WAITING = "waiting..."
-PLACEHOLDER_COMMANDS = "waiting for tool calls..."
-PLACEHOLDER_FILES = "waiting for file operations..."
-PLACEHOLDER_LAST = "waiting"
-
-STALL_THRESHOLD_SECONDS = 60.0
+# ── Error truncation constants ─────────────────────────────────
 
 TRACEBACK_TRUNCATE = 2000
 ERROR_TRUNCATE = 500

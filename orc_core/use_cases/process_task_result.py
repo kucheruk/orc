@@ -9,12 +9,14 @@ card constraints, records outcomes, and handles failures.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Callable, Optional, Protocol
 
 from ..board.kanban_board import KanbanBoard
 from ..board.kanban_card import KanbanCard
-from ..agents.kanban_agent_output import process_agent_result
 from ..log import log_event
+
+# Callable type for processing agent output: (board, card, role) -> list[errors]
+AgentResultProcessor = Callable[[KanbanBoard, KanbanCard, str], list[str]]
 from ..tasks.task_execution_types import TaskExecutionResult, TaskExecutionStatus
 
 
@@ -50,6 +52,7 @@ def process_completed_task(
     publisher: CompletionPublisher,
     notifier: CompletionNotifier,
     log_path: Path,
+    agent_result_processor: AgentResultProcessor,
 ) -> list[str]:
     """Process a successfully completed task execution.
 
@@ -59,7 +62,7 @@ def process_completed_task(
     old_stage = card.stage
     old_action = card.action
     old_cos = card.class_of_service
-    errors = process_agent_result(board, card, role)
+    errors = agent_result_processor(board, card, role)
     if not errors:
         outcomes.record_completed(card.id)
         publisher.log_complete(card.id, role, elapsed)

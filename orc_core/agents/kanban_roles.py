@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 from ..board.action_constants import COS_PRIORITY
+from ..board.board_summary import format_board_summary
 from ..board.stage_constants import STAGES, STAGE_DONE
 from ..board.kanban_role_registry import (
     ROLE_ARCHITECT,
@@ -79,19 +80,6 @@ def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard",
         feedback_loop=_FEEDBACK_LOOP_BLOCK,
     ))
 
-
-def format_board_summary(board: "KanbanBoard") -> str:
-    """Format board state as a compact text table for prompts."""
-    lines = ["| Stage | Cards | WIP Limit | Free |"]
-    lines.append("|-------|-------|-----------|------|")
-    summary = board.summary()
-    for stage in STAGES:
-        info = summary.get(stage, {"count": 0, "wip_limit": 0})
-        count = info["count"]
-        limit = info["wip_limit"]
-        free = max(0, limit - count) if limit > 0 else "∞"
-        lines.append(f"| {stage} | {count} | {limit or '∞'} | {free} |")
-    return "\n".join(lines)
 
 
 def _elapsed_str(iso_ts: str) -> str:

@@ -9,13 +9,12 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from ..config import DEFAULT_MODEL
 from ..infra.io.atomic_io import write_json_atomic
 from ..infra.state.state_paths import model_selection_path
 
 if TYPE_CHECKING:
     from ..infra.backend import Backend
-
-DEFAULT_MODEL = "gpt-5.3-codex"
 AGENT_LIST_MODELS_TIMEOUT_SECONDS = 15.0
 
 

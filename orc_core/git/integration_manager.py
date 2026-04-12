@@ -140,7 +140,8 @@ class IntegrationManager:
                           stderr=stderr[:ERROR_TRUNCATE])
                 self._hard_reset_preserving_safe_files_no_ctx()
 
-    def _hard_reset_preserving_safe_files_no_ctx(self) -> None:
+    def _do_hard_reset(self) -> list[str]:
+        """Hard-reset HEAD preserving safe tracked paths. Returns list of preserved paths."""
         saved: dict[str, str] = {}
         for safe_path in self._safe_tracked_paths:
             full = Path(self.workdir) / safe_path
@@ -156,8 +157,12 @@ class IntegrationManager:
                 full.write_text(content, encoding="utf-8")
             except OSError:
                 _logger.debug("OSError on safe path I/O", exc_info=True)
+        return list(saved.keys())
+
+    def _hard_reset_preserving_safe_files_no_ctx(self) -> None:
+        preserved = self._do_hard_reset()
         log_event(self.log_path, "WARN", "hard reset with preserved files",
-                  preserved=list(saved.keys()))
+                  preserved=preserved)
 
     # ── Private ──────────────────────────────────────────────────
 
@@ -321,19 +326,5 @@ class IntegrationManager:
             self._hard_reset_preserving_safe_files(ctx)
 
     def _hard_reset_preserving_safe_files(self, ctx: IntegrationContext) -> None:
-        saved: dict[str, str] = {}
-        for safe_path in self._safe_tracked_paths:
-            full = Path(self.workdir) / safe_path
-            if full.exists():
-                try:
-                    saved[safe_path] = full.read_text(encoding="utf-8")
-                except OSError:
-                    _logger.debug("OSError reading/writing safe path", exc_info=True)
-        run_git(self.workdir, ["git", "reset", "--hard", "HEAD"])
-        for safe_path, content in saved.items():
-            full = Path(self.workdir) / safe_path
-            try:
-                full.write_text(content, encoding="utf-8")
-            except OSError:
-                _logger.debug("OSError on safe path I/O", exc_info=True)
-        ctx.step("hard_reset_with_preserved_files", preserved=list(saved.keys()))
+        preserved = self._do_hard_reset()
+        ctx.step("hard_reset_with_preserved_files", preserved=preserved)

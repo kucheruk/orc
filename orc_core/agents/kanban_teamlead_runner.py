@@ -14,10 +14,8 @@ from typing import Optional
 from ..board.kanban_card import KanbanCard
 from ..board.action_constants import Action
 from ..tasks.task_execution_types import TaskExecutionStatus
-from ..board.kanban_distributor import KanbanDistributor
 from ..incident.manager import IncidentManager
-from .kanban_protocols import DirectiveSource, RunnerLifecycle, RunnerNotifier, RunnerStateManager
-from .kanban_publisher import KanbanPublisher
+from .kanban_protocols import DirectiveSource, EventPublisher, RunnerLifecycle, RunnerNotifier, RunnerStateManager, WorkDistributor
 from .kanban_roles import build_teamlead_prompt
 from ..git.git_helpers import run_git
 from ..log import log_event
@@ -52,8 +50,8 @@ class KanbanTeamleadRunner:
         workdir: str,
         log_path: Path,
         engine: TaskExecutor,
-        distributor: KanbanDistributor,
-        publisher: KanbanPublisher,
+        distributor: WorkDistributor,
+        publisher: EventPublisher,
         incident_mgr: IncidentManager,
         slots_lock: threading.Lock,
         arbitrated_at_loop: dict[str, int],

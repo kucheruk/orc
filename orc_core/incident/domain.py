@@ -83,7 +83,8 @@ def build_incident_prompt(
     so the agent can read the untruncated version.
     """
     from ..board.kanban_role_registry import load_role_template
-    from ..agents.kanban_roles import format_board_summary, _SafeDict
+    from ..board.board_summary import format_board_summary
+    from ..text_parse import SafeDict as _SafeDict
 
     # Write full traceback to a separate file so the agent isn't limited by prompt size
     traceback_path = orc_root / TRACEBACK_FILENAME

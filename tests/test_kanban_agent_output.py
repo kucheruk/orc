@@ -16,7 +16,7 @@ from orc_core.agents.kanban_agent_output import process_agent_result
 
 def _setup(tmp: str) -> tuple[Path, KanbanBoard]:
     tasks_dir = init_kanban_board(Path(tmp))
-    return tasks_dir, KanbanBoard(tasks_dir)
+    return tasks_dir, KanbanBoard(tasks_dir, repo=FsCardRepository())
 
 
 def _add(tasks_dir: Path, card: KanbanCard) -> KanbanCard:
@@ -34,7 +34,7 @@ class TestProductTransition(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
             card = _add(td, KanbanCard(id="P-1", stage="1_Inbox", action="Product"))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             card = board.card_by_id("P-1")
 
             # Simulate agent updating the file
@@ -57,7 +57,7 @@ class TestProductTransition(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
             card = _add(td, KanbanCard(id="P-2", stage="1_Inbox", action="Product"))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             card = board.card_by_id("P-2")
 
             # Simulate agent setting invalid action
@@ -78,7 +78,7 @@ class TestCoderTransition(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
             card = _add(td, KanbanCard(id="C-1", stage="4_Coding", action="Coding"))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             card = board.card_by_id("C-1")
 
             card.action = "Reviewing"
@@ -102,7 +102,7 @@ class TestReviewerLoopCount(unittest.TestCase):
             card = _add(td, KanbanCard(
                 id="R-1", stage="5_Review", action="Reviewing", loop_count=0,
             ))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             card = board.card_by_id("R-1")
 
             card.action = "Coding"
@@ -126,7 +126,7 @@ class TestProtectedFields(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
             card = _add(td, KanbanCard(id="X-1", stage="4_Coding", action="Coding"))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             card = board.card_by_id("X-1")
 
             card.action = "Reviewing"
@@ -150,7 +150,7 @@ class TestCardValidation(unittest.TestCase):
                 id="V-4", stage="1_Inbox", action="Product",
                 value_score=50, effort_score=30,
             ))
-            board = KanbanBoard(td)
+            board = KanbanBoard(td, repo=FsCardRepository())
             card = board.card_by_id("V-4")
 
             card.action = "Architect"
