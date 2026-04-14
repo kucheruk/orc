@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.tasks.supervisor_lifecycle import wait_for_completion, wait_for_process_exit
+from orc_core.supervision.lifecycle import wait_for_completion, wait_for_process_exit
 
 
 class _FakeMetrics:

@@ -7,7 +7,7 @@ from __future__ import annotations
 from ..infra.io.debug_log import debug_log
 from ..infra.io.timeline import timeline_step
 from ..quit_signal import is_stop_requested
-from .supervisor_lifecycle import wait_for_completion
+from ..supervision.lifecycle import wait_for_completion
 from .task_agent_phases import cleanup_monitor_processes
 from .execution.request import LaunchConfig
 from .execution.runtime import _ExecutionContext

@@ -15,7 +15,7 @@ from ..board.kanban_card import KanbanCard
 from ..board.action_constants import Action
 from ..tasks.task_status_types import TaskExecutionStatus
 from ..incident.manager import IncidentManager
-from .task_outcome_tracker import TaskOutcomeTracker
+from ..supervision.outcomes import TaskOutcomeTracker
 from .kanban_protocols import DirectiveSource, EventPublisher, RunnerLifecycle, RunnerNotifier, RunnerStateManager, WorkDistributor
 from .kanban_roles import build_teamlead_prompt
 from .teamlead_stats import find_latest_agent_log, load_token_stats

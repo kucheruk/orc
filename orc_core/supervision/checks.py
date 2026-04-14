@@ -17,15 +17,15 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 import psutil
 
-from .task_status_types import TaskCompletionStatus
+from ..tasks.task_status_types import TaskCompletionStatus
 from ..log import log_event
 from ..infra.io.debug_log import debug_log, debug_mode_log
 from ..infra.io.timeline import timeline_instant
 from ..infra.process.process import is_pid_alive
-from .task_state import delete_runtime_state_file
+from ..tasks.task_state import delete_runtime_state_file
 
 if TYPE_CHECKING:
-    from .supervisor_lifecycle import CompletionMonitor
+    from .lifecycle import CompletionMonitor
     from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
 
 # Protocol for completion checks: (CompletionMonitor) -> Optional[TaskCompletionStatus]
@@ -53,7 +53,7 @@ def _task_done_in_backlog(task_path) -> bool:
     if not backlog_raw or not task_id:
         return False
     try:
-        from .task_source import MarkdownTaskSource
+        from ..tasks.task_source import MarkdownTaskSource
         return MarkdownTaskSource(Path(backlog_raw)).is_task_done(task_id)
     except (OSError, json.JSONDecodeError, ValueError, KeyError):
         return False

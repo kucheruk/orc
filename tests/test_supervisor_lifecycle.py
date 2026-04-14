@@ -9,8 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from orc_core.tasks.supervisor_lifecycle import wait_for_completion, wait_for_process_exit
-from orc_core.tasks.supervisor_checks import PROCESS_EXIT_GRACE_SECONDS
+from orc_core.supervision.lifecycle import wait_for_completion, wait_for_process_exit
+from orc_core.supervision.checks import PROCESS_EXIT_GRACE_SECONDS
 
 
 class _ExitedProc:
@@ -65,8 +65,8 @@ class _FakeMonitor:
 
 class SupervisorLifecycleTest(unittest.TestCase):
     @patch("orc_core.notifications.notify.send_telegram_message")
-    @patch("orc_core.tasks.supervisor_lifecycle.debug_log")
-    @patch("orc_core.tasks.supervisor_lifecycle.time.sleep")
+    @patch("orc_core.supervision.lifecycle.debug_log")
+    @patch("orc_core.supervision.lifecycle.time.sleep")
 
     def test_wait_for_completion_sends_stuck_notice_after_15m_without_token_changes(
         self,
@@ -92,7 +92,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             monitor.maybe_report = _maybe_report
 
             with patch(
-                "orc_core.tasks.supervisor_lifecycle.time.time",
+                "orc_core.supervision.lifecycle.time.time",
                 side_effect=iter(
                     [
                         1000.0,  # start_time
@@ -145,7 +145,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             monitor.proc = SimpleNamespace(pid=None, returncode=None, poll=lambda: None)
             monitor.last_output_time = time.time() - 1000.0
 
-            with patch("orc_core.tasks.supervisor_checks.DONE_BACKLOG_IDLE_GRACE_SECONDS", 0.01):
+            with patch("orc_core.supervision.checks.DONE_BACKLOG_IDLE_GRACE_SECONDS", 0.01):
                 result = wait_for_completion(
                     task_path=task_path,
                     monitor=monitor,
@@ -183,7 +183,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
 
             monitor.maybe_report = _maybe_report
 
-            with patch("orc_core.tasks.supervisor_checks.DONE_BACKLOG_IDLE_GRACE_SECONDS", 0.01):
+            with patch("orc_core.supervision.checks.DONE_BACKLOG_IDLE_GRACE_SECONDS", 0.01):
                 result = wait_for_completion(
                     task_path=task_path,
                     monitor=monitor,
@@ -215,7 +215,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             monitor.proc = SimpleNamespace(pid=999999, returncode=None, poll=lambda: None)
             monitor.last_output_time = time.time()
 
-            with patch("orc_core.tasks.supervisor_checks.PID_MISSING_GRACE_SECONDS", 0.0):
+            with patch("orc_core.supervision.checks.PID_MISSING_GRACE_SECONDS", 0.0):
                 result = wait_for_completion(
                     task_path=task_path,
                     monitor=monitor,
@@ -245,7 +245,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             monitor.proc = SimpleNamespace(pid=999999, returncode=None, poll=lambda: None)
             monitor.last_output_time = time.time()
 
-            with patch("orc_core.tasks.supervisor_checks.PID_MISSING_GRACE_SECONDS", 0.0):
+            with patch("orc_core.supervision.checks.PID_MISSING_GRACE_SECONDS", 0.0):
                 result = wait_for_completion(
                     task_path=task_path,
                     monitor=monitor,
@@ -278,7 +278,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
                 return_value={"cleared": 1, "reason": "pid_missing", "pending": []}
             )
 
-            with patch("orc_core.tasks.supervisor_checks.PID_MISSING_GRACE_SECONDS", 0.0):
+            with patch("orc_core.supervision.checks.PID_MISSING_GRACE_SECONDS", 0.0):
                 result = wait_for_completion(
                     task_path=task_path,
                     monitor=monitor,
@@ -314,9 +314,9 @@ class SupervisorLifecycleTest(unittest.TestCase):
             )
 
             with (
-                patch("orc_core.tasks.supervisor_checks._get_active_children_count", return_value=0),
-                patch("orc_core.tasks.supervisor_checks.TOOL_DIGESTION_GRACE_SECONDS", 5.0),
-                patch("orc_core.tasks.supervisor_lifecycle.is_pid_alive", return_value=True),
+                patch("orc_core.supervision.checks._get_active_children_count", return_value=0),
+                patch("orc_core.supervision.checks.TOOL_DIGESTION_GRACE_SECONDS", 5.0),
+                patch("orc_core.supervision.lifecycle.is_pid_alive", return_value=True),
             ):
                 result = wait_for_completion(
                     task_path=task_path,
@@ -353,8 +353,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
             )
 
             with (
-                patch("orc_core.tasks.supervisor_checks._get_active_children_count", return_value=1),
-                patch("orc_core.tasks.supervisor_lifecycle.is_pid_alive", return_value=True),
+                patch("orc_core.supervision.checks._get_active_children_count", return_value=1),
+                patch("orc_core.supervision.lifecycle.is_pid_alive", return_value=True),
             ):
                 result = wait_for_completion(
                     task_path=task_path,
@@ -386,7 +386,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             monitor.proc = SimpleNamespace(pid=None, returncode=None, poll=lambda: None)
             monitor.last_output_time = time.time() - 1000.0
 
-            with patch("orc_core.tasks.supervisor_checks.DONE_BACKLOG_IDLE_GRACE_SECONDS", 9999.0):
+            with patch("orc_core.supervision.checks.DONE_BACKLOG_IDLE_GRACE_SECONDS", 9999.0):
                 result = wait_for_completion(
                     task_path=task_path,
                     monitor=monitor,
@@ -414,7 +414,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             )
             monitor = _FakeMonitor(workdir=tmpdir, returncode=0)
 
-            with patch("orc_core.tasks.supervisor_checks.PROCESS_EXIT_GRACE_SECONDS", 0.01):
+            with patch("orc_core.supervision.checks.PROCESS_EXIT_GRACE_SECONDS", 0.01):
                 result = wait_for_completion(
                     task_path=task_path,
                     monitor=monitor,
@@ -501,7 +501,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
 
         self.assertEqual(result, "waiting_for_input")
 
-    @patch("orc_core.tasks.supervisor_checks.timeline_instant")
+    @patch("orc_core.supervision.checks.timeline_instant")
     def test_wait_for_completion_emits_timeline_exit_reason(self, timeline_mock) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             task_path = Path(tmpdir) / "orc-task.json"

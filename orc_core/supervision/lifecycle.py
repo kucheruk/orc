@@ -6,13 +6,13 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from .task_status_types import TaskCompletionStatus
+from ..tasks.task_status_types import TaskCompletionStatus
 from ..log import log_event
 from ..infra.io.debug_log import debug_log
 from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
 from ..infra.io.timeline import timeline_instant
 from ..infra.process.process import is_pid_alive
-from .supervisor_checks import (
+from .checks import (
     DEFAULT_CHECK_CHAIN,
     CompletionCheck,
     _task_done_in_backlog,

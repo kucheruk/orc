@@ -21,7 +21,7 @@ from ..infra.io.debug_log import debug_log
 from ..infra.io.timeline import timeline_instant, timeline_step
 from ..quit_signal import is_stop_requested
 from .task_status_types import TaskCompletionStatus, TaskExecutionStatus
-from .supervisor_lifecycle import wait_for_completion
+from ..supervision.lifecycle import wait_for_completion
 from .stage_artifacts import build_stage_artifact_bundle
 from .task_state import runtime_state_path
 from ..text_parse import SafeDict

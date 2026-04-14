@@ -19,7 +19,7 @@ from .kanban_publisher import KanbanPublisher
 from .kanban_session_manager import KanbanSessionManager
 from .kanban_state_persistence import load_kanban_state
 from .session_pool import SessionPool
-from .task_outcome_tracker import TaskOutcomeTracker
+from ..supervision.outcomes import TaskOutcomeTracker
 
 
 def build_session_manager(
