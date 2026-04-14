@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from ..board.fs_card_repository import FsCardRepository
+from ..board.kanban_board import KanbanBoard
 from ..board.kanban_distributor import KanbanDistributor
 from ..config import OrcConfig
 from ..git.integration_manager import IntegrationManager
@@ -44,7 +46,8 @@ def build_session_manager(
     """
     resolved_main_branch = (main_branch or "main").strip() or "main"
 
-    distributor = KanbanDistributor(tasks_dir)
+    board = KanbanBoard(tasks_dir, repo=FsCardRepository())
+    distributor = KanbanDistributor(board)
     integrator = IntegrationManager(
         workdir=workdir,
         main_branch=resolved_main_branch,

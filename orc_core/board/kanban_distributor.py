@@ -6,12 +6,10 @@ from __future__ import annotations
 
 import logging
 import threading
-from pathlib import Path
 from typing import Optional
 
 from .kanban_board import KanbanBoard
 from .kanban_card import KanbanCard
-from .fs_card_repository import FsCardRepository
 from .stage_constants import STAGE_DONE
 from .kanban_pull import WorkAssignment, find_next_work, find_teamlead_work
 
@@ -24,9 +22,9 @@ ESCALATION_THRESHOLD = 4
 class KanbanDistributor:
     """Thread-safe distributor that assigns cards to worker sessions."""
 
-    def __init__(self, tasks_dir: Path) -> None:
-        self._tasks_dir = tasks_dir
-        self._board = KanbanBoard(tasks_dir, repo=FsCardRepository())
+    def __init__(self, board: KanbanBoard) -> None:
+        self._board = board
+        self._tasks_dir = board.tasks_dir
         self._lock = threading.Lock()
 
     @property

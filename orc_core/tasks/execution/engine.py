@@ -10,10 +10,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
-
-if TYPE_CHECKING:
-    from ...infra.backend import Backend as BackendProtocol
+from typing import Optional
 
 from ..hooks import update_task_restart_count
 from ...log import log_event
@@ -36,7 +33,7 @@ from ..task_status_types import RESTART_REASON_TEXT
 from .request import LaunchConfig, TaskExecutionRequest, TaskExecutionResult
 from .runtime import _ExecutionContext, _ResumeState
 from .stage import TaskStageSpec
-from .worker import AgentTaskWorker, TaskWorker
+from .worker import TaskWorker
 
 from .helpers import (
     _restart_backoff_seconds,
@@ -65,13 +62,12 @@ class TaskExecutionEngine:
     def __init__(
         self,
         *,
-        worker: Optional[TaskWorker] = None,
+        worker: TaskWorker,
         log_path: Path,
-        backend: Optional["BackendProtocol"] = None,
         notify: Optional[NotifyPort] = None,
         backlog_query: Optional[BacklogQueryPort] = None,
     ) -> None:
-        self.worker = worker or AgentTaskWorker(backend=backend)
+        self.worker = worker
         self.log_path = log_path
         self.notify: NotifyPort = notify or NoopNotify()
         self.backlog_query: BacklogQueryPort = backlog_query or MarkdownBacklogQuery()

@@ -173,7 +173,7 @@ class TestKanbanTaskSource(unittest.TestCase):
             td = init_kanban_board(Path(tmp))
             _add(td, KanbanCard(id="TS-1", stage="4_Coding", action="Coding", title="Code it"))
             _add(td, KanbanCard(id="TS-2", stage="8_Done", action="Done", title="Done task"))
-            source = KanbanTaskSource(td)
+            source = KanbanTaskSource(KanbanBoard(td, repo=FsCardRepository()))
             tasks = source.list_tasks()
             self.assertEqual(len(tasks), 2)
             open_tasks = source.get_open_tasks()
@@ -185,7 +185,7 @@ class TestKanbanTaskSource(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             td = init_kanban_board(Path(tmp))
             _add(td, KanbanCard(id="TS-3", stage="8_Done", action="Done", title="Finished"))
-            source = KanbanTaskSource(td)
+            source = KanbanTaskSource(KanbanBoard(td, repo=FsCardRepository()))
             self.assertTrue(source.is_task_done("TS-3"))
             self.assertFalse(source.is_task_done("nonexistent"))
 

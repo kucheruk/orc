@@ -4,12 +4,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import List, Optional
 
 from .kanban_board import KanbanBoard
 from .stage_constants import STAGE_DONE
-from .fs_card_repository import FsCardRepository
 from ..models.task_types import Task
 
 
@@ -20,9 +18,9 @@ class KanbanTaskSource:
     TUI progress display) can work with kanban mode without changes.
     """
 
-    def __init__(self, tasks_dir: Path) -> None:
-        self._tasks_dir = tasks_dir
-        self._board = KanbanBoard(tasks_dir, repo=FsCardRepository())
+    def __init__(self, board: KanbanBoard) -> None:
+        self._board = board
+        self._tasks_dir = board.tasks_dir
 
     @property
     def board(self) -> KanbanBoard:
