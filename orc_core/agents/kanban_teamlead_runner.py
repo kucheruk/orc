@@ -18,10 +18,10 @@ from ..incident.manager import IncidentManager
 from .task_outcome_tracker import TaskOutcomeTracker
 from .kanban_protocols import DirectiveSource, EventPublisher, RunnerLifecycle, RunnerNotifier, RunnerStateManager, WorkDistributor
 from .kanban_roles import build_teamlead_prompt
+from .teamlead_stats import find_latest_agent_log, load_token_stats
 from ..git.git_helpers import run_git
 from ..log import log_event
 from ..quit_signal import is_quit_after_task_requested
-from ..infra.state.state_paths import run_root, stats_path
 from ..models.session_types import SessionSlot, SlotStatus
 from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
 from .kanban_protocols import TaskExecutor
@@ -169,17 +169,15 @@ class KanbanTeamleadRunner:
         card.action = Action.ARBITRATION
         self._distributor.board.save_card(card)
         dec_path = _teamlead_decision_path(self._workdir)
-        agent_log = self.find_latest_agent_log(card.id)
+        agent_log = find_latest_agent_log(self._workdir, card.id)
         prompt = build_teamlead_prompt(
             mode="arbitration", board=self._distributor.board, card=card,
             decision_path=str(dec_path), agent_log_path=agent_log,
-            token_stats=self.load_token_stats(),
+            token_stats=load_token_stats(self._workdir),
         )
         task = Task(task_id=card.id, text=f"[TL] {card.title}", done=False)
-        slot.task = task
         try:
-            result = self._engine.execute(self._state_manager.make_request(task, prompt, self._workdir,
-                                                              sid, False, 600.0))
+            result = self._invoke_teamlead(slot, sid, task, prompt)
             if result and result.status == TaskExecutionStatus.COMPLETED:
                 self.process_decision(dec_path)
                 self._distributor.refresh()
@@ -206,7 +204,6 @@ class KanbanTeamleadRunner:
                                                f"{card.id} teamlead resolved → {refreshed.action} "
                                                f"(loop_count={refreshed.loop_count})")
         finally:
-            slot.task = None
             self._distributor.release_card(card.id)
         self._lifecycle.sleep(3.0)
 
@@ -221,16 +218,11 @@ class KanbanTeamleadRunner:
         prompt = build_teamlead_prompt(
             mode="directive", board=self._distributor.board,
             directive_text=directive_text, decision_path=str(dec_path),
-            token_stats=self.load_token_stats(),
+            token_stats=load_token_stats(self._workdir),
         )
         task = Task(task_id="tl-directive", text=f"[TL] {directive_text[:40]}", done=False)
-        slot.task = task
-        try:
-            result = self._engine.execute(self._state_manager.make_request(task, prompt, self._workdir,
-                                                              sid, False, 600.0))
-            self.process_decision(dec_path)
-        finally:
-            slot.task = None
+        self._invoke_teamlead(slot, sid, task, prompt)
+        self.process_decision(dec_path)
         self._lifecycle.sleep(2.0)
 
     # ── Health check ────────────────────────────────────────────
@@ -265,16 +257,11 @@ class KanbanTeamleadRunner:
         prompt = build_teamlead_prompt(
             mode="health", board=self._distributor.board,
             diagnostic_info=diag_text, decision_path=str(dec_path),
-            token_stats=self.load_token_stats(),
+            token_stats=load_token_stats(self._workdir),
         )
         task = Task(task_id="tl-health", text="[TL] Board health check", done=False)
-        slot.task = task
-        try:
-            result = self._engine.execute(self._state_manager.make_request(task, prompt, self._workdir,
-                                                              sid, False, 600.0))
-            self.process_decision(dec_path)
-        finally:
-            slot.task = None
+        self._invoke_teamlead(slot, sid, task, prompt)
+        self.process_decision(dec_path)
         self._lifecycle.sleep(3.0)
         return True
 
@@ -320,35 +307,15 @@ class KanbanTeamleadRunner:
 
     # ── Helpers ─────────────────────────────────────────────────
 
-    def find_latest_agent_log(self, card_id: str) -> str:
-        """Find the most recent raw-stream log for a card across all kanban sessions."""
-        runs_dir = run_root(self._workdir, "").parent / "runs"
-        if not runs_dir.exists():
-            return ""
-        best: Path | None = None
-        for session_dir in runs_dir.iterdir():
-            if not session_dir.name.startswith("kanban-"):
-                continue
-            stream_dir = session_dir / "raw-stream"
-            if not stream_dir.is_dir():
-                continue
-            for log_file in stream_dir.glob(f"*__{card_id}.log"):
-                if best is None or log_file.stat().st_mtime > best.stat().st_mtime:
-                    best = log_file
-        return str(best) if best else ""
-
-    def load_token_stats(self) -> dict[str, int]:
-        """Load per-task token stats from analytics."""
-        import json
-        path = stats_path(self._workdir)
-        if not path.exists():
-            return {}
+    def _invoke_teamlead(self, slot: SessionSlot, sid: str, task: Task, prompt: str):
+        """Shared scaffolding: attach task to slot, run engine, always detach."""
+        slot.task = task
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            raw = data.get("tokens_by_task", {})
-            return {k: int(v) for k, v in raw.items() if isinstance(v, (int, float))}
-        except Exception:
-            return {}
+            return self._engine.execute(
+                self._state_manager.make_request(task, prompt, self._workdir, sid, False, 600.0)
+            )
+        finally:
+            slot.task = None
 
     def auto_commit_cards(self) -> None:
         """Periodically git-add+commit all changes to keep base repo clean."""
