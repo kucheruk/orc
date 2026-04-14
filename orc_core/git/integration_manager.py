@@ -20,7 +20,7 @@ from ..models.session_types import (
     TRACEBACK_TRUNCATE,
     SessionSlot,
 )
-from ..infra.state.state_paths import integration_report_path
+from ..persistence.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
 from ..models.task_types import Task
 from .conflict_resolver import ConflictResolver

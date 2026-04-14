@@ -8,7 +8,7 @@ from typing import Optional
 
 from .infra.io.atomic_io import write_json_atomic
 from .config import DEFAULT_MODEL
-from .infra.state.state_paths import role_settings_path
+from .persistence.state_paths import role_settings_path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = BASE_DIR / "prompts"

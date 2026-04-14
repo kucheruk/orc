@@ -14,7 +14,7 @@ from .agent_output_sink import AgentOutputSink
 from .conversation_persister import ConversationIdPersister
 from .monitor_metrics_collector import MonitorMetricsCollector
 from ..io.timeline import timeline_instant
-from ..state.state_paths import active_task_path, metrics_path, stats_path
+from ...persistence.state_paths import active_task_path, metrics_path, stats_path
 
 from .monitor_types import MonitorSnapshot
 from .stream_monitor_state import StreamMonitorState
@@ -73,7 +73,7 @@ class StreamJsonMonitor:
         if runtime_override:
             self._task_runtime_state_path = Path(runtime_override)
         else:
-            from ..state.runtime_state import runtime_state_path
+            from ...persistence.runtime_state import runtime_state_path
             self._task_runtime_state_path = runtime_state_path(self._task_state_path)
         stats_override = child_env.get("ORC_STATS_FILE", "").strip()
         self._stats_path = Path(stats_override) if stats_override else stats_path(self.workdir)

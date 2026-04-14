@@ -169,7 +169,7 @@ class MonitorMetricsCollector:
         state.set_eta_seconds(avg_seconds * remaining if remaining > 0 else 0.0)
 
     def update_task_runtime_state(self) -> None:
-        from ..state.runtime_state import init_runtime_payload, load_runtime_payload
+        from ...persistence.runtime_state import init_runtime_payload, load_runtime_payload
 
         started_ms = now_ms()
         now = time.time()

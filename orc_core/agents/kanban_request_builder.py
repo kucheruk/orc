@@ -9,8 +9,8 @@ from typing import Callable, Optional
 
 from ..config import OrcConfig
 from ..infra.backend import Backend
-from ..infra.state.state_paths import parallel_task_path
-from ..infra.state.state_paths import run_root as state_run_root
+from ..persistence.state_paths import parallel_task_path
+from ..persistence.state_paths import run_root as state_run_root
 from ..infra.monitoring.monitor_types import MonitorSnapshot
 from ..tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from ..tasks.execution.request import TaskExecutionRequest

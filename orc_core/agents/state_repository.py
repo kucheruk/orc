@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..infra.io.atomic_io import write_json_atomic
-from ..infra.state.state_paths import kanban_state_path
+from ..persistence.state_paths import kanban_state_path
 
 _logger = logging.getLogger(__name__)
 

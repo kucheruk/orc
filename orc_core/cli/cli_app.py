@@ -40,7 +40,7 @@ from ..tasks.execution.engine import TaskExecutionEngine
 from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn
 from ..git.worktree_flow import detect_base_branch
-from ..infra.state.state_paths import app_log_path, lock_path as state_lock_path
+from ..persistence.state_paths import app_log_path, lock_path as state_lock_path
 
 
 def build_parser() -> argparse.ArgumentParser:

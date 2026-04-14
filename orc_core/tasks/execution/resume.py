@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 from ...infra.io.atomic_io import write_json_atomic
 from ...infra.io.debug_log import debug_log
 from ...log import log_event
-from ...infra.state.session_state import save_active_session, save_session_manifest
+from ...persistence.session_state import save_active_session, save_session_manifest
 from ..hooks import write_task_file
 from .request import TaskExecutionResult
 from ..task_status_types import TaskExecutionStatus

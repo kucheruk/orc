@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
-from ..state.state_paths import resolve_state_root
+from ...persistence.state_paths import resolve_state_root
 
 # Re-export from shared log module so existing infra-internal imports still work
 from ...log import (  # noqa: F401
