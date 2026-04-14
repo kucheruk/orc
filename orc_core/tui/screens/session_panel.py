@@ -3,9 +3,7 @@
 """Single-session display panel with adaptive detail levels."""
 
 import logging
-import re
 import time
-from pathlib import Path
 
 _logger = logging.getLogger(__name__)
 
@@ -20,9 +18,6 @@ from textual.widgets import Label, ProgressBar, RichLog, Static
 from ..display_constants import (
     EVENTS_LINES_FULL,
     EVENTS_LINES_MEDIUM,
-    HEADING_MAX_LENGTH,
-    HEADING_TRUNCATE_COMPACT,
-    HEADING_TRUNCATE_MEDIUM,
     LAST_LINE_COMMAND_TRUNCATE,
     LAST_LINE_FILE_TRUNCATE,
     LAST_LINE_SOLO_TRUNCATE,
@@ -32,24 +27,16 @@ from ..display_constants import (
     PLACEHOLDER_WAITING,
     RECENT_COMMANDS_COUNT,
     RECENT_FILES_COUNT,
-    REASONING_LINES_COMPACT,
     RECENT_LOG_MAX_LINES,
-    STALL_THRESHOLD_SECONDS,
-    STATUS_TRUNCATE_COMPACT,
-    STATUS_TRUNCATE_FULL,
-    STATUS_TRUNCATE_MEDIUM,
 )
 from ...infra.monitoring.monitor_types import MonitorSnapshot
-
-
-_STATUS_TRUNCATE = {
-    "full": STATUS_TRUNCATE_FULL,
-    "medium": STATUS_TRUNCATE_MEDIUM,
-}
-
-_HEADING_TRUNCATE = {
-    "medium": HEADING_TRUNCATE_MEDIUM,
-}
+from .session_panel_format import (
+    format_activity,
+    format_duration,
+    format_stats,
+    format_task_label,
+    read_task_heading,
+)
 
 
 class SessionPanel(Widget):
@@ -199,15 +186,15 @@ class SessionPanel(Widget):
     # ── Refresh helpers ──────────────────────────────────────────
 
     def _refresh_task_label(self) -> None:
-        self._set_label("task_label", _format_task_label(
+        self._set_label("task_label", format_task_label(
             task_id=self.task_title, done=self.progress_done,
             in_progress=self.progress_in_progress,
             total=self.progress_total, delta=self.progress_added_delta,
             heading=self._get_heading(self.task_title), detail=self.detail_level))
 
     def _refresh_stats(self) -> None:
-        elapsed = _format_duration(time.time() - self.started_at) if self.started_at > 0 else "00:00"
-        self._set_label("stats_label", _format_stats(
+        elapsed = format_duration(time.time() - self.started_at) if self.started_at > 0 else "00:00"
+        self._set_label("stats_label", format_stats(
             elapsed=elapsed, detail=self.detail_level,
             done=self.progress_done, remaining=self.progress_remaining,
             total=self.progress_total, delta=self.progress_added_delta,
@@ -215,7 +202,7 @@ class SessionPanel(Widget):
             files=self.files_edited, git_added=self.git_added,
             git_deleted=self.git_deleted,
             input_bytes=self.input_bytes, output_bytes=self.output_bytes))
-        self._set_label("activity_label", _format_activity(
+        self._set_label("activity_label", format_activity(
             phase=self.live_phase, status=self.live_status,
             since=self.live_since, tool_count=self.active_tool_call_count,
             is_subagent=self.is_subagent_activity, detail=self.detail_level))
@@ -291,7 +278,7 @@ class SessionPanel(Widget):
             return ""
         if task_id in self._heading_cache:
             return self._heading_cache[task_id]
-        heading = _read_task_heading(task_id)
+        heading = read_task_heading(task_id)
         self._heading_cache[task_id] = heading
         return heading
 
@@ -307,125 +294,3 @@ class SessionPanel(Widget):
         self._quit_after_task = requested
         if self.is_mounted:
             self._refresh_mode_label()
-
-
-# ── Pure formatting ──────────────────────────────────────────────
-
-def _format_duration(seconds: float) -> str:
-    mins, secs = divmod(int(max(seconds, 0.0)), 60)
-    return f"{mins:02d}:{secs:02d}"
-
-
-def _human_bytes(n: int) -> str:
-    if n < 1024:
-        return f"{n}B"
-    if n < 1024 * 1024:
-        return f"{n / 1024:.1f}K"
-    return f"{n / (1024 * 1024):.1f}M"
-
-
-def _format_io(input_bytes: int, output_bytes: int) -> str:
-    return f"In: {_human_bytes(input_bytes)} | Out: {_human_bytes(output_bytes)}"
-
-
-def _short_io(input_bytes: int, output_bytes: int) -> str:
-    return f"I:{_human_bytes(input_bytes)} O:{_human_bytes(output_bytes)}"
-
-
-def _format_task_label(*, task_id, done, in_progress, total, delta, heading, detail) -> str:
-    delta_str = f" (+{delta})" if delta > 0 else ""
-    progress = f"{done}+{in_progress}/{total}" if in_progress > 0 else f"{done}/{total}"
-    pct = int(100 * done / max(1, total))
-    # Escape Rich markup brackets in task_id (e.g. "[implementation]")
-    safe_id = str(task_id).replace("[", r"\[")
-    if detail == "full":
-        heading_part = f" | {heading}" if heading else ""
-        return f"Task: {safe_id} | Progress: {progress}{delta_str}{heading_part}"
-    max_len = _HEADING_TRUNCATE.get(detail, HEADING_TRUNCATE_COMPACT)
-    short = (heading[:max_len] + "...") if len(heading) > max_len else heading
-    return f"{safe_id} {progress} {pct}%{f' {short}' if short else ''}"
-
-
-def _format_stats(*, elapsed, detail, done, remaining, total, delta,
-                  lines, commands, files, git_added, git_deleted,
-                  input_bytes, output_bytes) -> str:
-    io = _format_io(input_bytes, output_bytes)
-    if detail == "full":
-        delta_part = f" [yellow](+{delta})[/yellow]" if delta > 0 else ""
-        git = f" | Git: [green]+{git_added}[/green] [red]-{git_deleted}[/red]"
-        return (f"Elapsed: {elapsed} | Done: {done} | Ahead: {remaining} | "
-                f"Total: {total}{delta_part} | Lines: {lines} | "
-                f"Commands: {commands} | Files: {files}{git} | {io}")
-    if detail == "medium":
-        return f"{elapsed} | Ln:{lines} Cmd:{commands} F:{files} {_short_io(input_bytes, output_bytes)}"
-    return f"{elapsed} | {_short_io(input_bytes, output_bytes)} | Ln: {lines}"
-
-
-_PHASE_FORMATS: dict[str, tuple[str, str]] = {
-    "failed":          ("bold red", "FAILED"),
-    "completed":       ("bold green", "DONE"),
-    "starting":        ("blue", "BOOT"),
-    "thinking":        ("blue", "THINK"),
-    "network_problem": ("red", "NETWORK"),
-    "assistant":       ("green", "OUTPUT"),
-}
-
-
-def _format_activity(*, phase, status, since, tool_count, is_subagent, detail) -> str:
-    phase = str(phase or "starting").strip().lower()
-    max_len = _STATUS_TRUNCATE.get(detail, STATUS_TRUNCATE_COMPACT)
-    status = str(status or "waiting for output")[:max_len].replace("[", r"\[")
-    age = max(time.time() - float(since or 0.0), 0.0) if since else 0.0
-    age_text = _format_duration(age)
-    role = "SUBAGENT" if is_subagent else "AGENT"
-
-    if phase in ("tool_call", "subagent"):
-        count = max(int(tool_count or 0), 0)
-        suffix = f" x{count}" if count > 1 else ""
-        color = "magenta" if is_subagent else "cyan"
-        return f"[{color}]{role} EXEC {status}{suffix} [{age_text}][/{color}]"
-
-    fmt = _PHASE_FORMATS.get(phase)
-    if fmt:
-        color, label = fmt
-        timed = f" [{age_text}]" if phase not in ("failed", "completed", "starting") else ""
-        return f"[{color}]{role} {label} {status}{timed}[/{color}]"
-
-    if age < STALL_THRESHOLD_SECONDS:
-        return f"[yellow]{role} WAIT {status} [{age_text}][/yellow]"
-    return f"[red]{role} STALL? {status} [{age_text}][/red]"
-
-
-def _read_task_heading(task_id: str) -> str:
-    task_file = Path("tasks") / f"{task_id}.md"
-    if not task_file.exists():
-        return ""
-    try:
-        text = task_file.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    return _extract_heading_after_id(text, task_id)
-
-
-def _extract_heading_after_id(text: str, task_id: str) -> str:
-    wanted = task_id.casefold()
-    seen = False
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if not seen and wanted in line.casefold():
-            seen = True
-            continue
-        if seen:
-            return _strip_markdown_prefix(line)[:HEADING_MAX_LENGTH]
-    return ""
-
-
-def _strip_markdown_prefix(line: str) -> str:
-    clean = re.sub(r"^\s{0,3}#{1,6}\s*", "", line)
-    clean = re.sub(r"^\s*>\s*", "", clean)
-    clean = re.sub(r"^\s*[-*+]\s+", "", clean)
-    clean = re.sub(r"^\s*\d+[.)]\s+", "", clean)
-    clean = re.sub(r"^\s*\[[ xX]\]\s*", "", clean)
-    return clean.strip()
