@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..infra.backend import Backend, get_backend
+from ..infra.backend import Backend
 from ..git.integration_manager import IntegrationManager
 from ..incident.manager import IncidentManager
 from ..board.kanban_distributor import KanbanDistributor
@@ -30,7 +30,6 @@ from .kanban_publisher import KanbanPublisher
 from .kanban_request_builder import build_kanban_request
 from .kanban_state_persistence import (
     cleanup_done_worktrees,
-    load_kanban_state,
     release_stale_agents,
     save_kanban_state,
 )
@@ -69,20 +68,21 @@ class KanbanSessionManager:
         config: OrcConfig,
         log_path: Path,
         engine: TaskExecutionEngine,
+        backend: Backend,
+        distributor: KanbanDistributor,
+        integrator: IntegrationManager,
+        publisher: KanbanPublisher,
+        pool: SessionPool,
+        outcomes: TaskOutcomeTracker,
+        directives: DirectiveQueue,
+        notifications: NotificationService,
         commit_template: str = "",
         merge_expert_template: str = "",
         merge_expert_model: str = "",
         main_branch: str = "main",
-        max_sessions: int = 4,
-        backend: Backend | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
-        # ── Injectable dependencies (None = create defaults) ───
-        distributor: Optional[KanbanDistributor] = None,
-        integrator: Optional[IntegrationManager] = None,
-        publisher: Optional[KanbanPublisher] = None,
-        pool: Optional[SessionPool] = None,
     ) -> None:
-        self.backend: Backend = backend or get_backend()
+        self.backend = backend
         self.workdir = workdir
         self.tasks_dir = tasks_dir
         self.config = config
@@ -94,33 +94,17 @@ class KanbanSessionManager:
         self.main_branch = (main_branch or "main").strip() or "main"
         self.sleep_fn = sleep_fn
 
-        self._distributor = distributor or KanbanDistributor(tasks_dir)
-        self._integrator = integrator or IntegrationManager(
-            workdir=workdir, main_branch=self.main_branch, log_path=log_path,
-            safe_tracked_paths=frozenset(),
-        )
+        self._distributor = distributor
+        self._integrator = integrator
         self._worktree_lock = threading.Lock()
 
-        self.publisher = publisher or KanbanPublisher()
+        self.publisher = publisher
         self.last_failure_reason = ""
         self._started_at = 0.0
-        card_fail_counts, arbitrated_at_loop = load_kanban_state(workdir)
-        self._outcomes = TaskOutcomeTracker(
-            card_fail_counts=card_fail_counts,
-            arbitrated_at_loop=arbitrated_at_loop,
-        )
-        self._directives = DirectiveQueue()
-        self._notifications = NotificationService(
-            workdir=workdir, log_path=log_path,
-            get_progress=lambda: self._distributor.get_progress(),
-        )
-
-        self._pool = pool or SessionPool(
-            max_sessions=max_sessions,
-            publisher=self.publisher,
-            log_path=log_path,
-            sleep_fn=sleep_fn,
-        )
+        self._outcomes = outcomes
+        self._directives = directives
+        self._notifications = notifications
+        self._pool = pool
 
         self._wire_runners()
 

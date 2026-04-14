@@ -150,28 +150,27 @@ def _resolve_templates(args, workdir: str, role_registry: RoleProfileRegistry) -
 
 def _build_orchestrator(args, workdir: str, log_path: Path, backend, base_branch: str,
                         commit_template: str, merge_expert_template: str, merge_expert_model: str):
-    """Create TaskExecutionEngine + KanbanSessionManager."""
+    """Composition root: construct the full dependency graph for KanbanSessionManager."""
     from ..board.kanban_init import init_kanban_board
-    from ..agents.kanban_session_manager import KanbanSessionManager
+    from ..agents.composition import build_session_manager
     from ..config import OrcConfig
 
     engine = TaskExecutionEngine(log_path=log_path, backend=backend)
     tasks_dir = init_kanban_board(Path(workdir))
     orc_config = OrcConfig.from_namespace(args)
-    manager = KanbanSessionManager(
+    return build_session_manager(
         workdir=workdir,
         tasks_dir=tasks_dir,
         config=orc_config,
         log_path=log_path,
         engine=engine,
+        backend=backend,
         commit_template=commit_template,
         merge_expert_template=merge_expert_template,
         merge_expert_model=merge_expert_model,
         main_branch=base_branch,
         max_sessions=max(2, min(int(getattr(args, "max_sessions", 0) or 4), 4)),
-        backend=backend,
     )
-    return manager
 
 
 def main() -> int:

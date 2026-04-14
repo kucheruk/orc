@@ -32,14 +32,14 @@ from .domain import (
 )
 
 from .ports import FailedTasksSource
-from .kanban_protocols import RunnerStateManager, SessionController
+from ..agents.kanban_protocols import RunnerStateManager, SessionController
 
 if TYPE_CHECKING:
     import threading
 
     from ..board.kanban_distributor import KanbanDistributor
     from .kanban_publisher import KanbanPublisher
-    from .kanban_protocols import TaskExecutor
+    from ..agents.kanban_protocols import TaskExecutor
 
 
 class IncidentManager:
