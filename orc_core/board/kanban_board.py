@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
+from ..infra.clock import Clock, SystemClock
 from .card_prioritizer import pick_best as _pick_best
 from .card_repository import CardRepository
 from .kanban_card import KanbanCard, parse_card, new_card_body
@@ -23,9 +24,16 @@ _logger = logging.getLogger(__name__)
 class KanbanBoard:
     """In-memory snapshot of the kanban board backed by the tasks/ folder tree."""
 
-    def __init__(self, tasks_dir: Path, *, repo: CardRepository) -> None:
+    def __init__(
+        self,
+        tasks_dir: Path,
+        *,
+        repo: CardRepository,
+        clock: Optional[Clock] = None,
+    ) -> None:
         self._tasks_dir = tasks_dir
         self.repo: CardRepository = repo
+        self._clock: Clock = clock or SystemClock()
         self._lock = threading.RLock()
         self._cards: list[KanbanCard] = []
         self._wip = WIPManager()
@@ -292,10 +300,9 @@ class KanbanBoard:
     # ── Card creation ───────────────────────────────────────────
 
     def create_inbox_card(self, card_id: str, title: str) -> KanbanCard:
-        from datetime import datetime, timezone
         card = KanbanCard(
             id=card_id, title=title, stage=STAGE_INBOX, action="Product",
-            created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            created_at=self._clock.now_iso(),
             body=new_card_body(),
         )
         inbox_dir = self._tasks_dir / STAGE_INBOX
@@ -318,13 +325,12 @@ class KanbanBoard:
         cos_justification: str = "",
     ) -> KanbanCard:
         """Create an expedite card directly at the given stage, bypassing inbox."""
-        from datetime import datetime, timezone
         card = KanbanCard(
             id=card_id, title=title, stage=stage, action=action,
             class_of_service="expedite",
             cos_justification=cos_justification,
             value_score=100, effort_score=20,
-            created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            created_at=self._clock.now_iso(),
             body=body,
         )
         stage_dir = self._tasks_dir / stage
