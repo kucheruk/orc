@@ -31,7 +31,7 @@ from .domain import (
     IncidentPhase,
 )
 
-from ..agents.task_outcome_tracker import TaskOutcomeTracker
+from .ports import FailedTasksSource
 from .kanban_protocols import RunnerStateManager, SessionController
 
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ class IncidentManager:
         engine: "TaskExecutor",
         slots: dict[str, SessionSlot],
         slots_lock: threading.Lock,
-        outcomes: TaskOutcomeTracker,
+        outcomes: FailedTasksSource,
         log_path: Path,
         workdir: str,
         max_sessions: int,
