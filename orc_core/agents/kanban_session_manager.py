@@ -15,7 +15,7 @@ from ..infra.backend import Backend
 from ..git.integration_manager import IntegrationManager
 from ..incident.manager import IncidentManager
 from ..board.kanban_distributor import KanbanDistributor
-from ..board.stage_constants import STAGE_INBOX, STAGE_SHORT_NAMES
+from ..board.stage_constants import STAGE_INBOX
 from ..config import OrcConfig
 from .kanban_adapters import (
     DirectiveAdapter,
@@ -24,18 +24,17 @@ from .kanban_adapters import (
     SessionControllerAdapter,
     StateManagerAdapter,
 )
+from .kanban_board_event_bridge import BoardEventBridge
 from .kanban_directive_queue import DirectiveQueue
 from .kanban_notification_service import NotificationService
 from .kanban_publisher import KanbanPublisher
-from .kanban_request_builder import build_kanban_request
+from .kanban_request_factory import KanbanRequestFactory
 from .kanban_state_persistence import (
     cleanup_done_worktrees,
     release_stale_agents,
-    save_kanban_state,
 )
 from .kanban_teamlead_runner import KanbanTeamleadRunner
 from .kanban_worker_runner import KanbanWorkerRunner
-from ..git.project_hooks import fire_hooks
 from ..board.kanban_role_registry import ROLE_TEAMLEAD
 from ..log import log_event
 from ..quit_signal import is_quit_after_task_requested, is_stop_requested
@@ -46,7 +45,6 @@ from ..models.session_types import (
     STAGGER_DELAY_SECONDS,
     SessionSlot,
 )
-from ..infra.monitoring.monitor_types import MonitorSnapshot
 from ..tasks.execution.engine import TaskExecutionEngine
 from ..infra.process.process_groups import kill_own_process_group
 
@@ -104,6 +102,25 @@ class KanbanSessionManager:
         self._notifications = notifications
         self._pool = pool
 
+        self._board_events = BoardEventBridge(
+            workdir=workdir,
+            distributor=distributor,
+            publisher=publisher,
+            outcomes=outcomes,
+            pool=pool,
+        )
+        self._request_factory = KanbanRequestFactory(
+            workdir=workdir,
+            tasks_dir=tasks_dir,
+            config=config,
+            backend=backend,
+            distributor=distributor,
+            pool=pool,
+            commit_template=self.commit_template,
+            merge_expert_template=self.merge_expert_template,
+            merge_expert_model=self.merge_expert_model,
+            main_branch=self.main_branch,
+        )
         self._wire_runners()
 
     def _wire_runners(self) -> None:
@@ -171,7 +188,7 @@ class KanbanSessionManager:
         self._pool.snapshot_publisher = snapshot_publisher
         self._started_at = time.time()
         self.publisher.set_started_at(self._started_at)
-        self._wire_board_callbacks()
+        self._board_events.wire()
         self._distributor.refresh()
 
         # Cleanup stale state from previous runs
@@ -237,37 +254,13 @@ class KanbanSessionManager:
         self.publisher._emit("directive", "", f"Directive queued for teamlead: {text}")
         log_event(self.log_path, "INFO", "teamlead directive queued", directive=text[:200])
 
-    # ── Board callbacks ─────────────────────────────────────────
-
-    def _wire_board_callbacks(self) -> None:
-        board = self._distributor.board
-
-        def _on_move(cid: str, frm: str, to: str, reason: str) -> None:
-            self.publisher.log_move(cid, frm, to, reason)
-            card = board.card_by_id(cid)
-            fire_hooks(self.workdir, "on_move", {
-                "ORC_CARD_ID": cid,
-                "ORC_CARD_TITLE": card.title if card else "",
-                "ORC_FROM_STAGE": STAGE_SHORT_NAMES.get(frm, frm),
-                "ORC_TO_STAGE": STAGE_SHORT_NAMES.get(to, to),
-                "ORC_REASON": reason,
-            })
-
-        board.on_move(_on_move)
-        board.on_action_change(lambda cid, old, new, role: self.publisher.log_action_change(cid, old, new, role))
-
     # ── State persistence ───────────────────────────────────────
 
     def mark_state_dirty(self) -> None:
         self._outcomes.mark_dirty()
 
     def _publish_board_state(self) -> None:
-        self._distributor.refresh()
-        self.publisher.publish_board(self._distributor.board, self._pool.session_snapshots)
-        if self._outcomes.is_dirty():
-            snapshot = self._outcomes.state_snapshot()
-            save_kanban_state(self.workdir, snapshot["card_fail_counts"], snapshot["arbitrated_at_loop"])
-            self._outcomes.clear_dirty()
+        self._board_events.publish_board_state()
 
     # ── Worker/teamlead thread targets ──────────────────────────
 
@@ -289,15 +282,13 @@ class KanbanSessionManager:
         self._notifications.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
 
     def make_request(self, task, prompt, workdir, session_id, commit_phase, task_ttl):
-        def _pub(snapshot: MonitorSnapshot) -> None:
-            self._pool.publish_snapshot(session_id, snapshot)
-        return build_kanban_request(
-            task=task, prompt=prompt, workdir=workdir, base_workdir=self.workdir,
-            tasks_dir=self.tasks_dir, session_id=session_id, commit_phase=commit_phase,
-            task_ttl=task_ttl, config=self.config, backend=self.backend,
-            commit_template=self.commit_template, merge_expert_template=self.merge_expert_template,
-            merge_expert_model=self.merge_expert_model, main_branch=self.main_branch,
-            progress=self._distributor.get_progress(), snapshot_publisher=_pub,
+        return self._request_factory.make(
+            task=task,
+            prompt=prompt,
+            workdir=workdir,
+            session_id=session_id,
+            commit_phase=commit_phase,
+            task_ttl=task_ttl,
         )
 
     def _board_diag_short(self) -> str:
