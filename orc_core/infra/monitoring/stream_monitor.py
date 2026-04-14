@@ -6,11 +6,12 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Mapping, Optional, TextIO
+from typing import Callable, Dict, Iterable, Mapping, Optional
 
 from ..process.agent_process import AgentProcess
-from ..io.atomic_io import write_json_atomic
 from ..io.logging import log_event, now_ms
+from .agent_output_sink import AgentOutputSink
+from .conversation_persister import ConversationIdPersister
 from .monitor_metrics_collector import MonitorMetricsCollector
 from ..io.timeline import timeline_instant
 from ..state.state_paths import active_task_path, metrics_path, stats_path
@@ -55,15 +56,11 @@ class StreamJsonMonitor:
         self.result_status: Optional[str] = None
         self.result_seen_at: Optional[float] = None
         self._snapshot_publisher = snapshot_publisher
-        self._agent_output_log_path = str(agent_output_log_path or "").strip() or None
-        self._agent_output_file: Optional[TextIO] = None
-        if self._agent_output_log_path:
-            path = Path(self._agent_output_log_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            self._agent_output_file = path.open("a", encoding="utf-8")
-            self._agent_output_file.write(f"# stream start task_id={self.task_id}\n")
-            self._agent_output_file.flush()
-            log_event(self.log_path, "INFO", "agent output stream enabled", task_id=self.task_id, path=str(path))
+        self._output_sink = AgentOutputSink(
+            agent_output_log_path,
+            task_id=task_id,
+            log_path=log_path,
+        )
 
         self._state = state or StreamMonitorState(task_id=task_id, started_at=self.started_at, summary_lines=summary_lines)
         self.metrics = self._state.metrics
@@ -82,6 +79,11 @@ class StreamJsonMonitor:
         self._stats_path = Path(stats_override) if stats_override else stats_path(self.workdir)
         metrics_override = child_env.get("ORC_METRICS_FILE", "").strip()
         self._metrics_path = Path(metrics_override) if metrics_override else metrics_path(self.workdir)
+        self._conversation_persister = ConversationIdPersister(
+            task_state_path=self._task_state_path,
+            task_id=task_id,
+            log_path=log_path,
+        )
         self._first_output_recorded = False
         self._last_live_status_marker: tuple[str, str, int, bool] | None = None
         self._collector = collector or MonitorMetricsCollector(
@@ -146,7 +148,7 @@ class StreamJsonMonitor:
     # ── Stream callbacks (called from AgentProcess reader thread) ─
 
     def _on_stdout_line(self, decoded: str) -> None:
-        self._append_agent_output("stdout", decoded)
+        self._output_sink.append("stdout", decoded)
         raw = decoded.strip()
         if not raw:
             return
@@ -159,7 +161,7 @@ class StreamJsonMonitor:
             self._record_event(event)
 
     def _on_stderr_line(self, decoded: str) -> None:
-        self._append_agent_output("stderr", decoded)
+        self._output_sink.append("stderr", decoded)
         raw = decoded.strip()
         if not raw:
             return
@@ -184,7 +186,7 @@ class StreamJsonMonitor:
         had_session_id = self._state.session_id is not None
         event_type, subtype, raw = self._state.record_event(event)
         if not had_session_id and self._state.session_id is not None:
-            self._persist_conversation_id(self._state.session_id)
+            self._conversation_persister.persist(self._state.session_id)
         if event_type == "result":
             status = subtype or str(event.get("status") or "")
             self.result_status = status.lower() if status else "success"
@@ -209,33 +211,6 @@ class StreamJsonMonitor:
             "waiting for your input",
         )
         return any(marker in normalized for marker in markers)
-
-    def _persist_conversation_id(self, session_id: str) -> None:
-        try:
-            if not self._task_state_path.exists():
-                return
-            payload = json.loads(self._task_state_path.read_text(encoding="utf-8"))
-            existing = str(payload.get("conversation_id") or "").strip()
-            if existing:
-                return
-            payload["conversation_id"] = session_id
-            write_json_atomic(self._task_state_path, payload, ensure_ascii=False, indent=2)
-            log_event(self.log_path, "INFO", "conversation_id captured from stream",
-                      session_id=session_id, task_id=self.task_id)
-        except Exception as exc:
-            log_event(self.log_path, "WARN", "failed to persist conversation_id from stream",
-                      error=str(exc), session_id=session_id)
-
-    # ── Agent output log ────────────────────────────────────────
-
-    def _append_agent_output(self, stream_name: str, payload: str) -> None:
-        if self._agent_output_file is None:
-            return
-        self._agent_output_file.write(f"[{stream_name}] {payload}")
-        if not payload.endswith("\n"):
-            self._agent_output_file.write("\n")
-        self._agent_output_file.flush()
-
 
     # ── Periodic reporting (delegated to MonitorMetricsCollector) ─
 
@@ -343,16 +318,7 @@ class StreamJsonMonitor:
 
     def stop(self) -> None:
         self._agent.stop()
-        self._close_agent_output_file()
-
-    def _close_agent_output_file(self) -> None:
-        f = self._agent_output_file
-        if f is not None:
-            self._agent_output_file = None
-            try:
-                f.close()
-            except OSError:
-                pass
+        self._output_sink.close()
 
     def _publish_snapshot(self) -> None:
         if self._snapshot_publisher is not None:

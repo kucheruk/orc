@@ -774,13 +774,14 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertEqual(args[1], 3)
 
     def test_append_agent_output_writes_to_log_file(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
+        from orc_core.infra.monitoring.agent_output_sink import AgentOutputSink
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "agent-output.log"
-            monitor._agent_output_file = output_path.open("a", encoding="utf-8")
-            monitor._append_agent_output("stdout", '{"type":"result"}\n')
-            monitor._append_agent_output("stderr", "warning")
-            monitor._agent_output_file.close()
+            log_path = Path(tmpdir) / "orc.log"
+            sink = AgentOutputSink(str(output_path), task_id="T-1", log_path=log_path)
+            sink.append("stdout", '{"type":"result"}\n')
+            sink.append("stderr", "warning")
+            sink.close()
             content = output_path.read_text(encoding="utf-8")
 
         self.assertIn('[stdout] {"type":"result"}', content)
