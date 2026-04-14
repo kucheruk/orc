@@ -13,7 +13,7 @@ from typing import Optional
 
 from ..board.kanban_card import KanbanCard
 from ..board.action_constants import Action
-from ..tasks.task_execution_types import TaskExecutionStatus
+from ..tasks.task_status_types import TaskExecutionStatus
 from ..incident.manager import IncidentManager
 from .task_outcome_tracker import TaskOutcomeTracker
 from .kanban_protocols import DirectiveSource, EventPublisher, RunnerLifecycle, RunnerNotifier, RunnerStateManager, WorkDistributor

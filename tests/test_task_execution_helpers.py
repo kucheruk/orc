@@ -14,7 +14,7 @@ from orc_core.tasks.task_execution_helpers import (
     _restart_backoff_seconds,
     _should_defer_base_backlog_sync_to_integration,
 )
-from orc_core.tasks.task_execution_types import TaskStageSpec
+from orc_core.tasks.execution.stage import TaskStageSpec
 
 
 class RestartBackoffTest(unittest.TestCase):

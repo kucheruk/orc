@@ -17,13 +17,9 @@ import orc_core.tasks.main_integrator as main_integrator
 import orc_core.tasks.task_execution_preflight as task_execution_preflight
 from orc_core.tasks.task_agent_phases import run_commit_phase
 from orc_core.tasks.task_execution import TaskExecutionEngine
-from orc_core.tasks.task_execution_types import (
-    ModelConfig,
-    TaskExecutionRequest,
-    TaskStageSpec,
-    TemplateConfig,
-    TimingConfig,
-)
+from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
+from orc_core.tasks.execution.request import TaskExecutionRequest
+from orc_core.tasks.execution.stage import TaskStageSpec
 from orc_core.text_parse import SafeDict
 from orc_core.tasks.stage_artifacts import build_stage_artifact_bundle
 from orc_core.models.task_types import Task

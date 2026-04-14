@@ -27,11 +27,9 @@ from .task_execution_helpers import (
     _normalize_fragmented_summary_text,
     _update_completion_stats,
 )
-from .task_execution_types import (
-    TaskExecutionResult,
-    TaskExecutionStatus,
-    _ExecutionContext,
-)
+from .execution.request import TaskExecutionResult
+from .execution.runtime import _ExecutionContext
+from .task_status_types import TaskExecutionStatus
 from .task_state import delete_runtime_state_file
 from ..text_parse import SafeDict, clean_summary_lines
 

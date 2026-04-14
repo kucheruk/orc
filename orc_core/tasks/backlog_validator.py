@@ -14,7 +14,9 @@ from .task_execution_helpers import (
     _should_defer_base_backlog_sync_to_integration,
     _sync_done_task_from_runtime_to_base,
 )
-from .task_execution_types import TaskExecutionResult, TaskExecutionStatus, _ExecutionContext
+from .execution.request import TaskExecutionResult
+from .execution.runtime import _ExecutionContext
+from .task_status_types import TaskExecutionStatus
 
 _logger = logging.getLogger(__name__)
 

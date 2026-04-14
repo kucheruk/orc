@@ -10,7 +10,9 @@ from typing import Optional
 
 from ..infra.io.atomic_io import write_json_atomic
 from ..log import log_event
-from .task_execution_types import ETA_WINDOW_SIZE, TaskExecutionRequest, TaskStageSpec
+from .execution.config import ETA_WINDOW_SIZE
+from .execution.request import TaskExecutionRequest
+from .execution.stage import TaskStageSpec
 
 
 def _update_completion_stats(

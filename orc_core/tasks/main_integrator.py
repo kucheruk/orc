@@ -13,7 +13,9 @@ from ..infra.io.timeline import timeline_step
 from ..text_parse import SafeDict
 from ..git.worktree_flow import get_head_commit, integrate_commit_into_main
 from .task_agent_phases import run_merge_expert_phase
-from .task_execution_types import TaskExecutionResult, TaskExecutionStatus, _ExecutionContext
+from .execution.request import TaskExecutionResult
+from .execution.runtime import _ExecutionContext
+from .task_status_types import TaskExecutionStatus
 from .task_state import delete_runtime_state_file
 
 _logger = logging.getLogger(__name__)

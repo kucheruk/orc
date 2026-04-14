@@ -7,12 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orc_core.tasks.task_execution import TaskExecutionEngine
-from orc_core.tasks.task_execution_types import (
-    ModelConfig,
-    TaskExecutionRequest,
-    TemplateConfig,
-    TimingConfig,
-)
+from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
+from orc_core.tasks.execution.request import TaskExecutionRequest
 from orc_core.models.task_types import Task
 
 

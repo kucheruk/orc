@@ -10,11 +10,8 @@ from typing import Optional, Protocol
 from ..log import log_event
 from ..infra.io.timeline import timeline_instant
 from .hooks import update_task_restart_count
-from .task_execution_types import (
-    TaskCompletionStatus,
-    TaskExecutionResult,
-    TaskExecutionStatus,
-)
+from .execution.request import TaskExecutionResult
+from .task_status_types import TaskCompletionStatus, TaskExecutionStatus
 
 _logger = logging.getLogger(__name__)
 

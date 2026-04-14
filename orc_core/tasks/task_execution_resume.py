@@ -10,14 +10,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from .task_execution_types import TaskExecutionResult, _ExecutionContext, _ResumeState
+    from .execution.request import TaskExecutionResult
+    from .execution.runtime import _ExecutionContext, _ResumeState
 
 from ..infra.io.atomic_io import write_json_atomic
 from ..infra.io.debug_log import debug_log
 from ..log import log_event
 from ..infra.state.session_state import save_active_session, save_session_manifest
 from .hooks import write_task_file
-from .task_execution_types import TaskExecutionResult, TaskExecutionStatus
+from .execution.request import TaskExecutionResult
+from .task_status_types import TaskExecutionStatus
 from .task_state import delete_runtime_state_file, read_task_active_seconds
 
 _logger = logging.getLogger(__name__)

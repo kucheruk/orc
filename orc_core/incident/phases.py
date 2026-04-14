@@ -13,7 +13,7 @@ from ..board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, ST
 from ..log import log_event
 from ..models.task_types import Task
 from ..use_cases.create_card import create_expedite_card
-from ..tasks.task_execution_types import TaskExecutionStatus
+from ..tasks.task_status_types import TaskExecutionStatus
 from .domain import (
     DECISION_FILENAME,
     FIX_CARD_PREFIX,

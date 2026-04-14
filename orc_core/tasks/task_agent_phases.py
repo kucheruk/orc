@@ -19,7 +19,8 @@ from ..git.git_helpers import (
     parse_git_porcelain as _parse_git_porcelain,
     runtime_artifact_paths_from_porcelain_lines as _runtime_artifact_paths_from_porcelain_lines,
 )
-from .task_execution_types import LaunchConfig, TaskCompletionStatus, TaskExecutionStatus
+from .execution.request import LaunchConfig
+from .task_status_types import TaskCompletionStatus, TaskExecutionStatus
 from ..log import log_event
 from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
 from ..infra.io.timeline import timeline_step
@@ -34,12 +35,9 @@ from ..infra.process.process_groups import terminate_process_group
 from ..quit_signal import is_stop_requested
 from .supervisor_lifecycle import wait_for_process_exit
 from .task_execution_helpers import _write_prompt_file
-from .task_execution_types import (
-    AgentPhaseSpec,
-    TaskExecutionRequest,
-    TaskExecutionResult,
-    TaskWorker,
-)
+from .execution.request import TaskExecutionRequest, TaskExecutionResult
+from .execution.stage import AgentPhaseSpec
+from .execution.worker import TaskWorker
 from ..text_parse import SafeDict
 
 _logger = logging.getLogger(__name__)

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ..board.kanban_card import KanbanCard
     from ..board.kanban_pull import WorkAssignment
     from ..models.session_types import SessionSlot
-    from ..tasks.task_execution_types import TaskExecutionRequest, TaskExecutionResult
+    from ..tasks.execution.request import TaskExecutionRequest, TaskExecutionResult
     from ..models.task_types import Task
 
 

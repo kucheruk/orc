@@ -17,12 +17,10 @@ from typing import Callable, Optional
 
 from ..log import log_event
 from .stage_artifacts import parse_stage_artifact_status
-from .task_execution_types import (
-    SDLC_FEEDBACK_MAX_ITERATIONS,
-    TaskExecutionResult,
-    TaskExecutionStatus,
-    _ExecutionContext,
-)
+from .execution.request import TaskExecutionResult
+from .execution.runtime import _ExecutionContext
+from .execution.stage import SDLC_FEEDBACK_MAX_ITERATIONS
+from .task_status_types import TaskExecutionStatus
 
 _logger = logging.getLogger(__name__)
 

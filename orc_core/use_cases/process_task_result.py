@@ -17,7 +17,8 @@ from ..log import log_event
 
 # Callable type for processing agent output: (board, card, role) -> list[errors]
 AgentResultProcessor = Callable[[KanbanBoard, KanbanCard, str], list[str]]
-from ..tasks.task_execution_types import TaskExecutionResult, TaskExecutionStatus
+from ..tasks.execution.request import TaskExecutionResult
+from ..tasks.task_status_types import TaskExecutionStatus
 
 
 class OutcomeTracker(Protocol):

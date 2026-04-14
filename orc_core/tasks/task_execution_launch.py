@@ -9,7 +9,9 @@ from ..infra.io.timeline import timeline_step
 from ..quit_signal import is_stop_requested
 from .supervisor_lifecycle import wait_for_completion
 from .task_agent_phases import cleanup_monitor_processes
-from .task_execution_types import LaunchConfig, TaskCompletionStatus, _ExecutionContext
+from .execution.request import LaunchConfig
+from .execution.runtime import _ExecutionContext
+from .task_status_types import TaskCompletionStatus
 
 
 def launch_and_wait(

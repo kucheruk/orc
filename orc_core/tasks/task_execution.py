@@ -31,16 +31,10 @@ from .task_source import MarkdownTaskSource
 from ..git.git_helpers import git_diff_numstat
 
 from .task_status_types import RESTART_REASON_TEXT
-from .task_execution_types import (
-    LaunchConfig,
-    TaskStageSpec,
-    TaskExecutionRequest,
-    TaskExecutionResult,
-    _ExecutionContext,
-    _ResumeState,
-    TaskWorker,
-    AgentTaskWorker,
-)
+from .execution.request import LaunchConfig, TaskExecutionRequest, TaskExecutionResult
+from .execution.runtime import _ExecutionContext, _ResumeState
+from .execution.stage import TaskStageSpec
+from .execution.worker import AgentTaskWorker, TaskWorker
 
 from .task_execution_helpers import (
     _restart_backoff_seconds,

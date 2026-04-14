@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 import psutil
 
-from .task_execution_types import TaskCompletionStatus
+from .task_status_types import TaskCompletionStatus
 from ..log import log_event
 from ..infra.io.debug_log import debug_log, debug_mode_log
 from ..infra.io.timeline import timeline_instant
