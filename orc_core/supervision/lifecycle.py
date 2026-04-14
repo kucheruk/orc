@@ -12,11 +12,8 @@ from ..infra.io.debug_log import debug_log
 from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
 from ..infra.io.timeline import timeline_instant
 from ..infra.process.process import is_pid_alive
-from .checks import (
-    DEFAULT_CHECK_CHAIN,
-    CompletionCheck,
-    _monitor_pid_missing,
-)
+from .checks import DEFAULT_CHECK_CHAIN, CompletionCheck
+from .check_queries import _monitor_pid_missing
 from .ports import BacklogQueryPort, NotifyPort
 
 

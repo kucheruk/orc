@@ -15,18 +15,20 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Callable, Optional
 
-import psutil
-
 from ..tasks.task_status_types import TaskCompletionStatus
 from ..log import log_event
 from ..infra.io.debug_log import debug_log, debug_mode_log
 from ..infra.io.timeline import timeline_instant
-from ..infra.process.process import is_pid_alive
 from ..tasks.task_state import delete_runtime_state_file
+from .check_queries import (
+    _get_active_children_count,
+    _is_model_unavailable_stderr,
+    _monitor_pid_missing,
+)
+from .check_reporter import _force_close_active_tools_if_needed
 
 if TYPE_CHECKING:
     from .lifecycle import CompletionMonitor
-    from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
 
 # Protocol for completion checks: (CompletionMonitor) -> Optional[TaskCompletionStatus]
 CompletionCheck = Callable[["CompletionMonitor"], Optional[TaskCompletionStatus]]
@@ -37,74 +39,6 @@ PID_MISSING_GRACE_SECONDS = 1.0
 TOOL_DIGESTION_GRACE_SECONDS = 180.0
 TOKENS_STUCK_NOTICE_SECONDS = 15 * 60
 TOKENS_STUCK_NOTICE_LABEL = "15m"
-
-
-# ── Helpers ──────────────────────────────────────────────────────
-
-def _monitor_pid_missing(monitor: StreamMonitorProtocol) -> bool:
-    try:
-        monitor.refresh_process_status()
-    except Exception:
-        pass
-    if monitor.proc.poll() is not None:
-        return False
-    pid = monitor.proc.pid or monitor.init_pid
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    return not is_pid_alive(pid)
-
-
-def _is_model_unavailable_stderr(last_stderr_line: str) -> bool:
-    normalized = str(last_stderr_line or "").strip().lower()
-    if not normalized:
-        return False
-    markers = (
-        "cannot use this model",
-        "unknown model",
-        "model not found",
-        "invalid model",
-    )
-    return any(marker in normalized for marker in markers)
-
-
-def _force_close_active_tools_if_needed(monitor: StreamMonitorProtocol, log_path, task_id: str, reason: str) -> None:
-    try:
-        result = monitor.force_finalize_live_tool_calls(reason)
-    except Exception as exc:
-        log_event(log_path, "WARN", "force close tools failed", task_id=task_id, reason=reason, error=str(exc))
-        return
-    cleared = int(result.get("cleared") or 0)
-    if cleared <= 0:
-        return
-    pending = result.get("pending")
-    log_event(
-        log_path,
-        "WARN",
-        "force closed active tools",
-        task_id=task_id,
-        reason=str(result.get("reason") or reason),
-        cleared=cleared,
-        pending_preview=pending if isinstance(pending, list) else [],
-    )
-
-
-def _get_active_children_count(monitor: StreamMonitorProtocol) -> int:
-    pid = monitor.proc.pid or monitor.init_pid
-    if not isinstance(pid, int) or pid <= 0:
-        return 0
-    try:
-        parent = psutil.Process(pid)
-        children = parent.children(recursive=True)
-    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-        return 0
-    active_count = 0
-    for child in children:
-        try:
-            if child.status() != psutil.STATUS_ZOMBIE:
-                active_count += 1
-        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-            continue
-    return active_count
 
 
 # ── Check functions ──────────────────────────────────────────────
