@@ -9,8 +9,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from orc_core.notifications.adapters import TelegramNotify
 from orc_core.supervision.lifecycle import wait_for_completion, wait_for_process_exit
 from orc_core.supervision.checks import PROCESS_EXIT_GRACE_SECONDS
+from orc_core.supervision.ports import NoopNotify
+from orc_core.tasks.backlog_query import MarkdownBacklogQuery
+
+
+def _default_ports(log_path=None):
+    return {"notify": NoopNotify(), "backlog_query": MarkdownBacklogQuery()}
 
 
 class _ExitedProc:
@@ -125,6 +132,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     nudge_text="continue",
                     task_id="PERSIST-001",
                     task_text="MongoDB Connection & Configuration",
+                    notify=TelegramNotify(log_path=Path(tmpdir) / "orc.log"),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
         self.assertEqual(result, "waiting_for_input")
@@ -158,6 +167,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     nudge_text="continue",
                     task_id="REFACT-777",
                     task_text="repro",
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
         self.assertEqual(result, "completed")
@@ -197,6 +208,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     task_id="REFACT-778",
                     task_text="repro",
                     ignore_initial_backlog_done=True,
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
         self.assertEqual(result, "waiting_for_input")
@@ -228,6 +241,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     nudge_text="continue",
                     task_id="REFACT-099",
                     task_text="repro",
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
         self.assertEqual(result, "completed")
@@ -258,6 +273,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     nudge_text="continue",
                     task_id="REFACT-100",
                     task_text="repro",
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
         self.assertEqual(result, "process_exited")
@@ -291,6 +308,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     nudge_text="continue",
                     task_id="REFACT-101",
                     task_text="repro",
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
         self.assertEqual(result, "process_exited")
@@ -330,6 +349,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     nudge_text="continue",
                     task_id="REFACT-102",
                     task_text="repro",
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
         self.assertEqual(result, "stalled")
@@ -368,6 +389,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     nudge_text="continue",
                     task_id="REFACT-103",
                     task_text="repro",
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
         self.assertEqual(result, "ttl_exceeded")
@@ -399,6 +422,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     nudge_text="continue",
                     task_id="REFACT-005",
                     task_text="repro",
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
         self.assertEqual(result, "stalled")
@@ -427,6 +452,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     nudge_text="continue",
                     task_id="REFACT-006",
                     task_text="repro",
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
         self.assertEqual(result, "completed")
@@ -449,6 +476,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                 nudge_text="continue",
                 task_id="REFACT-021",
                 task_text="repro",
+                notify=NoopNotify(),
+                backlog_query=MarkdownBacklogQuery(),
             )
 
         self.assertEqual(result, "process_exited")
@@ -473,6 +502,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                 nudge_text="continue",
                 task_id="REFACT-104",
                 task_text="repro",
+                notify=NoopNotify(),
+                backlog_query=MarkdownBacklogQuery(),
             )
 
         self.assertEqual(result, "model_unavailable")
@@ -497,6 +528,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                 nudge_text="continue",
                 task_id="REFACT-021",
                 task_text="repro",
+                notify=NoopNotify(),
+                backlog_query=MarkdownBacklogQuery(),
             )
 
         self.assertEqual(result, "waiting_for_input")
@@ -524,6 +557,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                 task_text="repro",
                 timeline_id="tl-1",
                 attempt=2,
+                notify=NoopNotify(),
+                backlog_query=MarkdownBacklogQuery(),
             )
 
         self.assertEqual(result, "waiting_for_input")
@@ -555,6 +590,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                 nudge_text="continue",
                 task_id="REFACT-021",
                 task_text="repro",
+                notify=NoopNotify(),
+                backlog_query=MarkdownBacklogQuery(),
             )
 
         self.assertEqual(result, "ttl_exceeded")
@@ -585,6 +622,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                 nudge_text="continue",
                 task_id="REFACT-021",
                 task_text="repro",
+                notify=NoopNotify(),
+                backlog_query=MarkdownBacklogQuery(),
             )
             thread.join(timeout=1.0)
 
@@ -612,6 +651,8 @@ class SupervisorLifecycleTest(unittest.TestCase):
                     task_text="repro",
                     escape_requested=lambda: True,
                     confirm_exit=lambda: True,
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                 )
 
     def test_wait_for_process_exit_raises_on_confirmed_escape(self) -> None:

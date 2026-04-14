@@ -41,24 +41,6 @@ TOKENS_STUCK_NOTICE_LABEL = "15m"
 
 # ── Helpers ──────────────────────────────────────────────────────
 
-def _task_done_in_backlog(task_path) -> bool:
-    import json
-    from pathlib import Path
-    try:
-        payload = json.loads(task_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, ValueError):
-        return False
-    backlog_raw = str(payload.get("backlog_path") or "").strip()
-    task_id = str(payload.get("task_id") or "").strip()
-    if not backlog_raw or not task_id:
-        return False
-    try:
-        from ..tasks.task_source import MarkdownTaskSource
-        return MarkdownTaskSource(Path(backlog_raw)).is_task_done(task_id)
-    except (OSError, json.JSONDecodeError, ValueError, KeyError):
-        return False
-
-
 def _monitor_pid_missing(monitor: StreamMonitorProtocol) -> bool:
     try:
         monitor.refresh_process_status()
@@ -169,7 +151,7 @@ def check_pid_missing(cm: CompletionMonitor) -> Optional[TaskCompletionStatus]:
         if (time.time() - cm.pid_missing_since) < PID_MISSING_GRACE_SECONDS:
             time.sleep(max(min(cm.poll, 0.2), 0.05))
             return None
-        backlog_done = _task_done_in_backlog(cm.task_path)
+        backlog_done = cm.backlog_query.is_task_done(cm.task_path)
         if backlog_done and not (cm.ignore_initial_backlog_done and cm.backlog_done_at_start):
             log_event(cm.log_path, "INFO", "agent pid missing and task marked done; treating as completed", task_id=cm.task_id)
             try:
@@ -199,7 +181,7 @@ def check_pid_missing(cm: CompletionMonitor) -> Optional[TaskCompletionStatus]:
 
 def check_backlog_done_idle(cm: CompletionMonitor) -> Optional[TaskCompletionStatus]:
     now = time.time()
-    backlog_done = _task_done_in_backlog(cm.task_path)
+    backlog_done = cm.backlog_query.is_task_done(cm.task_path)
     if (
         backlog_done
         and not (cm.ignore_initial_backlog_done and cm.backlog_done_at_start)
@@ -239,8 +221,7 @@ def check_tokens_stuck(cm: CompletionMonitor) -> None:
                         f"{cm.task_id} — {cm.task_text}\n"
                         f"agent stuck (tokens unchanged {TOKENS_STUCK_NOTICE_LABEL})"
                     )
-                if cm.on_notify:
-                    cm.on_notify(stuck_msg)
+                cm.notify.send(stuck_msg)
 
 
 def check_process_exited(cm: CompletionMonitor) -> Optional[TaskCompletionStatus]:
@@ -274,7 +255,7 @@ def check_process_exited(cm: CompletionMonitor) -> Optional[TaskCompletionStatus
                 if not cm.task_path.exists():
                     log_event(cm.log_path, "INFO", "task file removed during exit grace window")
                     return TaskCompletionStatus.COMPLETED
-                if _task_done_in_backlog(cm.task_path):
+                if cm.backlog_query.is_task_done(cm.task_path):
                     log_event(cm.log_path, "INFO", "task marked done during exit grace window", task_id=cm.task_id)
                     try:
                         cm.task_path.unlink()

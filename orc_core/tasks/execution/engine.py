@@ -22,6 +22,8 @@ from ...infra.io.timeline import timeline_instant, timeline_step
 from ...quit_signal import is_stop_requested
 from ..task_status_types import TaskCompletionStatus, TaskExecutionStatus
 from ...supervision.lifecycle import wait_for_completion
+from ...supervision.ports import BacklogQueryPort, NoopNotify, NotifyPort
+from ..backlog_query import MarkdownBacklogQuery
 from ..stage_artifacts import build_stage_artifact_bundle
 from ..task_state import runtime_state_path
 from ...text_parse import SafeDict
@@ -60,9 +62,19 @@ from ..completion_handlers import COMPLETION_HANDLERS
 
 
 class TaskExecutionEngine:
-    def __init__(self, *, worker: Optional[TaskWorker] = None, log_path: Path, backend: Optional["BackendProtocol"] = None) -> None:
+    def __init__(
+        self,
+        *,
+        worker: Optional[TaskWorker] = None,
+        log_path: Path,
+        backend: Optional["BackendProtocol"] = None,
+        notify: Optional[NotifyPort] = None,
+        backlog_query: Optional[BacklogQueryPort] = None,
+    ) -> None:
         self.worker = worker or AgentTaskWorker(backend=backend)
         self.log_path = log_path
+        self.notify: NotifyPort = notify or NoopNotify()
+        self.backlog_query: BacklogQueryPort = backlog_query or MarkdownBacklogQuery()
 
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResult:
         task_id = request.task.task_id
@@ -220,6 +232,8 @@ def _run_stage_loop(engine: TaskExecutionEngine, ctx: _ExecutionContext, resume:
                     )
                     active_monitor, result = launch_and_wait(
                         engine.worker, ctx, launch_cfg, log_path,
+                        notify=engine.notify,
+                        backlog_query=engine.backlog_query,
                         elapsed_before_start=elapsed_before_start_stage,
                         ignore_initial_backlog_done=enforce_stage_artifacts and stage_index > 0,
                         attempt_number=attempt_number,

@@ -15,9 +15,9 @@ from ..infra.process.process import is_pid_alive
 from .checks import (
     DEFAULT_CHECK_CHAIN,
     CompletionCheck,
-    _task_done_in_backlog,
     _monitor_pid_missing,
 )
+from .ports import BacklogQueryPort, NotifyPort
 
 
 class CompletionMonitor:
@@ -36,13 +36,14 @@ class CompletionMonitor:
         nudge_text: str,
         task_id: str,
         task_text: str,
+        notify: NotifyPort,
+        backlog_query: BacklogQueryPort,
         timeline_id: str = "",
         attempt: int = 0,
         elapsed_before_start: float = 0.0,
         ignore_initial_backlog_done: bool = False,
         escape_requested: Optional[Callable[[], bool]] = None,
         confirm_exit: Optional[Callable[[], bool]] = None,
-        on_notify: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.task_path = task_path
         self.monitor = monitor
@@ -61,7 +62,8 @@ class CompletionMonitor:
         self.ignore_initial_backlog_done = ignore_initial_backlog_done
         self.escape_requested = escape_requested
         self.confirm_exit = confirm_exit
-        self.on_notify = on_notify
+        self.notify = notify
+        self.backlog_query = backlog_query
 
         self.start_time = time.time()
         self.pid_missing_since: Optional[float] = None
@@ -69,7 +71,7 @@ class CompletionMonitor:
         self.last_tokens_value: Optional[int] = None
         self.last_tokens_time = time.time()
         self.last_stuck_notice_time = 0.0
-        self.backlog_done_at_start = _task_done_in_backlog(task_path)
+        self.backlog_done_at_start = backlog_query.is_task_done(task_path)
 
     # Chain of Responsibility: ordered check handlers (configurable via constructor)
     _CHECKS: tuple[CompletionCheck, ...] = DEFAULT_CHECK_CHAIN
@@ -95,16 +97,15 @@ def wait_for_completion(
     nudge_text: str,
     task_id: str,
     task_text: str,
+    notify: NotifyPort,
+    backlog_query: BacklogQueryPort,
     timeline_id: str = "",
     attempt: int = 0,
     elapsed_before_start: float = 0.0,
     ignore_initial_backlog_done: bool = False,
     escape_requested: Optional[Callable[[], bool]] = None,
     confirm_exit: Optional[Callable[[], bool]] = None,
-    on_notify: Optional[Callable[[str], None]] = None,
 ) -> TaskCompletionStatus:
-    from ..notifications.notify import send_telegram_message as _default_notify
-    _notify = on_notify or (lambda msg: _default_notify(msg, log_path))
     cm = CompletionMonitor(
         task_path=task_path,
         monitor=monitor,
@@ -117,13 +118,14 @@ def wait_for_completion(
         nudge_text=nudge_text,
         task_id=task_id,
         task_text=task_text,
+        notify=notify,
+        backlog_query=backlog_query,
         timeline_id=timeline_id,
         attempt=attempt,
         elapsed_before_start=elapsed_before_start,
         ignore_initial_backlog_done=ignore_initial_backlog_done,
         escape_requested=escape_requested,
         confirm_exit=confirm_exit,
-        on_notify=_notify,
     )
     debug_log(
         "H3",

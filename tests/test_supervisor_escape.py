@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 from orc_core.supervision.lifecycle import wait_for_completion, wait_for_process_exit
+from orc_core.supervision.ports import NoopNotify
+from orc_core.tasks.backlog_query import MarkdownBacklogQuery
 
 
 class _FakeMetrics:
@@ -81,6 +83,8 @@ class SupervisorEscapeTest(unittest.TestCase):
                     nudge_text="continue",
                     task_id="TASK-001",
                     task_text="test",
+                    notify=NoopNotify(),
+                    backlog_query=MarkdownBacklogQuery(),
                     escape_requested=lambda: True,
                     confirm_exit=lambda: True,
                 )
@@ -108,6 +112,8 @@ class SupervisorEscapeTest(unittest.TestCase):
                 nudge_text="continue",
                 task_id="TASK-001",
                 task_text="test",
+                notify=NoopNotify(),
+                backlog_query=MarkdownBacklogQuery(),
                 escape_requested=escape_requested,
                 confirm_exit=lambda: False,
             )

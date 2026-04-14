@@ -154,8 +154,13 @@ def _build_orchestrator(args, workdir: str, log_path: Path, backend, base_branch
     from ..board.kanban_init import init_kanban_board
     from ..agents.composition import build_session_manager
     from ..config import OrcConfig
+    from ..notifications.adapters import TelegramNotify
 
-    engine = TaskExecutionEngine(log_path=log_path, backend=backend)
+    engine = TaskExecutionEngine(
+        log_path=log_path,
+        backend=backend,
+        notify=TelegramNotify(log_path=log_path),
+    )
     tasks_dir = init_kanban_board(Path(workdir))
     orc_config = OrcConfig.from_namespace(args)
     return build_session_manager(

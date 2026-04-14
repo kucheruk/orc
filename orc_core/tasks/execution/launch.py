@@ -8,6 +8,7 @@ from ...infra.io.debug_log import debug_log
 from ...infra.io.timeline import timeline_step
 from ...quit_signal import is_stop_requested
 from ...supervision.lifecycle import wait_for_completion
+from ...supervision.ports import BacklogQueryPort, NotifyPort
 from ..task_agent_phases import cleanup_monitor_processes
 from .request import LaunchConfig
 from .runtime import _ExecutionContext
@@ -20,6 +21,8 @@ def launch_and_wait(
     launch_config: LaunchConfig,
     log_path,
     *,
+    notify: NotifyPort,
+    backlog_query: BacklogQueryPort,
     elapsed_before_start: float,
     ignore_initial_backlog_done: bool,
     attempt_number: int,
@@ -49,6 +52,8 @@ def launch_and_wait(
                 nudge_text=request.timing.nudge_text,
                 task_id=ctx.task_id,
                 task_text=ctx.task_text,
+                notify=notify,
+                backlog_query=backlog_query,
                 timeline_id=ctx.timeline_id,
                 attempt=attempt_number,
                 escape_requested=is_stop_requested,
