@@ -12,9 +12,8 @@ from typing import Callable, Optional
 from ..infra.clock import Clock, SystemClock
 from .card_prioritizer import pick_best as _pick_best
 from .card_repository import CardRepository
-from .kanban_card import KanbanCard, parse_card, new_card_body
-from .limits_constants import WIP_STAGES
-from .stage_constants import STAGES, STAGE_CODING, STAGE_INBOX, STAGE_ORDER
+from .kanban_card import KanbanCard, parse_card
+from .stage_constants import STAGES, STAGE_ORDER
 from .movement_rules import resolve_deferred_target
 from .wip_manager import WIPManager
 
@@ -32,8 +31,9 @@ class KanbanBoard:
         clock: Optional[Clock] = None,
     ) -> None:
         self._tasks_dir = tasks_dir
+        self.tasks_dir = tasks_dir
         self.repo: CardRepository = repo
-        self._clock: Clock = clock or SystemClock()
+        self.clock: Clock = clock or SystemClock()
         self._lock = threading.RLock()
         self._cards: list[KanbanCard] = []
         self._wip = WIPManager()
@@ -297,50 +297,12 @@ class KanbanBoard:
             result[stage] = {"count": count, "wip_limit": limit}
         return result
 
-    # ── Card creation ───────────────────────────────────────────
+    # ── Card registration ───────────────────────────────────────
 
-    def create_inbox_card(self, card_id: str, title: str) -> KanbanCard:
-        card = KanbanCard(
-            id=card_id, title=title, stage=STAGE_INBOX, action="Product",
-            created_at=self._clock.now_iso(),
-            body=new_card_body(),
-        )
-        inbox_dir = self._tasks_dir / STAGE_INBOX
-        self.repo.ensure_dir(inbox_dir)
-        path = inbox_dir / f"{card_id}.md"
-        self.repo.write_card_text(path, card.to_markdown())
-        card.file_path = path
+    def register_card(self, card: KanbanCard) -> None:
+        """Attach a pre-built card (persisted by a factory) to the in-memory list."""
         with self._lock:
             self._cards.append(card)
-        return card
-
-    def create_expedite_card(
-        self,
-        card_id: str,
-        title: str,
-        body: str,
-        *,
-        stage: str = STAGE_CODING,
-        action: str = "Coding",
-        cos_justification: str = "",
-    ) -> KanbanCard:
-        """Create an expedite card directly at the given stage, bypassing inbox."""
-        card = KanbanCard(
-            id=card_id, title=title, stage=stage, action=action,
-            class_of_service="expedite",
-            cos_justification=cos_justification,
-            value_score=100, effort_score=20,
-            created_at=self._clock.now_iso(),
-            body=body,
-        )
-        stage_dir = self._tasks_dir / stage
-        self.repo.ensure_dir(stage_dir)
-        path = stage_dir / f"{card_id}.md"
-        self.repo.write_card_text(path, card.to_markdown())
-        card.file_path = path
-        with self._lock:
-            self._cards.append(card)
-        return card
 
     def next_card_id(self) -> str:
         with self._lock:

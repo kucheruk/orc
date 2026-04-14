@@ -143,9 +143,10 @@ class TestKanbanPublisher(unittest.TestCase):
 class TestBoardCreateInbox(unittest.TestCase):
 
     def test_create_inbox_card(self):
+        from orc_core.use_cases.create_card import create_inbox_card
         with tempfile.TemporaryDirectory() as tmp:
             td, board = _setup(tmp)
-            card = board.create_inbox_card("NEW-01", "My feature")
+            card = create_inbox_card(board, "My feature", card_id="NEW-01")
             self.assertEqual(card.id, "NEW-01")
             self.assertEqual(card.stage, "1_Inbox")
             self.assertTrue((td / "1_Inbox" / "NEW-01.md").exists())

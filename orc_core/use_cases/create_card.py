@@ -8,6 +8,11 @@ from typing import Callable, Optional
 
 from ..board.kanban_board import KanbanBoard
 from ..board.kanban_card import KanbanCard
+from ..board.kanban_card_factory import KanbanCardFactory
+
+
+def _factory_for(board: KanbanBoard) -> KanbanCardFactory:
+    return KanbanCardFactory(board.tasks_dir, repo=board.repo, clock=board.clock)
 
 
 def create_inbox_card(
@@ -19,7 +24,8 @@ def create_inbox_card(
 ) -> KanbanCard:
     """Create a new inbox card and add it to the board."""
     card_id = card_id or board.next_card_id()
-    card = board.create_inbox_card(card_id, title)
+    card = _factory_for(board).create_inbox(card_id, title)
+    board.register_card(card)
     if on_created:
         on_created(card_id, title)
     return card
@@ -38,11 +44,12 @@ def create_expedite_card(
 ) -> KanbanCard:
     """Create an expedite card directly at the given stage."""
     card_id = card_id or board.next_card_id()
-    card = board.create_expedite_card(
+    card = _factory_for(board).create_expedite(
         card_id, title, body,
         stage=stage, action=action,
         cos_justification=cos_justification,
     )
+    board.register_card(card)
     if on_created:
         on_created(card_id, title)
     return card

@@ -248,12 +248,14 @@ class TestFixCardPrefix(unittest.TestCase):
 class TestCreateExpediteCard(unittest.TestCase):
 
     def test_creates_card_in_stage(self):
+        from orc_core.use_cases.create_card import create_expedite_card
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, board = _make_board(tmp)
-            card = board.create_expedite_card(
-                card_id="FIX-T1",
+            card = create_expedite_card(
+                board,
                 title="Fix something",
                 body="# 1. Product Requirements\n\nFix it\n",
+                card_id="FIX-T1",
                 stage="4_Coding",
                 action="Coding",
                 cos_justification="Incident INC-001",
@@ -278,8 +280,10 @@ class TestCreateExpediteCard(unittest.TestCase):
                 id="T-1", stage="4_Coding", action="Coding",
                 class_of_service="standard", value_score=90, effort_score=10,
             ))
-            board.create_expedite_card(
-                card_id="FIX-T2", title="Fix", body="body",
+            from orc_core.use_cases.create_card import create_expedite_card
+            create_expedite_card(
+                board, title="Fix", body="body",
+                card_id="FIX-T2",
                 stage="4_Coding", action="Coding",
             )
             board.refresh()
