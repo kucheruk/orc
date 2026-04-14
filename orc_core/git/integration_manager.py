@@ -24,6 +24,7 @@ from ..infra.state.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
 from ..models.task_types import Task
 from .conflict_resolver import ConflictResolver
+from .safe_files import SafeFilesGuard
 from .worktree_flow import (
     get_head_commit,
     integrate_commit_into_main,
@@ -81,6 +82,7 @@ class IntegrationManager:
         self.main_branch = main_branch
         self.log_path = log_path
         self._safe_tracked_paths = safe_tracked_paths
+        self._safe_files = SafeFilesGuard(workdir, safe_tracked_paths, log_path=log_path)
         self._lock = threading.Lock()
         self._conflict_resolver = ConflictResolver(workdir)
 
@@ -138,33 +140,7 @@ class IntegrationManager:
             else:
                 log_event(self.log_path, "ERROR", f"failed to abort stale {marker}",
                           stderr=stderr[:ERROR_TRUNCATE])
-                self._hard_reset_preserving_safe_files_no_ctx()
-
-    def _do_hard_reset(self) -> list[str]:
-        """Hard-reset HEAD preserving safe tracked paths. Returns list of preserved paths."""
-        saved: dict[str, str] = {}
-        for safe_path in self._safe_tracked_paths:
-            full = Path(self.workdir) / safe_path
-            if full.exists():
-                try:
-                    saved[safe_path] = full.read_text(encoding="utf-8")
-                except OSError:
-                    _logger.debug("OSError reading/writing safe path", exc_info=True)
-        ok, _, stderr, _ = run_git(self.workdir, ["git", "reset", "--hard", "HEAD"])
-        if not ok:
-            raise RuntimeError(f"git reset --hard HEAD failed: {stderr.strip()[:200]}")
-        for safe_path, content in saved.items():
-            full = Path(self.workdir) / safe_path
-            try:
-                full.write_text(content, encoding="utf-8")
-            except OSError:
-                _logger.debug("OSError on safe path I/O", exc_info=True)
-        return list(saved.keys())
-
-    def _hard_reset_preserving_safe_files_no_ctx(self) -> None:
-        preserved = self._do_hard_reset()
-        log_event(self.log_path, "WARN", "hard reset with preserved files",
-                  preserved=preserved)
+                self._safe_files.hard_reset_preserving()
 
     # ── Private ──────────────────────────────────────────────────
 
@@ -233,16 +209,7 @@ class IntegrationManager:
                           workdir=self.workdir)
 
     def _stash_safe_files(self, ctx: IntegrationContext) -> dict[str, str]:
-        saved: dict[str, str] = {}
-        for safe_path in self._safe_tracked_paths:
-            full = Path(self.workdir) / safe_path
-            if not full.exists():
-                continue
-            try:
-                saved[safe_path] = full.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            run_git(self.workdir, ["git", "checkout", "--", safe_path])
+        saved = self._safe_files.save()
         if saved:
             ctx.step("stashed_safe_files", files=list(saved.keys()))
         return saved
@@ -250,12 +217,7 @@ class IntegrationManager:
     def _restore_safe_files(self, ctx: IntegrationContext, saved: dict[str, str]) -> None:
         if not saved:
             return
-        for safe_path, content in saved.items():
-            full = Path(self.workdir) / safe_path
-            try:
-                full.write_text(content, encoding="utf-8")
-            except OSError:
-                _logger.debug("OSError on safe path I/O", exc_info=True)
+        self._safe_files.restore(saved)
         ctx.step("restored_safe_files", files=list(saved.keys()))
 
     def _preflight(self, ctx: IntegrationContext) -> bool:
@@ -328,5 +290,5 @@ class IntegrationManager:
             self._hard_reset_preserving_safe_files(ctx)
 
     def _hard_reset_preserving_safe_files(self, ctx: IntegrationContext) -> None:
-        preserved = self._do_hard_reset()
+        preserved = self._safe_files.hard_reset_preserving()
         ctx.step("hard_reset_with_preserved_files", preserved=preserved)
