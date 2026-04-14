@@ -10,7 +10,7 @@ from typing import Optional
 
 from ..log import log_event
 from ..infra.io.debug_log import debug_log
-from .task_execution_helpers import (
+from .execution.helpers import (
     _should_defer_base_backlog_sync_to_integration,
     _sync_done_task_from_runtime_to_base,
 )

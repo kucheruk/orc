@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.tasks.task_execution import TaskExecutionEngine
+from orc_core.tasks.execution.engine import TaskExecutionEngine
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
 from orc_core.models.task_types import Task
@@ -110,9 +110,9 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
         )
 
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
-    @patch("orc_core.tasks.task_execution.update_task_restart_count")
-    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="completed")
-    @patch("orc_core.tasks.task_execution_resume.write_task_file")
+    @patch("orc_core.tasks.execution.engine.update_task_restart_count")
+    @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
+    @patch("orc_core.tasks.execution.resume.write_task_file")
     def test_blank_resume_id_auto_drops_and_starts_fresh(self, write_task_file, *_mocks) -> None:
         """Blank conversation_id + restart_count=0 means the task never ran.
         Auto-drop stale state and start fresh instead of failing."""
@@ -133,9 +133,9 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 1)
 
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
-    @patch("orc_core.tasks.task_execution.update_task_restart_count")
-    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="completed")
-    @patch("orc_core.tasks.task_execution_resume.write_task_file")
+    @patch("orc_core.tasks.execution.engine.update_task_restart_count")
+    @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
+    @patch("orc_core.tasks.execution.resume.write_task_file")
     def test_blank_resume_id_with_restarts_auto_drops(self, write_task_file, *_mocks) -> None:
         """Blank conversation_id + restart_count>0: agent was killed before hook
         could write conversation_id. Auto-drop and start fresh."""

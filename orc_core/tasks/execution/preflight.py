@@ -8,16 +8,16 @@ import logging
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from .execution.request import TaskExecutionResult
-    from .execution.runtime import _ExecutionContext
+    from .request import TaskExecutionResult
+    from .runtime import _ExecutionContext
 
-from ..infra.io.debug_log import debug_log
-from ..infra.failure_reasons import build_main_integration_preflight_reason
-from ..log import log_event
-from ..git.git_helpers import classify_main_integration_error
-from ..git.worktree_flow import preflight_main_integration
-from .execution.request import TaskExecutionResult
-from .task_status_types import TaskExecutionStatus
+from ...infra.io.debug_log import debug_log
+from ...infra.failure_reasons import build_main_integration_preflight_reason
+from ...log import log_event
+from ...git.git_helpers import classify_main_integration_error
+from ...git.worktree_flow import preflight_main_integration
+from .request import TaskExecutionResult
+from ..task_status_types import TaskExecutionStatus
 
 _logger = logging.getLogger(__name__)
 

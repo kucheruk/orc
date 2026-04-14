@@ -14,24 +14,24 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from ..log import log_event
-from ..infra.io.debug_log import debug_log
-from ..quit_signal import is_quit_after_task_requested
-from .backlog_validator import validate_backlog_invariant
-from .main_integrator import handle_main_integration
-from .stage_artifacts import parse_stage_artifact_status, validate_stage_artifact_output
-from .stage_verdict_handlers import VERDICT_HANDLERS, _StageCompletionInfo
-from .task_agent_phases import run_commit_phase
-from .task_execution_helpers import (
+from ...log import log_event
+from ...infra.io.debug_log import debug_log
+from ...quit_signal import is_quit_after_task_requested
+from ..backlog_validator import validate_backlog_invariant
+from ..main_integrator import handle_main_integration
+from ..stage_artifacts import parse_stage_artifact_status, validate_stage_artifact_output
+from ..stage_verdict_handlers import VERDICT_HANDLERS, _StageCompletionInfo
+from ..task_agent_phases import run_commit_phase
+from .helpers import (
     _is_fragmented_summary_lines,
     _normalize_fragmented_summary_text,
     _update_completion_stats,
 )
-from .execution.request import TaskExecutionResult
-from .execution.runtime import _ExecutionContext
-from .task_status_types import TaskExecutionStatus
-from .task_state import delete_runtime_state_file
-from ..text_parse import SafeDict, clean_summary_lines
+from .request import TaskExecutionResult
+from .runtime import _ExecutionContext
+from ..task_status_types import TaskExecutionStatus
+from ..task_state import delete_runtime_state_file
+from ...text_parse import SafeDict, clean_summary_lines
 
 _logger = logging.getLogger(__name__)
 

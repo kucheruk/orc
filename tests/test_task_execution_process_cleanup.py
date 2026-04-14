@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.tasks.task_execution import TaskExecutionEngine
+from orc_core.tasks.execution.engine import TaskExecutionEngine
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
 from orc_core.models.task_types import Task
@@ -112,10 +112,10 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            with patch("orc_core.tasks.task_execution_resume.write_task_file"), patch(
-                "orc_core.tasks.task_execution.update_task_restart_count"
+            with patch("orc_core.tasks.execution.resume.write_task_file"), patch(
+                "orc_core.tasks.execution.engine.update_task_restart_count"
             ), patch(
-                "orc_core.tasks.task_execution_launch.wait_for_completion",
+                "orc_core.tasks.execution.launch.wait_for_completion",
                 side_effect=KeyboardInterrupt,
             ), patch(
                 "orc_core.tasks.task_agent_phases.kill_orphan_project_processes"
@@ -134,10 +134,10 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            with patch("orc_core.tasks.task_execution_resume.write_task_file"), patch(
-                "orc_core.tasks.task_execution.update_task_restart_count"
+            with patch("orc_core.tasks.execution.resume.write_task_file"), patch(
+                "orc_core.tasks.execution.engine.update_task_restart_count"
             ), patch(
-                "orc_core.tasks.task_execution_launch.wait_for_completion",
+                "orc_core.tasks.execution.launch.wait_for_completion",
                 side_effect=KeyboardInterrupt,
             ), patch(
                 "orc_core.tasks.task_agent_phases.terminate_process_group",
@@ -163,10 +163,10 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
-            with patch("orc_core.tasks.task_execution_resume.write_task_file"), patch(
-                "orc_core.tasks.task_execution.update_task_restart_count"
+            with patch("orc_core.tasks.execution.resume.write_task_file"), patch(
+                "orc_core.tasks.execution.engine.update_task_restart_count"
             ), patch(
-                "orc_core.tasks.task_execution_launch.wait_for_completion",
+                "orc_core.tasks.execution.launch.wait_for_completion",
                 side_effect=KeyboardInterrupt,
             ), patch(
                 "orc_core.tasks.task_agent_phases.terminate_process_group",

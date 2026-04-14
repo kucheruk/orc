@@ -8,11 +8,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from ..infra.io.atomic_io import write_json_atomic
-from ..log import log_event
-from .execution.config import ETA_WINDOW_SIZE
-from .execution.request import TaskExecutionRequest
-from .execution.stage import TaskStageSpec
+from ...infra.io.atomic_io import write_json_atomic
+from ...log import log_event
+from .config import ETA_WINDOW_SIZE
+from .request import TaskExecutionRequest
+from .stage import TaskStageSpec
 
 
 def _update_completion_stats(
@@ -24,8 +24,8 @@ def _update_completion_stats(
     log_path: Path,
 ) -> None:
     """Record token usage and task duration in stats file (replaces stop hook stats logic)."""
-    from ..infra.state.state_paths import stats_path as get_stats_path
-    from .task_state import read_task_active_seconds
+    from ...infra.state.state_paths import stats_path as get_stats_path
+    from ..task_state import read_task_active_seconds
 
     stats_file = get_stats_path(workdir)
     try:
@@ -100,7 +100,7 @@ def _sync_done_task_from_runtime_to_base(
 ) -> bool:
     if runtime_backlog_path == base_backlog_path:
         return True
-    from .task_source import MarkdownTaskSource
+    from ..task_source import MarkdownTaskSource
 
     try:
         base_source = MarkdownTaskSource(base_backlog_path)

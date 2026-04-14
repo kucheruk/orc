@@ -36,7 +36,7 @@ from ..role_config import (
     RoleProfileRegistry,
 )
 from ..infra.monitoring.monitor_types import MonitorSnapshot
-from ..tasks.task_execution import TaskExecutionEngine
+from ..tasks.execution.engine import TaskExecutionEngine
 from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn
 from ..git.worktree_flow import detect_base_branch

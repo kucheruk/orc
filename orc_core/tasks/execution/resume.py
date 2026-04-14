@@ -10,17 +10,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from .execution.request import TaskExecutionResult
-    from .execution.runtime import _ExecutionContext, _ResumeState
+    from .request import TaskExecutionResult
+    from .runtime import _ExecutionContext, _ResumeState
 
-from ..infra.io.atomic_io import write_json_atomic
-from ..infra.io.debug_log import debug_log
-from ..log import log_event
-from ..infra.state.session_state import save_active_session, save_session_manifest
-from .hooks import write_task_file
-from .execution.request import TaskExecutionResult
-from .task_status_types import TaskExecutionStatus
-from .task_state import delete_runtime_state_file, read_task_active_seconds
+from ...infra.io.atomic_io import write_json_atomic
+from ...infra.io.debug_log import debug_log
+from ...log import log_event
+from ...infra.state.session_state import save_active_session, save_session_manifest
+from ..hooks import write_task_file
+from .request import TaskExecutionResult
+from ..task_status_types import TaskExecutionStatus
+from ..task_state import delete_runtime_state_file, read_task_active_seconds
 
 _logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def recover_resume_state(
         resume.elapsed_before_start = 0.0
 
     if resume.resume_existing and active_task_id and request.task_path.exists():
-        from .task_source import MarkdownTaskSource
+        from ..task_source import MarkdownTaskSource
 
         if MarkdownTaskSource(ctx.base_backlog_path).is_task_done(active_task_id):
             log_event(log_path, "INFO", "task already marked done; removing task file", task_id=active_task_id)

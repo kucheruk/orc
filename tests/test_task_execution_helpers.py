@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from orc_core.tasks.task_execution_helpers import (
+from orc_core.tasks.execution.helpers import (
     _find_first_stage_index,
     _is_fragmented_summary_lines,
     _normalize_fragmented_summary_text,

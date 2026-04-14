@@ -47,7 +47,7 @@ from ..models.session_types import (
     SessionSlot,
 )
 from ..infra.monitoring.monitor_types import MonitorSnapshot
-from ..tasks.task_execution import TaskExecutionEngine
+from ..tasks.execution.engine import TaskExecutionEngine
 from ..infra.process.process_groups import kill_own_process_group
 
 EXIT_OK = 0

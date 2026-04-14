@@ -12,7 +12,7 @@ from ..board.kanban_distributor import KanbanDistributor
 from ..config import OrcConfig
 from ..git.integration_manager import IntegrationManager
 from ..infra.backend import Backend
-from ..tasks.task_execution import TaskExecutionEngine
+from ..tasks.execution.engine import TaskExecutionEngine
 from .kanban_directive_queue import DirectiveQueue
 from .kanban_notification_service import NotificationService
 from .kanban_publisher import KanbanPublisher

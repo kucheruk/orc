@@ -8,9 +8,9 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from orc_core.tasks.task_execution import TaskExecutionEngine
+from orc_core.tasks.execution.engine import TaskExecutionEngine
 import orc_core.tasks.main_integrator as main_integrator
-import orc_core.tasks.task_execution_preflight as task_execution_preflight
+import orc_core.tasks.execution.preflight as task_execution_preflight
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
 from orc_core.models.task_types import Task
@@ -113,8 +113,8 @@ def _request(base_dir: Path, worktree_dir: Path) -> TaskExecutionRequest:
     )
 
 class TaskExecutionWorktreeStateTest(unittest.TestCase):
-    @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
-    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="waiting_for_input")
+    @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
+    @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="waiting_for_input")
     @patch("orc_core.notifications.notify.send_telegram_message")
     def test_writes_resume_state_in_base_workspace_and_avoids_duplicate_start_notifications(
         self,
@@ -149,8 +149,8 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         # Telegram notifications removed — kanban session manager handles them
         self.assertEqual(send_telegram_message_mock.call_count, 0)
 
-    @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
-    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="stalled")
+    @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
+    @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="stalled")
     @patch("orc_core.notifications.notify.send_telegram_message")
     def test_syncs_done_flag_from_worktree_backlog_into_base(self, *_mocks) -> None:
         worker = _FakeWorker()
@@ -172,16 +172,16 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.task_execution_preflight.preflight_main_integration")
+    @patch("orc_core.tasks.execution.preflight.preflight_main_integration")
     @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
-    @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
-    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="process_exited")
+    @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
+    @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
     def test_does_not_mutate_base_backlog_when_runtime_done_and_integration_fails(self, *_mocks) -> None:
-        import orc_core.tasks.task_execution as task_execution
-        import orc_core.tasks.task_execution_finalize as task_execution_finalize
+        import orc_core.tasks.execution.engine as task_execution
+        import orc_core.tasks.execution.finalize as task_execution_finalize
 
         task_execution_preflight.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
         main_integrator.integrate_commit_into_main.return_value = type(
@@ -211,16 +211,16 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertNotIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.task_execution_preflight.preflight_main_integration")
+    @patch("orc_core.tasks.execution.preflight.preflight_main_integration")
     @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
-    @patch("orc_core.tasks.task_execution_launch.cleanup_monitor_processes")
-    @patch("orc_core.tasks.task_execution_launch.wait_for_completion", return_value="process_exited")
+    @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
+    @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
     def test_fails_when_successful_integration_did_not_mark_base_backlog_done(self, *_mocks) -> None:
-        import orc_core.tasks.task_execution as task_execution
-        import orc_core.tasks.task_execution_finalize as task_execution_finalize
+        import orc_core.tasks.execution.engine as task_execution
+        import orc_core.tasks.execution.finalize as task_execution_finalize
 
         task_execution_preflight.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
         main_integrator.integrate_commit_into_main.return_value = type(

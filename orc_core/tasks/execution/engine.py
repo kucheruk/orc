@@ -13,30 +13,30 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from ..infra.backend import Backend as BackendProtocol
+    from ...infra.backend import Backend as BackendProtocol
 
-from .hooks import update_task_restart_count
-from ..log import log_event
-from ..infra.io.debug_log import debug_log
-from ..infra.io.timeline import timeline_instant, timeline_step
-from ..quit_signal import is_stop_requested
-from .task_status_types import TaskCompletionStatus, TaskExecutionStatus
-from ..supervision.lifecycle import wait_for_completion
-from .stage_artifacts import build_stage_artifact_bundle
-from .task_state import runtime_state_path
-from ..text_parse import SafeDict
-from .task_execution_preflight import preflight_integration
-from .task_execution_resume import recover_resume_state, init_task_file
-from .task_source import MarkdownTaskSource
-from ..git.git_helpers import git_diff_numstat
+from ..hooks import update_task_restart_count
+from ...log import log_event
+from ...infra.io.debug_log import debug_log
+from ...infra.io.timeline import timeline_instant, timeline_step
+from ...quit_signal import is_stop_requested
+from ..task_status_types import TaskCompletionStatus, TaskExecutionStatus
+from ...supervision.lifecycle import wait_for_completion
+from ..stage_artifacts import build_stage_artifact_bundle
+from ..task_state import runtime_state_path
+from ...text_parse import SafeDict
+from .preflight import preflight_integration
+from .resume import recover_resume_state, init_task_file
+from ..task_source import MarkdownTaskSource
+from ...git.git_helpers import git_diff_numstat
 
-from .task_status_types import RESTART_REASON_TEXT
-from .execution.request import LaunchConfig, TaskExecutionRequest, TaskExecutionResult
-from .execution.runtime import _ExecutionContext, _ResumeState
-from .execution.stage import TaskStageSpec
-from .execution.worker import AgentTaskWorker, TaskWorker
+from ..task_status_types import RESTART_REASON_TEXT
+from .request import LaunchConfig, TaskExecutionRequest, TaskExecutionResult
+from .runtime import _ExecutionContext, _ResumeState
+from .stage import TaskStageSpec
+from .worker import AgentTaskWorker, TaskWorker
 
-from .task_execution_helpers import (
+from .helpers import (
     _restart_backoff_seconds,
     _write_prompt_file,
     _build_agent_output_log_path,
@@ -44,14 +44,14 @@ from .task_execution_helpers import (
     _find_first_stage_index,
 )
 
-from .backlog_detector import check_backlog_done as _check_backlog_done
-from .task_agent_phases import cleanup_monitor_processes as _cleanup_monitor_processes
-from .task_execution_finalize import (
+from ..backlog_detector import check_backlog_done as _check_backlog_done
+from ..task_agent_phases import cleanup_monitor_processes as _cleanup_monitor_processes
+from .finalize import (
     finalize_completed as _finalize_completed,
     complete_stage as _complete_stage,
 )
-from .task_execution_launch import launch_and_wait
-from .completion_handlers import COMPLETION_HANDLERS
+from .launch import launch_and_wait
+from ..completion_handlers import COMPLETION_HANDLERS
 
 
 
