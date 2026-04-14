@@ -4,10 +4,12 @@
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from pathlib import Path
+from typing import Any, Optional
 
 from ..board.kanban_board import KanbanBoard
 from ..board.action_constants import Action
+from ..log import log_event
 
 
 def unblock_card(
@@ -15,14 +17,21 @@ def unblock_card(
     card_id: str,
     directive: str,
     *,
-    on_unblocked: Optional[Callable[[str, str], None]] = None,
+    publisher: Optional[Any] = None,
+    log_path: Optional[Path] = None,
 ) -> bool:
-    """Unblock a card. Returns True if the card was found and unblocked."""
+    """Unblock a card with a directive. Returns True if the card was unblocked.
+
+    Emits log + publisher events when those dependencies are supplied, so
+    delivery layers can call the use case directly.
+    """
     card = board.card_by_id(card_id)
     if card is None or card.action != Action.BLOCKED:
         return False
     card.unblock(directive)
     board.save_card(card)
-    if on_unblocked:
-        on_unblocked(card_id, directive)
+    if log_path is not None:
+        log_event(log_path, "INFO", "card unblocked", card_id=card_id, directive=directive)
+    if publisher is not None:
+        publisher.log_unblock(card_id, directive)
     return True

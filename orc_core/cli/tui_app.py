@@ -103,11 +103,24 @@ class OrcApp(App[int]):
 
     def on_inbox_card_requested(self, message: InboxCardRequested) -> None:
         if self._session_manager:
-            self._session_manager.add_inbox_card(message.text)
+            from ..use_cases.create_card import create_inbox_card
+            create_inbox_card(
+                self._session_manager.board,
+                message.text,
+                publisher=self._session_manager.publisher,
+                log_path=self._session_manager.log_path,
+            )
 
     def on_unblock_card_requested(self, message: UnblockCardRequested) -> None:
         if self._session_manager:
-            self._session_manager.unblock_card(message.card_id, message.directive)
+            from ..use_cases.unblock_card import unblock_card
+            unblock_card(
+                self._session_manager.board,
+                message.card_id,
+                message.directive,
+                publisher=self._session_manager.publisher,
+                log_path=self._session_manager.log_path,
+            )
 
     def on_teamlead_directive_requested(self, message: TeamleadDirectiveRequested) -> None:
         if self._session_manager:

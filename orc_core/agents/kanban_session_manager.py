@@ -37,8 +37,6 @@ from .kanban_teamlead_runner import KanbanTeamleadRunner
 from .kanban_worker_runner import KanbanWorkerRunner
 from ..git.project_hooks import fire_hooks
 from ..board.kanban_role_registry import ROLE_TEAMLEAD
-from ..use_cases.create_card import create_inbox_card
-from ..use_cases.unblock_card import unblock_card as unblock_card_uc
 from ..log import log_event
 from ..quit_signal import is_quit_after_task_requested, is_stop_requested
 from .session_pool import SessionPool
@@ -229,19 +227,10 @@ class KanbanSessionManager:
         lines.append(f"  Board: {done}/{total} done")
         return "\n".join(lines)
 
-    def add_inbox_card(self, text: str) -> None:
-        board = self._distributor.board
-        def _log_created(cid, title):
-            log_event(self.log_path, "INFO", "inbox card created", card_id=cid, title=title)
-        card = create_inbox_card(board, text, on_created=_log_created)
-        self.publisher.log_inbox(card.id, text)
-
-    def unblock_card(self, card_id: str, directive: str) -> None:
-        board = self._distributor.board
-        def _log_unblocked(cid, dir_text):
-            log_event(self.log_path, "INFO", "card unblocked", card_id=cid, directive=dir_text)
-        if unblock_card_uc(board, card_id, directive, on_unblocked=_log_unblocked):
-            self.publisher.log_unblock(card_id, directive)
+    @property
+    def board(self):
+        """Expose the underlying kanban board for delivery layers (TUI/CLI)."""
+        return self._distributor.board
 
     def queue_teamlead_directive(self, text: str) -> None:
         self._directives.push(text)
