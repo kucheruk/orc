@@ -11,7 +11,7 @@ from typing import Optional
 
 from .kanban_board import KanbanBoard
 from .kanban_card import KanbanCard
-from ..infra.adapters.fs_card_repository import FsCardRepository
+from .fs_card_repository import FsCardRepository
 from .stage_constants import STAGE_DONE
 from .kanban_pull import WorkAssignment, find_next_work, find_teamlead_work
 

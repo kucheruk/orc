@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Filesystem-backed card repository — infrastructure adapter for CardRepository port."""
+"""Filesystem-backed card repository — implements CardRepository port."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from typing import Any, Optional
 
 import yaml
 
-from ...board.limits_constants import INDEX_FILENAME
-from ...board.stage_constants import STAGES
-from ...board.kanban_card import KanbanCard, parse_card
-from ..io.atomic_io import write_text_atomic
+from .limits_constants import INDEX_FILENAME
+from .stage_constants import STAGES
+from .kanban_card import KanbanCard, parse_card
+from ..infra.io.atomic_io import write_text_atomic
 
 
 class FsCardRepository:

@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from .kanban_board import KanbanBoard
 from .stage_constants import STAGE_DONE
-from ..infra.adapters.fs_card_repository import FsCardRepository
+from .fs_card_repository import FsCardRepository
 from ..models.task_types import Task
 
 
