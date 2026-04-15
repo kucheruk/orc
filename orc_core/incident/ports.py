@@ -18,6 +18,22 @@ if TYPE_CHECKING:
     from ..tasks.execution.request import TaskExecutionRequest, TaskExecutionResult
 
 
+class SessionSnapshot(Protocol):
+    """Generic snapshot of a session slot — enough for incident detection
+    without coupling incident/ to agents/session_types directly.
+
+    SessionSlot from agents/ structurally satisfies this Protocol, so no
+    explicit adapter is required at runtime."""
+
+    session_id: str
+    status: str  # "idle" | "running" | "closing" | "closed" — SlotStatus is StrEnum
+    error: str
+    crash_traceback: str
+    role: str
+    task: object  # Optional[Task] — incident only reads .task_id off it
+    worktree: object  # Optional[WorktreeSession] — incident only reads .worktree_path
+
+
 class FailedTasksSource(Protocol):
     """Read-only source of failed task ids.
 
@@ -63,3 +79,9 @@ class IncidentPublisher(Protocol):
     """Emits incident lifecycle events to the TUI / journal."""
 
     def log_incident(self, incident_id: str, message: str) -> None: ...
+
+
+class ArtifactWriter(Protocol):
+    """Writes a small text artifact (traceback dump, decision file)."""
+
+    def write_text(self, path: Path, text: str) -> None: ...

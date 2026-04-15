@@ -10,11 +10,11 @@ from typing import Optional
 
 from ..board.action_constants import Action
 from ..board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_REVIEW
-from ..infra.io.atomic_io import write_text_atomic
 from ..log import log_event
 from ..tasks.task_dto import Task
 from ..board.use_cases.create_card import create_expedite_card
 from ..tasks.task_status import TaskExecutionStatus
+from .ports import ArtifactWriter
 from .domain import (
     DECISION_FILENAME,
     FIX_CARD_PREFIX,
@@ -27,6 +27,11 @@ from .domain import (
     fallback_decision,
     parse_incident_decision_text,
 )
+
+
+def _artifact_writer() -> ArtifactWriter:
+    from ..infra.io.atomic_io_adapter import DEFAULT_ARTIFACT_WRITER
+    return DEFAULT_ARTIFACT_WRITER
 
 
 def handle_scale_down(ctx, incident: Incident) -> Incident:
@@ -58,7 +63,7 @@ def handle_triage(ctx, slot, incident: Incident) -> Incident:
     decision_path = orc_root / DECISION_FILENAME
     traceback_path = orc_root / TRACEBACK_FILENAME
 
-    write_text_atomic(traceback_path, incident.traceback or "(no traceback)")
+    _artifact_writer().write_text(traceback_path, incident.traceback or "(no traceback)")
 
     prompt = build_incident_prompt(
         incident, board, source_card, str(decision_path), str(traceback_path),

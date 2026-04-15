@@ -12,11 +12,6 @@ from ..board.action_constants import Action
 from ..log import log_event
 from ..notifications.notify import send_telegram_message
 from ..quit_signal import is_stop_requested
-from ..agents.session_types import (
-    STAGGER_DELAY_SECONDS,
-    SessionSlot,
-    SlotStatus,
-)
 from .phases import (
     handle_inject_fix,
     handle_notify_human,
@@ -37,7 +32,14 @@ from .ports import (
     IncidentSessionController,
     IncidentStateManager,
     IncidentTaskExecutor,
+    SessionSnapshot,
 )
+
+
+_SLOT_CLOSED = "closed"
+_SLOT_RUNNING = "running"
+_SLOT_IDLE = "idle"
+_STAGGER_DELAY_SECONDS = 5.0
 
 if TYPE_CHECKING:
     import threading
@@ -57,7 +59,7 @@ class IncidentManager:
         distributor: KanbanDistributor,
         publisher: IncidentPublisher,
         engine: IncidentTaskExecutor,
-        slots: dict[str, SessionSlot],
+        slots: dict[str, SessionSnapshot],
         slots_lock: threading.Lock,
         outcomes: FailedTasksSource,
         log_path: Path,
@@ -90,7 +92,7 @@ class IncidentManager:
         with self._slots_lock:
             for slot in self._slots.values():
                 if (slot.error
-                        and slot.status == SlotStatus.CLOSED
+                        and slot.status == _SLOT_CLOSED
                         and slot.session_id not in self._handled_crash_slots):
                     self._handled_crash_slots.add(slot.session_id)
                     self._incident_counter += 1
@@ -167,13 +169,13 @@ class IncidentManager:
             worker_slots = [
                 s for s in self._slots.values()
                 if (s.role or "worker") == "worker"
-                and s.status in (SlotStatus.IDLE, SlotStatus.RUNNING)
+                and s.status in (_SLOT_IDLE, _SLOT_RUNNING)
             ]
         original_count = len(worker_slots)
         if original_count <= keep:
             return original_count, []
 
-        worker_slots.sort(key=lambda s: (0 if s.status == SlotStatus.RUNNING else 1))
+        worker_slots.sort(key=lambda s: (0 if s.status == _SLOT_RUNNING else 1))
         to_remove = worker_slots[keep:]
 
         removed_ids = []
@@ -189,7 +191,7 @@ class IncidentManager:
             with self._slots_lock:
                 still_open = {
                     sid for sid in remaining
-                    if sid in self._slots and self._slots[sid].status not in (SlotStatus.CLOSED,)
+                    if sid in self._slots and self._slots[sid].status not in (_SLOT_CLOSED,)
                 }
             remaining = still_open
             if remaining:
@@ -201,7 +203,7 @@ class IncidentManager:
             current_workers = sum(
                 1 for s in self._slots.values()
                 if (s.role or "worker") == "worker"
-                and s.status in (SlotStatus.IDLE, SlotStatus.RUNNING)
+                and s.status in (_SLOT_IDLE, _SLOT_RUNNING)
             )
         new_ids = []
         to_add = max(0, target_count - current_workers)
@@ -211,5 +213,5 @@ class IncidentManager:
             sid = self._session_controller.add_session()
             if sid:
                 new_ids.append(sid)
-            self.sleep_fn(STAGGER_DELAY_SECONDS)
+            self.sleep_fn(_STAGGER_DELAY_SECONDS)
         return new_ids
