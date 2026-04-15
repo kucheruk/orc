@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from .runtime import _ExecutionContext
 
 from ...infra.io.debug_log import debug_log
-from ...infra.failure_reasons import build_main_integration_preflight_reason
+from ...errors.failure_reasons import build_main_integration_preflight_reason
 from ...log import log_event
 from ...git.git_helpers import classify_main_integration_error
 from ...git.worktree_flow import preflight_main_integration

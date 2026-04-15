@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from ..infra.exceptions import AgentNotInstalledError
+from ..errors.exceptions import AgentNotInstalledError
 from ..log import log_event
 
 AGENT_LS_TIMEOUT_SECONDS = 15.0

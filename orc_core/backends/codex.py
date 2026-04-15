@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 
-from ..infra.exceptions import AgentNotInstalledError
+from ..errors.exceptions import AgentNotInstalledError
 
 
 class CodexNotInstalledError(AgentNotInstalledError):

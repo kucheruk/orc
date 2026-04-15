@@ -4,7 +4,7 @@
 
 from pathlib import Path
 
-from ..infra.failure_reasons import IntegrationErrorKind
+from ..errors.failure_reasons import IntegrationErrorKind
 from ..log import log_event
 from .subprocess_git import GIT_COMMAND_TIMEOUT_SECONDS, SubprocessGitRunner
 
