@@ -197,18 +197,18 @@ class TestCardLock(unittest.TestCase):
     def test_same_card_id_returns_same_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, board = _make_board(tmp)
-            lock1 = board.card_lock("TASK-001")
-            lock2 = board.card_lock("TASK-001")
+            lock1 = board._get_card_lock("TASK-001")
+            lock2 = board._get_card_lock("TASK-001")
             self.assertIs(lock1, lock2)
 
     def test_different_cards_get_different_locks(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, board = _make_board(tmp)
-            lock_a = board.card_lock("A")
-            lock_b = board.card_lock("B")
+            lock_a = board._get_card_lock("A")
+            lock_b = board._get_card_lock("B")
             self.assertIsNot(lock_a, lock_b)
 
-    def test_card_lock_provides_mutual_exclusion(self):
+    def test_locked_card_provides_mutual_exclusion(self):
         import threading
         import time
 
@@ -220,8 +220,7 @@ class TestCardLock(unittest.TestCase):
 
             def worker():
                 barrier.wait()
-                lock = board.card_lock("X")
-                with lock:
+                with board.locked_card("X"):
                     counter[0] += 1
                     current = counter[0]
                     if current > max_concurrent[0]:

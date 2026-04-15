@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Iterator, Optional
 
 from .clock import Clock, SystemClock
 from .card_prioritizer import pick_best as _pick_best
@@ -110,12 +111,24 @@ class KanbanBoard:
 
     # ── Per-card locking ──────────────────────────────────────────
 
-    def card_lock(self, card_id: str) -> threading.Lock:
+    def _get_card_lock(self, card_id: str) -> threading.Lock:
         """Return a per-card lock, creating it lazily. Thread-safe."""
         with self._lock:
             if card_id not in self._card_locks:
                 self._card_locks[card_id] = threading.Lock()
             return self._card_locks[card_id]
+
+    @contextmanager
+    def locked_card(self, card_id: str) -> Iterator[None]:
+        """Serialize mutations to a single card across threads.
+
+        Callers enter this block before any read-modify-write cycle that
+        must not interleave with another agent touching the same card.
+        The underlying Lock is an internal detail.
+        """
+        lock = self._get_card_lock(card_id)
+        with lock:
+            yield
 
     # ── Queries ─────────────────────────────────────────────────
 

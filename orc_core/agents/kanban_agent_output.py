@@ -80,7 +80,7 @@ def process_agent_result(
 
     Returns list of validation errors (empty = success).
     """
-    with board.card_lock(card.id):
+    with board.locked_card(card.id):
         file_path = card.file_path
         if file_path is None or not file_path.exists():
             # Card may have been moved by another agent/teamlead while this agent was running.
