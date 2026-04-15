@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from ...infra.runner import launch_agent_stream_json
+from ...agents.launch import launch_agent_stream_json
 from .request import LaunchConfig
 
 if TYPE_CHECKING:

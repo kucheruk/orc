@@ -6,16 +6,16 @@ import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping, Optional
 
-from .io.logging import log_event, now_ms
-from .io.debug_log import debug_log
-from .io.timeline import timeline_instant
-from .process.process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
-from .process.process_groups import terminate_process_group
-from .monitoring.stream_monitor import StreamJsonMonitor
+from ..infra.io.logging import log_event, now_ms
+from ..infra.io.debug_log import debug_log
+from ..infra.io.timeline import timeline_instant
+from ..infra.process.process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
+from ..infra.process.process_groups import terminate_process_group
+from ..infra.monitoring.stream_monitor import StreamJsonMonitor
 from ..infra.monitoring.monitor_dto import MonitorSnapshot
 
 if TYPE_CHECKING:
-    from .backend import Backend
+    from ..backends.backend import Backend
 
 
 def launch_agent_stream_json(
@@ -95,7 +95,7 @@ async def launch_agent_stream_json_async(
     #region agent log
     debug_log(
         "H2",
-        "orc_core/runner.py:launch_agent_stream_json",
+        "orc_core/agents/launch.py:launch_agent_stream_json",
         "launch agent stream-json",
         {
             "workdir": workdir,
@@ -131,7 +131,7 @@ async def launch_agent_stream_json_async(
     #region agent log
     debug_log(
         "H1",
-        "orc_core/runner.py:launch_agent_stream_json:cmd",
+        "orc_core/agents/launch.py:launch_agent_stream_json:cmd",
         "agent command",
         {"cmd": " ".join(shlex.quote(part) for part in agent_cmd)},
     )
@@ -170,7 +170,7 @@ async def launch_agent_stream_json_async(
         raise
     debug_log(
         "H1",
-        "orc_core/runner.py:launch_agent_stream_json:spawned",
+        "orc_core/agents/launch.py:launch_agent_stream_json:spawned",
         "agent spawned",
         {"pid": monitor.proc.pid},
     )
@@ -178,7 +178,7 @@ async def launch_agent_stream_json_async(
         timeline_id=timeline_id,
         task_id=task_id,
         step="agent_spawn",
-        location="orc_core/runner.py:launch_agent_stream_json_async",
+        location="orc_core/agents/launch.py:launch_agent_stream_json_async",
         attempt=attempt,
         result="spawned",
         data={"duration_ms": max(now_ms() - spawn_started_ms, 0), "pid": monitor.proc.pid},
