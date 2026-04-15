@@ -7,12 +7,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ..board.kanban_card import PROTECTED_FIELDS, KanbanCard, validate_card
-from ..board.action_constants import Action
-from ..board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_INBOX, STAGE_ORDER, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
+from ...board.kanban_card import PROTECTED_FIELDS, KanbanCard, validate_card
+from ...board.action_constants import Action
+from ...board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_INBOX, STAGE_ORDER, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
 
 if TYPE_CHECKING:
-    from ..board.kanban_board import KanbanBoard
+    from ...board.kanban_board import KanbanBoard
 
 _logger = logging.getLogger(__name__)
 

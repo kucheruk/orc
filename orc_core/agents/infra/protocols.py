@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING, Optional, Protocol
 from pathlib import Path
 
 if TYPE_CHECKING:
-    from ..board.kanban_board import KanbanBoard
-    from ..board.kanban_card import KanbanCard
-    from ..board.kanban_pull import WorkAssignment
-    from .session_types import SessionSlot
-    from ..tasks.execution.request import TaskExecutionRequest, TaskExecutionResult
-    from ..tasks.task_dto import Task
+    from ...board.kanban_board import KanbanBoard
+    from ...board.kanban_card import KanbanCard
+    from ...board.kanban_pull import WorkAssignment
+    from ..session_types import SessionSlot
+    from ...tasks.execution.request import TaskExecutionRequest, TaskExecutionResult
+    from ...tasks.task_dto import Task
 
 
 class RunnerLifecycle(Protocol):

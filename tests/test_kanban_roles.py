@@ -19,7 +19,7 @@ from orc_core.board.kanban_pull import (
     ROLE_REVIEWER,
     ROLE_TESTER,
 )
-from orc_core.agents.kanban_roles import (
+from orc_core.agents.roles import (
     ROLE_TEAMLEAD,
     build_prompt,
     format_board_summary,

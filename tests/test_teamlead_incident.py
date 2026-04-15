@@ -300,12 +300,12 @@ class TestCreateExpediteCard(unittest.TestCase):
 class TestSessionSlotCrashTraceback(unittest.TestCase):
 
     def test_default_empty(self):
-        from orc_core.agents.session_types import SessionSlot
+        from orc_core.agents.session.types import SessionSlot
         slot = SessionSlot(session_id="s1")
         self.assertEqual(slot.crash_traceback, "")
 
     def test_can_set(self):
-        from orc_core.agents.session_types import SessionSlot
+        from orc_core.agents.session.types import SessionSlot
         slot = SessionSlot(session_id="s1")
         slot.crash_traceback = "Traceback..."
         self.assertEqual(slot.crash_traceback, "Traceback...")
@@ -317,7 +317,7 @@ class TestSessionSlotCrashTraceback(unittest.TestCase):
 class TestPublisherLogIncident(unittest.TestCase):
 
     def test_emits_incident_event(self):
-        from orc_core.agents.kanban_publisher import KanbanPublisher
+        from orc_core.agents.infra.publisher import KanbanPublisher
         pub = KanbanPublisher()
         events = []
         pub.journal_callback = lambda e: events.append(e)

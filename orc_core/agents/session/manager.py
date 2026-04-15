@@ -11,32 +11,32 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..git.integration_manager import IntegrationManager
-from ..board.kanban_distributor import KanbanDistributor
-from ..board.stage_constants import STAGE_INBOX
-from ..config import OrcConfig
-from .kanban_board_event_bridge import BoardEventBridge
-from .kanban_directive_queue import DirectiveQueue
-from .kanban_notification_service import NotificationService
-from .kanban_publisher import KanbanPublisher
-from .kanban_request_factory import KanbanRequestFactory
-from .kanban_state_persistence import (
+from ...git.integration_manager import IntegrationManager
+from ...board.kanban_distributor import KanbanDistributor
+from ...board.stage_constants import STAGE_INBOX
+from ...config import OrcConfig
+from ..kanban_board_event_bridge import BoardEventBridge
+from ..kanban_directive_queue import DirectiveQueue
+from ..kanban_notification_service import NotificationService
+from ..kanban_publisher import KanbanPublisher
+from ..kanban_request_factory import KanbanRequestFactory
+from ..kanban_state_persistence import (
     cleanup_done_worktrees,
     release_stale_agents,
 )
-from .kanban_teamlead_runner import KanbanTeamleadRunner
-from .kanban_worker_runner import KanbanWorkerRunner
-from ..board.kanban_role_registry import ROLE_TEAMLEAD
-from ..log import log_event
-from ..quit_signal import is_quit_after_task_requested, is_stop_requested
-from .session_pool import SessionPool
-from ..tasks.completion.outcomes import TaskOutcomeTracker
-from .session_types import (
+from ..kanban_teamlead_runner import KanbanTeamleadRunner
+from ..kanban_worker_runner import KanbanWorkerRunner
+from ...board.kanban_role_registry import ROLE_TEAMLEAD
+from ...log import log_event
+from ...quit_signal import is_quit_after_task_requested, is_stop_requested
+from ..session_pool import SessionPool
+from ...tasks.completion.outcomes import TaskOutcomeTracker
+from ..session_types import (
     MANAGER_POLL_SECONDS,
     STAGGER_DELAY_SECONDS,
     SessionSlot,
 )
-from ..infra.process.process_groups import kill_own_process_group
+from ...infra.process.process_groups import kill_own_process_group
 
 EXIT_OK = 0
 EXIT_FAILURE = 1

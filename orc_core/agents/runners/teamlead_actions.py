@@ -15,14 +15,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from ..board.action_constants import Action
-from ..board.stage_constants import STAGES, STAGE_DONE, STAGE_INBOX
-from ..text_parse import parse_frontmatter
-from ..board.use_cases.create_card import create_expedite_card, create_inbox_card
+from ...board.action_constants import Action
+from ...board.stage_constants import STAGES, STAGE_DONE, STAGE_INBOX
+from ...text_parse import parse_frontmatter
+from ...board.use_cases.create_card import create_expedite_card, create_inbox_card
 
 if TYPE_CHECKING:
-    from ..board.kanban_board import KanbanBoard
-    from .kanban_publisher import KanbanPublisher
+    from ...board.kanban_board import KanbanBoard
+    from ..kanban_publisher import KanbanPublisher
 
 _logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ def execute_teamlead_actions(
     log_path: Path,
 ) -> list[str]:
     """Execute parsed actions against the board. Returns list of error strings."""
-    from ..log import log_event
+    from ...log import log_event
 
     errors: list[str] = []
     if decision.summary:
@@ -194,7 +194,7 @@ class SetActionHandler:
         if card.assigned_agent:
             ctx.board.release_agent(card)
         ctx.board.save_card(card, old_action=old, role="teamlead")
-        from .kanban_agent_output import _FORWARD_MOVES
+        from ..kanban_agent_output import _FORWARD_MOVES
         new_stage = _FORWARD_MOVES.get((card.stage, action_str))
         if new_stage and ctx.board.has_wip_room(new_stage):
             ctx.board.move_card(card, new_stage, reason=f"teamlead: {old} → {action_str}")
@@ -295,7 +295,7 @@ class UpdateCardHandler:
 @register_action("notify")
 class NotifyHandler:
     def execute(self, ctx: ActionContext) -> None:
-        from ..notifications.notify import send_telegram_message
+        from ...notifications.notify import send_telegram_message
         message = str(ctx.params.get("message", "")).strip()
         if not message:
             raise ValueError("Missing required param: 'message'")

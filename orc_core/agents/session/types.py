@@ -7,13 +7,13 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
-from ..errors.truncation import TRACEBACK_TRUNCATE
-from ..tasks.task_dto import Task
+from ...errors.truncation import TRACEBACK_TRUNCATE
+from ...tasks.task_dto import Task
 
 if TYPE_CHECKING:
-    from ..tasks.ports import MonitorSnapshot
+    from ...tasks.ports import MonitorSnapshot
 
-from ..git.git_dto import WorktreeSession
+from ...git.git_dto import WorktreeSession
 
 
 class SlotStatus(str, Enum):

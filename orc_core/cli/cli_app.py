@@ -152,7 +152,7 @@ def _build_orchestrator(args, workdir: str, log_path: Path, backend, base_branch
                         commit_template: str, merge_expert_template: str, merge_expert_model: str):
     """Composition root: construct the full dependency graph for KanbanSessionManager."""
     from ..board.kanban_init import init_kanban_board
-    from ..agents.composition import build_session_manager
+    from ..agents.infra.composition import build_session_manager
     from ..config import OrcConfig
     from ..notifications.adapters import TelegramNotify
     from ..tasks.execution.worker import AgentTaskWorker

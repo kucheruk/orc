@@ -9,23 +9,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Protocol
 
-from ..board.kanban_card import KanbanCard
-from ..board.action_constants import Action
-from ..log import log_event
-from ..tasks.task_status import TaskExecutionStatus
-from ..tasks.task_dto import Task
-from .session_types import SessionSlot
-from ..git.git_helpers import run_git
-from .kanban_protocols import (
+from ...board.kanban_card import KanbanCard
+from ...board.action_constants import Action
+from ...log import log_event
+from ...tasks.task_status import TaskExecutionStatus
+from ...tasks.task_dto import Task
+from ..session_types import SessionSlot
+from ...git.git_helpers import run_git
+from ..kanban_protocols import (
     EventPublisher, RunnerLifecycle, RunnerNotifier, RunnerStateManager,
     TaskExecutor, WorkDistributor,
 )
-from .kanban_roles import build_teamlead_prompt
-from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
-from .teamlead_stats import find_latest_agent_log, load_token_stats
+from ..kanban_roles import build_teamlead_prompt
+from ..teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
+from ..teamlead_stats import find_latest_agent_log, load_token_stats
 
 if TYPE_CHECKING:
-    from ..tasks.completion.outcomes import TaskOutcomeTracker
+    from ...tasks.completion.outcomes import TaskOutcomeTracker
 
 
 @dataclass
@@ -200,7 +200,7 @@ class HealthCheckStep:
 
     def run(self, ctx: TeamleadContext, slot: SessionSlot, sid: str) -> bool:  # type: ignore[override]
         """Returns True if a problem was found and the agent was invoked."""
-        from ..board.use_cases.check_board_health import diagnose_board_health, should_skip_repeated_diagnostic
+        from ...board.use_cases.check_board_health import diagnose_board_health, should_skip_repeated_diagnostic
 
         self._last_check = time.time()
         diagnostic = diagnose_board_health(ctx.distributor.board, ctx.distributor)

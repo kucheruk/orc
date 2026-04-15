@@ -7,11 +7,11 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Callable, Optional
 
-from ..board.kanban_snapshot import JournalEntry, KanbanBoardSnapshot, build_board_snapshot
+from ...board.kanban_snapshot import JournalEntry, KanbanBoardSnapshot, build_board_snapshot
 
 if TYPE_CHECKING:
-    from ..board.kanban_board import KanbanBoard
-    from ..tasks.ports import MonitorSnapshot
+    from ...board.kanban_board import KanbanBoard
+    from ...tasks.ports import MonitorSnapshot
 
 
 class KanbanPublisher:

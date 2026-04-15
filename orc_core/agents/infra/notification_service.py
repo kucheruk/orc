@@ -6,11 +6,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..board.kanban_card import KanbanCard
-from ..board.stage_constants import STAGE_SHORT_NAMES
-from ..board.kanban_notifications import format_completion_message
-from ..git.project_hooks import fire_hooks
-from ..notifications.notify import send_telegram_message
+from ...board.kanban_card import KanbanCard
+from ...board.stage_constants import STAGE_SHORT_NAMES
+from ...board.kanban_notifications import format_completion_message
+from ...git.project_hooks import fire_hooks
+from ...notifications.notify import send_telegram_message
 
 
 class NotificationService:

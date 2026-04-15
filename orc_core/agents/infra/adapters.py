@@ -12,12 +12,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
-    from .session_types import SessionSlot
-    from ..tasks.completion.outcomes import TaskOutcomeTracker
-    from .kanban_directive_queue import DirectiveQueue
-    from .kanban_notification_service import NotificationService
-    from .kanban_request_factory import KanbanRequestFactory
-    from .session_pool import SessionPool
+    from ..session_types import SessionSlot
+    from ...tasks.completion.outcomes import TaskOutcomeTracker
+    from ..kanban_directive_queue import DirectiveQueue
+    from ..kanban_notification_service import NotificationService
+    from ..kanban_request_factory import KanbanRequestFactory
+    from ..session_pool import SessionPool
 
 
 class LifecycleAdapter:

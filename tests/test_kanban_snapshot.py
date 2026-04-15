@@ -122,7 +122,7 @@ class TestJournalEntry(unittest.TestCase):
 class TestKanbanPublisher(unittest.TestCase):
 
     def test_journal_callback_called(self):
-        from orc_core.agents.kanban_publisher import KanbanPublisher
+        from orc_core.agents.infra.publisher import KanbanPublisher
         entries: list[JournalEntry] = []
         pub = KanbanPublisher()
         pub.journal_callback = entries.append
@@ -135,7 +135,7 @@ class TestKanbanPublisher(unittest.TestCase):
         self.assertEqual(entries[2].category, "escalate")
 
     def test_no_callback_no_error(self):
-        from orc_core.agents.kanban_publisher import KanbanPublisher
+        from orc_core.agents.infra.publisher import KanbanPublisher
         pub = KanbanPublisher()
         pub.log_inbox("T-1", "test")  # should not raise
 
