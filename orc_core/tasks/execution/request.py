@@ -8,13 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Optional
 
-from ...tasks.ports import MonitorSnapshot
+from ...tasks.ports import MonitorSnapshot, ProcessLifecyclePort
 from ..dto import Task
 from .config import ModelConfig, TemplateConfig, TimingConfig
 from .stage import TaskStageSpec
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class TaskExecutionRequest:
     task: Task
     backlog_path: Path
@@ -32,6 +32,7 @@ class TaskExecutionRequest:
     allow_fallback_commits: bool
     progress_done: int
     progress_total: int
+    process_lifecycle: ProcessLifecyclePort
     progress_in_progress: int = 0
     enforce_stage_artifacts: bool = False
     stage_specs: tuple[TaskStageSpec, ...] = ()

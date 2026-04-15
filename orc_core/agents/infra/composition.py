@@ -16,6 +16,7 @@ from ...config import OrcConfig
 from ...git.integration_manager import IntegrationManager
 from ...incident.manager import IncidentManager
 from ...backends.backend import Backend
+from ...infra.process.lifecycle import SubprocessProcessLifecycle
 from ...tasks.execution.engine import TaskExecutionEngine
 from ..kanban_adapters import (
     DirectiveAdapter,
@@ -61,6 +62,7 @@ def build_session_manager(
     resolved_main_branch = (main_branch or "main").strip() or "main"
     merge_expert_model_resolved = (merge_expert_model or "").strip()
     worktree_lock = threading.Lock()
+    process_lifecycle = SubprocessProcessLifecycle()
 
     # Base infrastructure
     board = KanbanBoard(tasks_dir, repo=FsCardRepository())
@@ -112,6 +114,7 @@ def build_session_manager(
         merge_expert_template=merge_expert_template,
         merge_expert_model=merge_expert_model_resolved,
         main_branch=resolved_main_branch,
+        process_lifecycle=process_lifecycle,
     )
 
     # Protocol adapters (no back-reference to session manager)
@@ -186,6 +189,7 @@ def build_session_manager(
         request_factory=request_factory,
         worker_runner=worker_runner,
         teamlead_runner=teamlead_runner,
+        process_lifecycle=process_lifecycle,
         main_branch=resolved_main_branch,
         sleep_fn=sleep_fn,
     )

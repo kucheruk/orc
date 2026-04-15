@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 from ...board.kanban_distributor import KanbanDistributor
 from ...config import OrcConfig
 from ...backends.backend import Backend
-from ...tasks.ports import MonitorSnapshot
-from ..kanban_request_builder import build_kanban_request
+from ...tasks.ports import MonitorSnapshot, ProcessLifecyclePort
+from .request_builder import build_kanban_request
 
 if TYPE_CHECKING:
     from ..session_pool import SessionPool
@@ -33,6 +33,7 @@ class KanbanRequestFactory:
         merge_expert_template: str,
         merge_expert_model: str,
         main_branch: str,
+        process_lifecycle: ProcessLifecyclePort,
     ) -> None:
         self._workdir = workdir
         self._tasks_dir = tasks_dir
@@ -44,6 +45,7 @@ class KanbanRequestFactory:
         self._merge_expert_template = merge_expert_template
         self._merge_expert_model = merge_expert_model
         self._main_branch = main_branch
+        self._process_lifecycle = process_lifecycle
 
     def make(self, task, prompt: str, workdir: str, session_id: str, commit_phase: bool, task_ttl: float):
         def _pub(snapshot: MonitorSnapshot) -> None:
@@ -64,5 +66,6 @@ class KanbanRequestFactory:
             merge_expert_model=self._merge_expert_model,
             main_branch=self._main_branch,
             progress=self._distributor.get_progress(),
+            process_lifecycle=self._process_lifecycle,
             snapshot_publisher=_pub,
         )

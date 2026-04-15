@@ -133,6 +133,31 @@ class ProcessProbe(Protocol):
     def is_alive(self, pid: int) -> bool: ...
 
 
+class ProcessLifecyclePort(Protocol):
+    """Port for OS process lifecycle operations — keeps tasks/ and agents/
+    free of direct infra.process imports."""
+
+    def is_alive(self, pid: int) -> bool: ...
+
+    def kill_own_group(self) -> None: ...
+
+    def terminate_group(self, pgid: Optional[int], log_path: Path, label: str) -> bool: ...
+
+    def build_tree(self, root_pid: int) -> list[int]: ...
+
+    def kill_tree(self, root_pid: Optional[int], log_path: Path, label: str) -> None: ...
+
+    def sweep_orphans(
+        self,
+        workspace: str,
+        log_path: Path,
+        label: str,
+        *,
+        started_after: Optional[float] = None,
+        run_token: Optional[str] = None,
+    ) -> list[int]: ...
+
+
 # ── Git ports ───────────────────────────────────────────────────────
 
 class GitDiffProbe(Protocol):

@@ -64,7 +64,12 @@ def launch_and_wait(
             active_monitor.stop()
         except Exception:
             pass
-        cleanup_monitor_processes(active_monitor, log_path, label="agent")
+        cleanup_monitor_processes(
+            active_monitor,
+            log_path,
+            label="agent",
+            lifecycle=request.process_lifecycle,
+        )
     debug_log(
         "H8",
         "orc_core/task_execution.py:execute:completion_state",

@@ -10,6 +10,7 @@ from orc_core.tasks.execution.engine import TaskExecutionEngine
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
 from orc_core.tasks.dto import Task
+from tests._fake_lifecycle import FakeLifecycle
 
 
 class _FakeProc:
@@ -107,9 +108,9 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
             progress_done=0,
             progress_total=1,
             agent_output_log_path=None,
+            process_lifecycle=FakeLifecycle(),
         )
 
-    @patch("orc_core.tasks.stages.phases.kill_process_tree")
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
     @patch("orc_core.tasks.execution.resume.write_task_file")
@@ -132,7 +133,6 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.stages.phases.kill_process_tree")
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
     @patch("orc_core.tasks.execution.resume.write_task_file")

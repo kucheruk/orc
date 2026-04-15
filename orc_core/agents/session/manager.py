@@ -36,7 +36,7 @@ from ..session_types import (
     STAGGER_DELAY_SECONDS,
     SessionSlot,
 )
-from ...infra.process.process_groups import kill_own_process_group
+from ...tasks.ports import ProcessLifecyclePort
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -64,6 +64,7 @@ class KanbanSessionManager:
         request_factory: KanbanRequestFactory,
         worker_runner: KanbanWorkerRunner,
         teamlead_runner: KanbanTeamleadRunner,
+        process_lifecycle: ProcessLifecyclePort,
         main_branch: str = "main",
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -89,6 +90,7 @@ class KanbanSessionManager:
         self._request_factory = request_factory
         self._worker_runner = worker_runner
         self._teamlead_runner = teamlead_runner
+        self._process_lifecycle = process_lifecycle
 
     # ── Public API ──────────────────────────────────────────────
 
@@ -134,13 +136,13 @@ class KanbanSessionManager:
         except KeyboardInterrupt:
             raise
         finally:
-            _shutdown_all(self._pool)
+            _shutdown_all(self._pool, self._process_lifecycle)
 
     async def run_async(self, snapshot_publisher) -> int:
         return await asyncio.to_thread(self.run, snapshot_publisher)
 
     def shutdown(self) -> None:
-        _shutdown_all(self._pool)
+        _shutdown_all(self._pool, self._process_lifecycle)
 
     def get_summary(self) -> str:
         elapsed = time.time() - self._started_at if self._started_at > 0 else 0
@@ -256,7 +258,7 @@ def _manager_loop(
         sleep_fn(MANAGER_POLL_SECONDS)
 
 
-def _shutdown_all(pool: SessionPool) -> None:
+def _shutdown_all(pool: SessionPool, lifecycle: ProcessLifecyclePort) -> None:
     """Shutdown all session threads and kill child processes."""
     pool.shutdown_threads()
     for sig_name in ("SIGTERM", "SIGHUP", "SIGQUIT", "SIGABRT", "SIGINT"):
@@ -266,4 +268,4 @@ def _shutdown_all(pool: SessionPool) -> None:
                 signal.signal(sig, signal.SIG_IGN)
             except Exception:
                 pass
-    kill_own_process_group()
+    lifecycle.kill_own_group()

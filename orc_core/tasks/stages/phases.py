@@ -22,16 +22,8 @@ from ...git.git_helpers import (
 from ..execution.request import LaunchConfig
 from ..status import TaskCompletionStatus, TaskExecutionStatus
 from ...log import log_event
-from ...tasks.ports import StreamMonitorProtocol
+from ..ports import ProcessLifecyclePort, StreamMonitorProtocol
 from ...observability import timeline_step
-from ...infra.process.process import (
-    ORPHAN_SWEEP_COMMAND_MARKERS,
-    build_process_tree,
-    is_pid_alive,
-    kill_orphan_project_processes,
-    kill_process_tree,
-)
-from ...infra.process.process_groups import terminate_process_group
 from ...quit_signal import is_stop_requested
 from ..completion.lifecycle import wait_for_process_exit
 from ..execution.helpers import _write_prompt_file
@@ -43,16 +35,22 @@ from ...text_parse import SafeDict
 _logger = logging.getLogger(__name__)
 
 
-def cleanup_monitor_processes(monitor: StreamMonitorProtocol, log_path: Path, label: str) -> None:
-    """Kill agent process tree and sweep orphan processes."""
+def cleanup_monitor_processes(
+    monitor: StreamMonitorProtocol,
+    log_path: Path,
+    label: str,
+    *,
+    lifecycle: ProcessLifecyclePort,
+) -> None:
+    """Kill agent process tree and sweep orphan processes via the lifecycle port."""
     root_pid = monitor.init_pid or monitor.proc.pid
     process_group_id = monitor.process_group_id
     workspace = monitor.workdir or ""
     started_at = monitor.started_at
     run_token = monitor.run_token or None
-    if terminate_process_group(process_group_id, log_path, label=label):
-        if isinstance(root_pid, int) and root_pid > 0 and is_pid_alive(root_pid):
-            lingering = build_process_tree(root_pid)
+    if lifecycle.terminate_group(process_group_id, log_path, label=label):
+        if isinstance(root_pid, int) and root_pid > 0 and lifecycle.is_alive(root_pid):
+            lingering = lifecycle.build_tree(root_pid)
             if lingering:
                 log_event(
                     log_path,
@@ -62,23 +60,21 @@ def cleanup_monitor_processes(monitor: StreamMonitorProtocol, log_path: Path, la
                     root_pid=root_pid,
                     pids=lingering,
                 )
-                kill_process_tree(root_pid, log_path, label=f"{label}-postcheck")
-        kill_orphan_project_processes(
+                lifecycle.kill_tree(root_pid, log_path, label=f"{label}-postcheck")
+        lifecycle.sweep_orphans(
             workspace,
             log_path,
             label=f"{label}-orphan-sweep",
             started_after=started_at,
-            command_markers=ORPHAN_SWEEP_COMMAND_MARKERS,
             run_token=run_token,
         )
         return
-    kill_process_tree(root_pid, log_path, label=label)
-    kill_orphan_project_processes(
+    lifecycle.kill_tree(root_pid, log_path, label=label)
+    lifecycle.sweep_orphans(
         workspace,
         log_path,
         label=f"{label}-orphan-sweep",
         started_after=started_at,
-        command_markers=ORPHAN_SWEEP_COMMAND_MARKERS,
         run_token=run_token,
     )
 
@@ -153,7 +149,12 @@ def run_agent_phase(
                 monitor.stop()
             except Exception:
                 pass
-            cleanup_monitor_processes(monitor, log_path, label=phase.label.replace(" ", "-"))
+            cleanup_monitor_processes(
+                monitor,
+                log_path,
+                label=phase.label.replace(" ", "-"),
+                lifecycle=request.process_lifecycle,
+            )
 
         if result != TaskCompletionStatus.COMPLETED:
             log_event(log_path, "ERROR", f"{phase.label} failed", task_id=task_id, result=result)
