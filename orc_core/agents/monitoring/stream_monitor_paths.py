@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Optional
 
-from ..io.runtime_state import runtime_state_path
-from ..io.state_paths import active_task_path, metrics_path, stats_path
+from ...infra.io.runtime_state import runtime_state_path
+from ...infra.io.state_paths import active_task_path, metrics_path, stats_path
 
 
 @dataclass(frozen=True)

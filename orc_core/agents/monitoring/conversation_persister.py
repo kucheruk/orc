@@ -7,8 +7,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..io.atomic_io import write_json_atomic
-from ..io.logging import log_event
+from ...infra.io.atomic_io import write_json_atomic
+from ...infra.io.logging import log_event
 
 
 class ConversationIdPersister:

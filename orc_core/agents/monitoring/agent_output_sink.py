@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, TextIO
 
-from ..io.logging import log_event
+from ...infra.io.logging import log_event
 
 
 class AgentOutputSink:

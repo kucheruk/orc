@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from ..io.logging import log_event
+from ...infra.io.logging import log_event
 
 
 _FOLLOWUP_MARKERS = (

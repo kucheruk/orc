@@ -8,9 +8,9 @@ import uuid
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Mapping, Optional
 
-from ..io.logging import log_event, now_ms
-from ..io.timeline import timeline_instant
-from ..process.agent_process import AgentProcess
+from ...infra.io.logging import log_event, now_ms
+from ...infra.io.timeline import timeline_instant
+from ...infra.process.agent_process import AgentProcess
 from .agent_output_sink import AgentOutputSink
 from .conversation_persister import ConversationIdPersister
 from .monitor_metrics_collector import MonitorMetricsCollector
