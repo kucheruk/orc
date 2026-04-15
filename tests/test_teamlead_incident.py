@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from orc_core.board.kanban_board import KanbanBoard
 from orc_core.board.kanban_card import KanbanCard
-from orc_core.persistence.fs_card_repository import FsCardRepository
+from orc_core.board.fs_card_repository import FsCardRepository
 
 write_card = FsCardRepository().write_card
 from orc_core.board.kanban_init import init_kanban_board
@@ -300,12 +300,12 @@ class TestCreateExpediteCard(unittest.TestCase):
 class TestSessionSlotCrashTraceback(unittest.TestCase):
 
     def test_default_empty(self):
-        from orc_core.models.session_types import SessionSlot
+        from orc_core.agents.session_types import SessionSlot
         slot = SessionSlot(session_id="s1")
         self.assertEqual(slot.crash_traceback, "")
 
     def test_can_set(self):
-        from orc_core.models.session_types import SessionSlot
+        from orc_core.agents.session_types import SessionSlot
         slot = SessionSlot(session_id="s1")
         slot.crash_traceback = "Traceback..."
         self.assertEqual(slot.crash_traceback, "Traceback...")

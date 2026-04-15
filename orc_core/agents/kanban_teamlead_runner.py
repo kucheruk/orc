@@ -18,7 +18,7 @@ from .kanban_protocols import (
 )
 from ..log import log_event
 from ..quit_signal import is_quit_after_task_requested
-from ..models.session_types import SessionSlot, SlotStatus
+from .session_types import SessionSlot, SlotStatus
 from ..incident.domain import Incident
 from .teamlead_steps import (
     ArbitrationStep, AutoCommitStep, DirectiveStep, HealthCheckStep, TeamleadContext,

@@ -12,7 +12,7 @@ from ..completion.ports import BacklogQueryPort, NotifyPort
 from ..task_agent_phases import cleanup_monitor_processes
 from .request import LaunchConfig
 from .runtime import _ExecutionContext
-from ...models.task_status import TaskCompletionStatus
+from ..task_status import TaskCompletionStatus
 
 
 def launch_and_wait(

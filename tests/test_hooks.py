@@ -13,8 +13,8 @@ from unittest.mock import patch
 from orc_core.infra.io.atomic_io import write_json_atomic
 from orc_core.tasks.hooks import ensure_repo_hooks, ensure_repo_hooks_config, write_task_file
 from orc_core.tasks.hooks import update_task_restart_count
-from orc_core.persistence.runtime_state import runtime_state_path
-from orc_core.models.task_dto import Task
+from orc_core.infra.io.runtime_state import runtime_state_path
+from orc_core.tasks.task_dto import Task
 from orc_core.tasks.task_source import MarkdownTaskSource
 
 

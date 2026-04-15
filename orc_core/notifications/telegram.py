@@ -21,7 +21,7 @@ def load_telegram_config(*, orc_root: Path, log_path: Path, log_event: LogFn) ->
     if orc_root.resolve() != ORC_ROOT.resolve():
         candidates.append(ORC_ROOT / ".orc" / "telegram.json")
     # Fall back to global user config
-    from ..persistence.state_paths import telegram_config_path
+    from ..infra.io.state_paths import telegram_config_path
     candidates.append(telegram_config_path())
 
     for config_path in candidates:

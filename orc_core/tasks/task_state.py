@@ -7,13 +7,13 @@ from typing import Optional
 
 from ..infra.io.atomic_io import write_json_atomic
 from ..log import log_event
-from ..persistence.runtime_state import (
+from ..infra.io.runtime_state import (
     delete_runtime_state_file,
     init_runtime_payload,
     load_runtime_payload,
     runtime_state_path,
 )
-from ..persistence.state_paths import tmp_dir
+from ..infra.io.state_paths import tmp_dir
 
 
 def create_temp_backlog(workdir: str, task_text: str, log_path: Path) -> tuple[Path, str]:

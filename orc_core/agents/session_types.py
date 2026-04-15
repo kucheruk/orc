@@ -7,12 +7,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
-from .task_dto import Task
+from ..tasks.task_dto import Task
 
 if TYPE_CHECKING:
-    from .monitor_dto import MonitorSnapshot
+    from ..infra.monitoring.monitor_dto import MonitorSnapshot
 
-from .git_dto import WorktreeSession
+from ..git.git_dto import WorktreeSession
 
 
 class SlotStatus(str, Enum):

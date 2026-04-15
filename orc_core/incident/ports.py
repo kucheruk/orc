@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Protocol
 
 if TYPE_CHECKING:
-    from ..models.task_dto import Task
+    from ..tasks.task_dto import Task
     from ..tasks.execution.request import TaskExecutionRequest, TaskExecutionResult
 
 

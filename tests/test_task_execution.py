@@ -22,7 +22,7 @@ from orc_core.tasks.execution.request import TaskExecutionRequest
 from orc_core.tasks.execution.stage import TaskStageSpec
 from orc_core.text_parse import SafeDict
 from orc_core.tasks.stage_artifacts import build_stage_artifact_bundle
-from orc_core.models.task_dto import Task
+from orc_core.tasks.task_dto import Task
 
 
 class _FakeProc:

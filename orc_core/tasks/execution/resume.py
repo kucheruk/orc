@@ -16,10 +16,10 @@ if TYPE_CHECKING:
 from ...infra.io.atomic_io import write_json_atomic
 from ...observability import debug_log
 from ...log import log_event
-from ...persistence.session_state import save_active_session, save_session_manifest
+from ...agents.session_state import save_active_session, save_session_manifest
 from ..hooks import write_task_file
 from .request import TaskExecutionResult
-from ...models.task_status import TaskExecutionStatus
+from ..task_status import TaskExecutionStatus
 from ..task_state import delete_runtime_state_file, read_task_active_seconds
 
 _logger = logging.getLogger(__name__)

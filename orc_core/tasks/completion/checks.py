@@ -18,10 +18,10 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from ...models.task_status import TaskCompletionStatus
+from ..task_status import TaskCompletionStatus
 from ...log import log_event
 from ...observability import debug_log, debug_mode_log, timeline_instant
-from ...persistence.runtime_state import delete_runtime_state_file
+from ...infra.io.runtime_state import delete_runtime_state_file
 from .check_definitions import CompletionCheck, CompletionMonitor
 from .check_queries import (
     _get_active_children_count,

@@ -24,7 +24,7 @@ def _update_completion_stats(
     log_path: Path,
 ) -> None:
     """Record token usage and task duration in stats file (replaces stop hook stats logic)."""
-    from ...persistence.state_paths import stats_path as get_stats_path
+    from ...infra.io.state_paths import stats_path as get_stats_path
     from ..task_state import read_task_active_seconds
 
     stats_file = get_stats_path(workdir)

@@ -14,15 +14,15 @@ from typing import Callable, Optional
 
 from ..infra.io.atomic_io import write_json_atomic
 from ..log import log_event
-from ..models.session_types import (
+from ..agents.session_types import (
     ERROR_TRUNCATE,
     REASON_TRUNCATE,
     TRACEBACK_TRUNCATE,
     SessionSlot,
 )
-from ..persistence.state_paths import integration_report_path
+from ..infra.io.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
-from ..models.task_dto import Task
+from ..tasks.task_dto import Task
 from .conflict_resolver import ConflictResolver
 from .ports import GitRunner
 from .safe_files import SafeFilesGuard

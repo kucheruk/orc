@@ -5,7 +5,7 @@
 import json
 from pathlib import Path
 
-from ..log import log_event
+from ...log import log_event
 
 TASK_RUNTIME_FILE_NAME = "orc-task-runtime.json"
 

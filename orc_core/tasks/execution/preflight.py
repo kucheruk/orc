@@ -17,7 +17,7 @@ from ...log import log_event
 from ...git.git_helpers import classify_main_integration_error
 from ...git.worktree_flow import preflight_main_integration
 from .request import TaskExecutionResult
-from ...models.task_status import TaskExecutionStatus
+from ..task_status import TaskExecutionStatus
 
 _logger = logging.getLogger(__name__)
 

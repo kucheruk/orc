@@ -31,7 +31,7 @@ from ..log import log_event
 from ..quit_signal import is_quit_after_task_requested, is_stop_requested
 from .session_pool import SessionPool
 from ..tasks.completion.outcomes import TaskOutcomeTracker
-from ..models.session_types import (
+from .session_types import (
     MANAGER_POLL_SECONDS,
     STAGGER_DELAY_SECONDS,
     SessionSlot,

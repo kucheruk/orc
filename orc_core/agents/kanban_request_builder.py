@@ -9,12 +9,12 @@ from typing import Callable, Optional
 
 from ..config import OrcConfig
 from ..infra.backend import Backend
-from ..persistence.state_paths import parallel_task_path
-from ..persistence.state_paths import run_root as state_run_root
-from ..models.monitor_dto import MonitorSnapshot
+from ..infra.io.state_paths import parallel_task_path
+from ..infra.io.state_paths import run_root as state_run_root
+from ..infra.monitoring.monitor_dto import MonitorSnapshot
 from ..tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from ..tasks.execution.request import TaskExecutionRequest
-from ..models.task_dto import Task
+from ..tasks.task_dto import Task
 
 
 def _ensure_board_sentinel(tasks_dir: Path) -> Path:

@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from ..persistence.fs_card_repository import FsCardRepository
+from ..board.fs_card_repository import FsCardRepository
 from ..board.kanban_board import KanbanBoard
 from ..board.kanban_distributor import KanbanDistributor
 from ..config import OrcConfig

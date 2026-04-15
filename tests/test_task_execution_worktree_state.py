@@ -13,7 +13,7 @@ import orc_core.tasks.main_integrator as main_integrator
 import orc_core.tasks.execution.preflight as task_execution_preflight
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
-from orc_core.models.task_dto import Task
+from orc_core.tasks.task_dto import Task
 
 
 class _FakeProc:

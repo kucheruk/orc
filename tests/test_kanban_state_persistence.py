@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.persistence.state_paths import kanban_state_path
+from orc_core.infra.io.state_paths import kanban_state_path
 
 
 class TestKanbanStatePath(unittest.TestCase):

@@ -8,11 +8,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from ...models.task_dto import Task
+from ...tasks.task_dto import Task
 
 from ..io.atomic_io import write_json_atomic
 from ..io.logging import log_event, now_ms
-from ...models.monitor_dto import MetricsStore, MonitorSnapshot
+from .monitor_dto import MetricsStore, MonitorSnapshot
 from ..io.timeline import timeline_instant
 
 
@@ -169,7 +169,7 @@ class MonitorMetricsCollector:
         state.set_eta_seconds(avg_seconds * remaining if remaining > 0 else 0.0)
 
     def update_task_runtime_state(self) -> None:
-        from ...persistence.runtime_state import init_runtime_payload, load_runtime_payload
+        from ..io.runtime_state import init_runtime_payload, load_runtime_payload
 
         started_ms = now_ms()
         now = time.time()

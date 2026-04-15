@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Optional, Protocol
 
-from ...models.monitor_dto import MetricsStore
+from .monitor_dto import MetricsStore
 
 
 class ProcessProxy(Protocol):

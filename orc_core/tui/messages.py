@@ -3,7 +3,7 @@
 
 from textual.message import Message
 
-from ..models.monitor_dto import MonitorSnapshot
+from ..infra.monitoring.monitor_dto import MonitorSnapshot
 
 
 class SnapshotUpdated(Message):

@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..persistence.state_paths import run_root, stats_path
+from ..infra.io.state_paths import run_root, stats_path
 
 
 def find_latest_agent_log(workdir: str, card_id: str) -> str:

@@ -14,9 +14,9 @@ DEFAULT_LOG_LEVEL = "WARN"
 if str(ORC_ROOT) not in sys.path:
     sys.path.insert(0, str(ORC_ROOT))
 from orc_core.infra.io.atomic_io import write_json_atomic
-from orc_core.persistence.state_paths import artifacts_dir as external_artifacts_dir
-from orc_core.persistence.state_paths import metrics_path as external_metrics_path
-from orc_core.persistence.state_paths import stats_path as external_stats_path
+from orc_core.infra.io.state_paths import artifacts_dir as external_artifacts_dir
+from orc_core.infra.io.state_paths import metrics_path as external_metrics_path
+from orc_core.infra.io.state_paths import stats_path as external_stats_path
 from orc_core.tasks.task_source import MarkdownTaskSource
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0

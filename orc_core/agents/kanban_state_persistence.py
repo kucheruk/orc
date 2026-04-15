@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..infra.io.atomic_io import write_json_atomic
 from ..log import log_event
-from ..persistence.state_paths import kanban_state_path
+from ..infra.io.state_paths import kanban_state_path
 
 _logger = logging.getLogger(__name__)
 
@@ -67,9 +67,9 @@ def cleanup_done_worktrees(
     done_ids: set[str], workdir: str, log_path: Path, publisher,
 ) -> None:
     """Remove worktrees for cards that reached Done."""
-    from ..models.git_dto import WorktreeSession
+    from ..git.git_dto import WorktreeSession
     from ..git.worktree_flow import _safe_name, cleanup_task_worktree
-    from ..persistence.state_paths import worktrees_root
+    from ..infra.io.state_paths import worktrees_root
 
     wt_root = worktrees_root(workdir)
     if not wt_root.exists():

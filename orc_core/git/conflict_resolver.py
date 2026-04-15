@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Callable, Optional, TYPE_CHECKING
 
-from ..models.session_types import CONFLICT_ERROR_TRUNCATE, ERROR_TRUNCATE, REASON_TRUNCATE
+from ..agents.session_types import CONFLICT_ERROR_TRUNCATE, ERROR_TRUNCATE, REASON_TRUNCATE
 
 if TYPE_CHECKING:
     from .integration_manager import IntegrationContext

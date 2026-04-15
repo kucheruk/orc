@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING, Optional, Protocol
 from ..board.kanban_card import KanbanCard
 from ..board.action_constants import Action
 from ..log import log_event
-from ..models.task_status import TaskExecutionStatus
-from ..models.task_dto import Task
-from ..models.session_types import SessionSlot
+from ..tasks.task_status import TaskExecutionStatus
+from ..tasks.task_dto import Task
+from .session_types import SessionSlot
 from ..git.git_helpers import run_git
 from .kanban_protocols import (
     EventPublisher, RunnerLifecycle, RunnerNotifier, RunnerStateManager,

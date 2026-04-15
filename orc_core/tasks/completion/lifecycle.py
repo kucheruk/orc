@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from ...models.task_status import TaskCompletionStatus
+from ..task_status import TaskCompletionStatus
 from ...log import log_event
 from ...infra.monitoring.monitor_protocol import StreamMonitorProtocol
 from ...infra.process.process import is_pid_alive

@@ -16,7 +16,7 @@ from .execution.helpers import (
 )
 from .execution.request import TaskExecutionResult
 from .execution.runtime import _ExecutionContext
-from ..models.task_status import TaskExecutionStatus
+from .task_status import TaskExecutionStatus
 
 _logger = logging.getLogger(__name__)
 

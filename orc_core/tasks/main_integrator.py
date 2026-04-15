@@ -15,7 +15,7 @@ from ..git.worktree_flow import get_head_commit, integrate_commit_into_main
 from .task_agent_phases import run_merge_expert_phase
 from .execution.request import TaskExecutionResult
 from .execution.runtime import _ExecutionContext
-from ..models.task_status import TaskExecutionStatus
+from .task_status import TaskExecutionStatus
 from .task_state import delete_runtime_state_file
 
 _logger = logging.getLogger(__name__)

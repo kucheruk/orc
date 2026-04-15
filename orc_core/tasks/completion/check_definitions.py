@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from ...models.task_status import TaskCompletionStatus
+from ..task_status import TaskCompletionStatus
 from ...infra.monitoring.monitor_protocol import StreamMonitorProtocol
 from .ports import BacklogQueryPort, NotifyPort
 

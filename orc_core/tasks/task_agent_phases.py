@@ -20,7 +20,7 @@ from ..git.git_helpers import (
     runtime_artifact_paths_from_porcelain_lines as _runtime_artifact_paths_from_porcelain_lines,
 )
 from .execution.request import LaunchConfig
-from ..models.task_status import TaskCompletionStatus, TaskExecutionStatus
+from .task_status import TaskCompletionStatus, TaskExecutionStatus
 from ..log import log_event
 from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
 from ..observability import timeline_step
@@ -33,7 +33,7 @@ from ..infra.process.process import (
 )
 from ..infra.process.process_groups import terminate_process_group
 from ..quit_signal import is_stop_requested
-from ..tasks.completion.lifecycle import wait_for_process_exit
+from .completion.lifecycle import wait_for_process_exit
 from .execution.helpers import _write_prompt_file
 from .execution.request import TaskExecutionRequest, TaskExecutionResult
 from .execution.stage import AgentPhaseSpec

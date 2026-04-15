@@ -20,7 +20,7 @@ from .stage_artifacts import parse_stage_artifact_status
 from .execution.request import TaskExecutionResult
 from .execution.runtime import _ExecutionContext
 from .execution.stage import SDLC_FEEDBACK_MAX_ITERATIONS
-from ..models.task_status import TaskExecutionStatus
+from .task_status import TaskExecutionStatus
 
 _logger = logging.getLogger(__name__)
 

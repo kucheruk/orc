@@ -35,12 +35,12 @@ from ..role_config import (
     ROLE_MERGE_EXPERT,
     RoleProfileRegistry,
 )
-from ..models.monitor_dto import MonitorSnapshot
+from ..infra.monitoring.monitor_dto import MonitorSnapshot
 from ..tasks.execution.engine import TaskExecutionEngine
 from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn
 from ..git.worktree_flow import detect_base_branch
-from ..persistence.state_paths import app_log_path, lock_path as state_lock_path
+from ..infra.io.state_paths import app_log_path, lock_path as state_lock_path
 
 
 def build_parser() -> argparse.ArgumentParser:
