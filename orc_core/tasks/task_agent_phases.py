@@ -23,7 +23,7 @@ from .execution.request import LaunchConfig
 from ..models.task_status import TaskCompletionStatus, TaskExecutionStatus
 from ..log import log_event
 from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
-from ..infra.io.timeline import timeline_step
+from ..observability import timeline_step
 from ..infra.process.process import (
     ORPHAN_SWEEP_COMMAND_MARKERS,
     build_process_tree,

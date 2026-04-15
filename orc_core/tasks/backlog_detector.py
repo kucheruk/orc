@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from ..infra.io.debug_log import debug_log
+from ..observability import debug_log
 from ..log import log_event
 from .execution.helpers import (
     _should_defer_base_backlog_sync_to_integration,

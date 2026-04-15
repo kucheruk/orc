@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from .request import TaskExecutionResult
     from .runtime import _ExecutionContext
 
-from ...infra.io.debug_log import debug_log
+from ...observability import debug_log
 from ...errors.failure_reasons import build_main_integration_preflight_reason
 from ...log import log_event
 from ...git.git_helpers import classify_main_integration_error

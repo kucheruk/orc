@@ -20,8 +20,7 @@ from typing import Optional
 
 from ..models.task_status import TaskCompletionStatus
 from ..log import log_event
-from ..infra.io.debug_log import debug_log, debug_mode_log
-from ..infra.io.timeline import timeline_instant
+from ..observability import debug_log, debug_mode_log, timeline_instant
 from ..persistence.runtime_state import delete_runtime_state_file
 from .check_definitions import CompletionCheck, CompletionMonitor
 from .check_queries import (

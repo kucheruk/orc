@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from ...log import log_event
-from ...infra.io.debug_log import debug_log
+from ...observability import debug_log
 from ...quit_signal import is_quit_after_task_requested
 from ..backlog_validator import validate_backlog_invariant
 from ..main_integrator import handle_main_integration

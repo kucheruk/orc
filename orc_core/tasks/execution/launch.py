@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from ...infra.io.debug_log import debug_log
-from ...infra.io.timeline import timeline_step
+from ...observability import debug_log
+from ...observability import timeline_step
 from ...quit_signal import is_stop_requested
 from ...task_completion.lifecycle import wait_for_completion
 from ...task_completion.ports import BacklogQueryPort, NotifyPort

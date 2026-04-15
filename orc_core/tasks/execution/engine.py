@@ -14,8 +14,7 @@ from typing import Optional
 
 from ..hooks import update_task_restart_count
 from ...log import log_event
-from ...infra.io.debug_log import debug_log
-from ...infra.io.timeline import timeline_instant, timeline_step
+from ...observability import debug_log, timeline_instant, timeline_step
 from ...quit_signal import is_stop_requested
 from ...models.task_status import TaskCompletionStatus, TaskExecutionStatus
 from ...task_completion.lifecycle import wait_for_completion

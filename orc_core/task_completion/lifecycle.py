@@ -8,10 +8,9 @@ from typing import Callable, Optional
 
 from ..models.task_status import TaskCompletionStatus
 from ..log import log_event
-from ..infra.io.debug_log import debug_log
 from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
-from ..infra.io.timeline import timeline_instant
 from ..infra.process.process import is_pid_alive
+from ..observability import debug_log, timeline_instant
 from .check_definitions import CompletionMonitor
 from .checks import DEFAULT_CHECK_CHAIN
 from .check_queries import _monitor_pid_missing

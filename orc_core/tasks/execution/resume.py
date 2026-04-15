@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from .runtime import _ExecutionContext, _ResumeState
 
 from ...infra.io.atomic_io import write_json_atomic
-from ...infra.io.debug_log import debug_log
+from ...observability import debug_log
 from ...log import log_event
 from ...persistence.session_state import save_active_session, save_session_manifest
 from ..hooks import write_task_file
