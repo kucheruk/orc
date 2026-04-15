@@ -110,7 +110,7 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
         )
 
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
-    @patch("orc_core.tasks.execution.engine.update_task_restart_count")
+    @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     def test_blank_resume_id_auto_drops_and_starts_fresh(self, write_task_file, *_mocks) -> None:
@@ -133,7 +133,7 @@ class TaskExecutionResumeStateTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 1)
 
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
-    @patch("orc_core.tasks.execution.engine.update_task_restart_count")
+    @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     def test_blank_resume_id_with_restarts_auto_drops(self, write_task_file, *_mocks) -> None:

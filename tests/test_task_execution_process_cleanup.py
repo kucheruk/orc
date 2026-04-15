@@ -113,7 +113,7 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
             with patch("orc_core.tasks.execution.resume.write_task_file"), patch(
-                "orc_core.tasks.execution.engine.update_task_restart_count"
+                "orc_core.tasks.execution.stage_loop.update_task_restart_count"
             ), patch(
                 "orc_core.tasks.execution.launch.wait_for_completion",
                 side_effect=KeyboardInterrupt,
@@ -135,7 +135,7 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
             with patch("orc_core.tasks.execution.resume.write_task_file"), patch(
-                "orc_core.tasks.execution.engine.update_task_restart_count"
+                "orc_core.tasks.execution.stage_loop.update_task_restart_count"
             ), patch(
                 "orc_core.tasks.execution.launch.wait_for_completion",
                 side_effect=KeyboardInterrupt,
@@ -164,7 +164,7 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             request = self._request(tmpdir)
             with patch("orc_core.tasks.execution.resume.write_task_file"), patch(
-                "orc_core.tasks.execution.engine.update_task_restart_count"
+                "orc_core.tasks.execution.stage_loop.update_task_restart_count"
             ), patch(
                 "orc_core.tasks.execution.launch.wait_for_completion",
                 side_effect=KeyboardInterrupt,
