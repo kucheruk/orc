@@ -8,7 +8,7 @@ from textual import work
 from textual.app import App
 
 from ..quit_signal import clear_stop_request, request_stop, toggle_quit_after_task
-from ..infra.monitoring.monitor_dto import MonitorSnapshot
+from ..tasks.ports import MonitorSnapshot
 
 
 @runtime_checkable

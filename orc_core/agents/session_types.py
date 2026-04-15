@@ -11,7 +11,7 @@ from ..errors.truncation import TRACEBACK_TRUNCATE
 from ..tasks.task_dto import Task
 
 if TYPE_CHECKING:
-    from ..infra.monitoring.monitor_dto import MonitorSnapshot
+    from ..tasks.ports import MonitorSnapshot
 
 from ..git.git_dto import WorktreeSession
 

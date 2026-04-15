@@ -22,7 +22,7 @@ from ..git.git_helpers import (
 from .execution.request import LaunchConfig
 from .task_status import TaskCompletionStatus, TaskExecutionStatus
 from ..log import log_event
-from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
+from ..tasks.ports import StreamMonitorProtocol
 from ..observability import timeline_step
 from ..infra.process.process import (
     ORPHAN_SWEEP_COMMAND_MARKERS,

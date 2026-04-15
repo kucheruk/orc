@@ -12,7 +12,7 @@ from ...tasks.task_dto import Task
 
 from ..io.atomic_io import write_json_atomic
 from ..io.logging import log_event, now_ms
-from .monitor_dto import MetricsStore, MonitorSnapshot
+from ...tasks.ports import MetricsStore, MonitorSnapshot
 from ..io.timeline import timeline_instant
 
 

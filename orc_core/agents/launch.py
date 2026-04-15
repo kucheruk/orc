@@ -12,7 +12,7 @@ from ..infra.io.timeline import timeline_instant
 from ..infra.process.process import ORPHAN_SWEEP_COMMAND_MARKERS, kill_orphan_project_processes, kill_process_tree
 from ..infra.process.process_groups import terminate_process_group
 from ..infra.monitoring.stream_monitor import StreamJsonMonitor
-from ..infra.monitoring.monitor_dto import MonitorSnapshot
+from ..tasks.ports import MonitorSnapshot
 
 if TYPE_CHECKING:
     from ..backends.backend import Backend

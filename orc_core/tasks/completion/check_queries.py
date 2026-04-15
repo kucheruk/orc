@@ -11,7 +11,7 @@ import psutil
 from ...infra.process.process import is_pid_alive
 
 if TYPE_CHECKING:
-    from ...infra.monitoring.monitor_protocol import StreamMonitorProtocol
+    from ...tasks.ports import StreamMonitorProtocol
 
 
 def _monitor_pid_missing(monitor: "StreamMonitorProtocol") -> bool:

@@ -11,7 +11,7 @@ from ..config import OrcConfig
 from ..backends.backend import Backend
 from ..infra.io.state_paths import parallel_task_path
 from ..infra.io.state_paths import run_root as state_run_root
-from ..infra.monitoring.monitor_dto import MonitorSnapshot
+from ..tasks.ports import MonitorSnapshot
 from ..tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from ..tasks.execution.request import TaskExecutionRequest
 from ..tasks.task_dto import Task

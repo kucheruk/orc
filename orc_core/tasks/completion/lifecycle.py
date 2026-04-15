@@ -8,7 +8,7 @@ from typing import Callable, Optional
 
 from ..task_status import TaskCompletionStatus
 from ...log import log_event
-from ...infra.monitoring.monitor_protocol import StreamMonitorProtocol
+from ...tasks.ports import StreamMonitorProtocol
 from ...infra.process.process import is_pid_alive
 from ...observability import debug_log, timeline_instant
 from .check_definitions import CompletionMonitor

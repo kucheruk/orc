@@ -9,7 +9,7 @@ import re
 from typing import TYPE_CHECKING, Dict, Optional
 
 if TYPE_CHECKING:
-    from .monitor_dto import MetricsStore
+    from ...tasks.ports import MetricsStore
 
 
 class TokenTracker:

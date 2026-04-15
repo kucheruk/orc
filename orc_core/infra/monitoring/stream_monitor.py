@@ -17,7 +17,7 @@ from .monitor_metrics_collector import MonitorMetricsCollector
 from .stream_event_dispatcher import StreamEventDispatcher
 from .stream_monitor_paths import StreamMonitorPaths
 
-from .monitor_dto import MonitorSnapshot
+from ...tasks.ports import MonitorSnapshot
 from .stream_monitor_state import StreamMonitorState
 
 GIT_STATS_TIMEOUT_SECONDS = 10.0
