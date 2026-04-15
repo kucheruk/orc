@@ -14,6 +14,17 @@ import orc_core.tasks.execution.preflight as task_execution_preflight
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
 from orc_core.tasks.task_dto import Task
+from types import SimpleNamespace
+from orc_core.tasks.ports import PreflightResult
+from orc_core.git.git_helpers import classify_main_integration_error
+
+
+def _fake_preflight(*, ok: bool, error: str):
+    result = PreflightResult(ok=ok, error=error)
+    return SimpleNamespace(
+        run=lambda **kwargs: result,
+        classify_error=classify_main_integration_error,
+    )
 
 
 class _FakeProc:
@@ -172,18 +183,18 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.execution.preflight.preflight_main_integration")
     @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
     @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
-    def test_does_not_mutate_base_backlog_when_runtime_done_and_integration_fails(self, *_mocks) -> None:
+    @patch("orc_core.tasks.execution.preflight._default_preflight")
+    def test_does_not_mutate_base_backlog_when_runtime_done_and_integration_fails(self, mock_preflight, *_mocks) -> None:
         import orc_core.tasks.execution.engine as task_execution
         import orc_core.tasks.execution.finalize as task_execution_finalize
 
-        task_execution_preflight.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
+        mock_preflight.return_value = _fake_preflight(ok=True, error="")
         main_integrator.integrate_commit_into_main.return_value = type(
             "Integration",
             (),
@@ -211,18 +222,18 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertNotIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.execution.preflight.preflight_main_integration")
     @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
     @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
-    def test_fails_when_successful_integration_did_not_mark_base_backlog_done(self, *_mocks) -> None:
+    @patch("orc_core.tasks.execution.preflight._default_preflight")
+    def test_fails_when_successful_integration_did_not_mark_base_backlog_done(self, mock_preflight, *_mocks) -> None:
         import orc_core.tasks.execution.engine as task_execution
         import orc_core.tasks.execution.finalize as task_execution_finalize
 
-        task_execution_preflight.preflight_main_integration.return_value = type("Preflight", (), {"ok": True, "error": ""})()
+        mock_preflight.return_value = _fake_preflight(ok=True, error="")
         main_integrator.integrate_commit_into_main.return_value = type(
             "Integration",
             (),

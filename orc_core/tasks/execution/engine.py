@@ -26,7 +26,12 @@ from ...text_parse import SafeDict
 from .preflight import preflight_integration
 from .resume import recover_resume_state, init_task_file
 from ..task_source import MarkdownTaskSource
-from ...git.git_helpers import git_diff_numstat
+from ..ports import GitDiffProbe
+
+
+def _default_git_diff_probe() -> GitDiffProbe:
+    from ...git.task_adapters import DEFAULT_GIT_DIFF_PROBE
+    return DEFAULT_GIT_DIFF_PROBE
 
 from .request import LaunchConfig, TaskExecutionRequest, TaskExecutionResult
 from .runtime import _ExecutionContext, _ResumeState
@@ -223,7 +228,7 @@ def _run_stage_loop(engine: TaskExecutionEngine, ctx: _ExecutionContext, resume:
                         timeline_id=timeline_id,
                         attempt=attempt_number,
                         backlog_task_lister=lambda p: MarkdownTaskSource(p).list_tasks(),
-                        git_diff_fn=git_diff_numstat,
+                        git_diff_fn=_default_git_diff_probe().get_numstat,
                     )
                     active_monitor, result = launch_and_wait(
                         engine.worker, ctx, launch_cfg, log_path,

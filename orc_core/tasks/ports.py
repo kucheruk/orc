@@ -131,3 +131,39 @@ class ProcessProbe(Protocol):
     """Port for querying process liveness — used by completion checks."""
 
     def is_alive(self, pid: int) -> bool: ...
+
+
+# ── Git ports ───────────────────────────────────────────────────────
+
+class GitDiffProbe(Protocol):
+    """Port for retrieving git diff stats — used by execution to capture
+    snapshot-time diffs without importing git/ directly."""
+
+    def get_numstat(self, workdir: str, *, cached: bool = False, timeout: float = 10.0) -> Optional[str]: ...
+
+
+@dataclass(frozen=True)
+class PreflightResult:
+    """Outcome of main-branch integration preflight, neutral to git specifics."""
+
+    ok: bool
+    error: str = ""
+    safe_tracked: tuple[str, ...] = ()
+    safe_untracked: tuple[str, ...] = ()
+    unsafe_tracked: tuple[str, ...] = ()
+    unsafe_untracked: tuple[str, ...] = ()
+
+
+class MainIntegrationPreflight(Protocol):
+    """Port for main-branch integration preflight — what execution needs to know
+    before launching a task that will later cherry-pick into main."""
+
+    def run(
+        self,
+        *,
+        base_workdir: str,
+        main_branch: str,
+        extra_safe_paths: frozenset[str] = frozenset(),
+    ) -> PreflightResult: ...
+
+    def classify_error(self, error: str) -> str: ...

@@ -14,10 +14,14 @@ if TYPE_CHECKING:
 from ...observability import debug_log
 from ...errors.failure_reasons import build_main_integration_preflight_reason
 from ...log import log_event
-from ...git.git_helpers import classify_main_integration_error
-from ...git.worktree_flow import preflight_main_integration
+from ..ports import MainIntegrationPreflight
 from .request import TaskExecutionResult
 from ..task_status import TaskExecutionStatus
+
+
+def _default_preflight() -> MainIntegrationPreflight:
+    from ...git.task_adapters import DEFAULT_MAIN_INTEGRATION_PREFLIGHT
+    return DEFAULT_MAIN_INTEGRATION_PREFLIGHT
 
 _logger = logging.getLogger(__name__)
 
@@ -29,12 +33,13 @@ def preflight_integration(
     request = ctx.request
     if not request.integrate_to_main:
         return None
-    preflight = preflight_main_integration(base_workdir=request.base_workdir, main_branch=request.main_branch)
-    failure_kind = classify_main_integration_error(preflight.error)
-    safe_tracked = tuple(getattr(preflight, "safe_tracked", ()) or ())
-    safe_untracked = tuple(getattr(preflight, "safe_untracked", ()) or ())
-    unsafe_tracked = tuple(getattr(preflight, "unsafe_tracked", ()) or ())
-    unsafe_untracked = tuple(getattr(preflight, "unsafe_untracked", ()) or ())
+    port = _default_preflight()
+    preflight = port.run(base_workdir=request.base_workdir, main_branch=request.main_branch)
+    failure_kind = port.classify_error(preflight.error)
+    safe_tracked = preflight.safe_tracked
+    safe_untracked = preflight.safe_untracked
+    unsafe_tracked = preflight.unsafe_tracked
+    unsafe_untracked = preflight.unsafe_untracked
     debug_log(
         "MI1",
         "orc_core/task_execution.py:TaskExecutionEngine.execute",

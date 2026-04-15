@@ -15,7 +15,18 @@ import orc_core.tasks.execution.engine as task_execution
 import orc_core.tasks.execution.finalize as task_execution_finalize
 import orc_core.tasks.main_integrator as main_integrator
 import orc_core.tasks.execution.preflight as task_execution_preflight
+from orc_core.git.git_helpers import classify_main_integration_error
+from orc_core.tasks.ports import PreflightResult
 from orc_core.tasks.task_agent_phases import run_commit_phase
+
+
+def _fake_preflight(*, ok: bool, error: str):
+    """Build a MainIntegrationPreflight stub that returns a PreflightResult."""
+    result = PreflightResult(ok=ok, error=error)
+    return SimpleNamespace(
+        run=lambda **kwargs: result,
+        classify_error=classify_main_integration_error,
+    )
 from orc_core.tasks.execution.engine import TaskExecutionEngine
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
@@ -777,15 +788,15 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertIn(".orc/run/raw-stream/", launch_path)
 
     @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
-    @patch("orc_core.tasks.execution.preflight.preflight_main_integration")
     @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=False)
     @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
     @patch("orc_core.tasks.execution.engine.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
-    def test_execute_skips_main_integration_when_worktree_not_ahead(self, *_mocks) -> None:
-        task_execution_preflight.preflight_main_integration.return_value = SimpleNamespace(ok=True, error="")
+    @patch("orc_core.tasks.execution.preflight._default_preflight")
+    def test_execute_skips_main_integration_when_worktree_not_ahead(self, mock_preflight, *_mocks) -> None:
+        mock_preflight.return_value = _fake_preflight(ok=True, error="")
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
@@ -799,18 +810,19 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
     @patch("orc_core.tasks.main_integrator.run_merge_expert_phase", return_value=True)
     @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
-    @patch("orc_core.tasks.execution.preflight.preflight_main_integration")
     @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
     @patch("orc_core.tasks.execution.engine.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
+    @patch("orc_core.tasks.execution.preflight._default_preflight")
     def test_execute_runs_merge_expert_when_main_integration_conflicts(
         self,
+        mock_preflight,
         *_mocks,
     ) -> None:
-        task_execution_preflight.preflight_main_integration.return_value = SimpleNamespace(ok=True, error="")
+        mock_preflight.return_value = _fake_preflight(ok=True, error="")
         main_integrator.integrate_commit_into_main.side_effect = [
             SimpleNamespace(ok=False, conflict=True, error="conflict"),
             SimpleNamespace(ok=True, conflict=False, error=""),
@@ -827,15 +839,12 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(main_integrator.integrate_commit_into_main.call_count, 2)
         main_integrator.run_merge_expert_phase.assert_called_once()
 
-    @patch("orc_core.tasks.execution.preflight.preflight_main_integration")
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
     @patch("orc_core.tasks.execution.engine.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
-    def test_execute_fails_fast_when_main_integration_preflight_fails(self, *_mocks) -> None:
-        task_execution_preflight.preflight_main_integration.return_value = SimpleNamespace(
-            ok=False,
-            error="base repository is dirty before integration: untracked:notes.txt",
-        )
+    @patch("orc_core.tasks.execution.preflight._default_preflight")
+    def test_execute_fails_fast_when_main_integration_preflight_fails(self, mock_preflight, *_mocks) -> None:
+        mock_preflight.return_value = _fake_preflight(ok=False, error="base repository is dirty before integration: untracked:notes.txt")
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
 
@@ -852,18 +861,19 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 0)
 
     @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
-    @patch("orc_core.tasks.execution.preflight.preflight_main_integration")
     @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.task_agent_phases.kill_process_tree")
     @patch("orc_core.tasks.execution.engine.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
+    @patch("orc_core.tasks.execution.preflight._default_preflight")
     def test_execute_marks_specific_main_integration_failure_reason(
         self,
+        mock_preflight,
         *_mocks,
     ) -> None:
-        task_execution_preflight.preflight_main_integration.return_value = SimpleNamespace(ok=True, error="")
+        mock_preflight.return_value = _fake_preflight(ok=True, error="")
         main_integrator.integrate_commit_into_main.return_value = SimpleNamespace(
             ok=False,
             conflict=False,
