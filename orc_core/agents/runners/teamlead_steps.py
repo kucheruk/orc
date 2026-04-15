@@ -22,6 +22,7 @@ from ..kanban_protocols import (
     TaskExecutor, WorkDistributor,
 )
 from ..kanban_roles import build_teamlead_prompt
+from .arbitration_outcomes import ARBITRATION_OUTCOMES
 from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
 from .teamlead_stats import find_latest_agent_log, load_token_stats
 
@@ -136,26 +137,10 @@ class ArbitrationStep:
                 ctx.distributor.refresh()
                 refreshed = ctx.distributor.board.card_by_id(card.id)
                 if refreshed:
-                    if refreshed.action == Action.BLOCKED:
-                        ctx.escalate(refreshed)
-                    elif refreshed.action == Action.ARBITRATION:
-                        refreshed.block()
-                        ctx.distributor.board.save_card(refreshed)
-                        log_event(ctx.log_path, "WARN",
-                                  "teamlead left card in Arbitration, auto-blocking",
-                                  task_id=card.id)
-                        ctx.escalate(refreshed)
-                    elif needs_esc:
-                        ctx.outcomes.set_arbitrated_loop(card.id, card.loop_count)
-                        log_event(ctx.log_path, "INFO",
-                                  "escalation threshold reached but teamlead resolved — allowing progress",
-                                  task_id=card.id, loop_count=refreshed.loop_count,
-                                  action=refreshed.action, stage=refreshed.stage)
-                    else:
-                        ctx.outcomes.set_arbitrated_loop(card.id, card.loop_count)
-                        ctx.publisher.emit("arbitration", card.id,
-                                           f"{card.id} teamlead resolved → {refreshed.action} "
-                                           f"(loop_count={refreshed.loop_count})")
+                    for outcome in ARBITRATION_OUTCOMES:
+                        if outcome.matches(refreshed, needs_esc):
+                            outcome.apply(ctx, card, refreshed, needs_esc)
+                            break
         finally:
             ctx.distributor.release_card(card.id)
         ctx.lifecycle.sleep(3.0)
