@@ -31,15 +31,18 @@ from .domain import (
     IncidentPhase,
 )
 
-from .ports import FailedTasksSource
-from ..agents.kanban_protocols import RunnerStateManager, SessionController
+from .ports import (
+    FailedTasksSource,
+    IncidentPublisher,
+    IncidentSessionController,
+    IncidentStateManager,
+    IncidentTaskExecutor,
+)
 
 if TYPE_CHECKING:
     import threading
 
     from ..board.kanban_distributor import KanbanDistributor
-    from .kanban_publisher import KanbanPublisher
-    from ..agents.kanban_protocols import TaskExecutor
 
 
 class IncidentManager:
@@ -52,8 +55,8 @@ class IncidentManager:
         self,
         *,
         distributor: KanbanDistributor,
-        publisher: KanbanPublisher,
-        engine: "TaskExecutor",
+        publisher: IncidentPublisher,
+        engine: IncidentTaskExecutor,
         slots: dict[str, SessionSlot],
         slots_lock: threading.Lock,
         outcomes: FailedTasksSource,
@@ -61,8 +64,8 @@ class IncidentManager:
         workdir: str,
         max_sessions: int,
         sleep_fn: Callable[[float], None],
-        state_manager: RunnerStateManager,
-        session_controller: SessionController,
+        state_manager: IncidentStateManager,
+        session_controller: IncidentSessionController,
     ) -> None:
         self._distributor = distributor
         self.publisher = publisher
