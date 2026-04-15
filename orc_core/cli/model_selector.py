@@ -14,7 +14,7 @@ from ..infra.io.atomic_io import write_json_atomic
 from ..infra.io.state_paths import model_selection_path
 
 if TYPE_CHECKING:
-    from ..infra.backend import Backend
+    from ..backends.backend import Backend
 AGENT_LIST_MODELS_TIMEOUT_SECONDS = 15.0
 
 
@@ -55,7 +55,7 @@ class ModelListLoader:
 
 def list_supported_models(backend: Optional["Backend"] = None) -> list[str]:
     if backend is None:
-        from ..infra.backend import get_backend
+        from ..backends.backend import get_backend
         backend = get_backend()
     cmd = backend.list_models_cmd()
     if cmd is None:

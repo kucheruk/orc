@@ -6,11 +6,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from ..infra.backend import Backend
+    from ..backends.backend import Backend
 
 
 def ensure_agent_installed(backend: Optional["Backend"] = None) -> None:
     if backend is None:
-        from ..infra.backend import get_backend
+        from ..backends.backend import get_backend
         backend = get_backend()
     backend.ensure_installed()

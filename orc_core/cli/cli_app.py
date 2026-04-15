@@ -14,7 +14,7 @@ from typing import Callable, Optional
 
 from ..errors.exceptions import AgentNotInstalledError
 from .agent_preflight import ensure_agent_installed
-from ..infra.backend import SUPPORTED_BACKENDS, get_backend
+from ..backends.backend import SUPPORTED_BACKENDS, get_backend
 from ..errors.failure_reasons import format_known_failure_message
 from ..git.gitignore_guard import validate_workspace_gitignore
 from ..log import log_event, set_log_context

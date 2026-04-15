@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ..config import OrcConfig
-from ..infra.backend import Backend
+from ..backends.backend import Backend
 from ..infra.io.state_paths import parallel_task_path
 from ..infra.io.state_paths import run_root as state_run_root
 from ..infra.monitoring.monitor_dto import MonitorSnapshot

@@ -15,7 +15,7 @@ from ..board.kanban_distributor import KanbanDistributor
 from ..config import OrcConfig
 from ..git.integration_manager import IntegrationManager
 from ..incident.manager import IncidentManager
-from ..infra.backend import Backend
+from ..backends.backend import Backend
 from ..tasks.execution.engine import TaskExecutionEngine
 from .kanban_adapters import (
     DirectiveAdapter,

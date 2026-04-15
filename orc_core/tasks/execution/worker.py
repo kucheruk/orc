@@ -10,7 +10,7 @@ from ...infra.runner import launch_agent_stream_json
 from .request import LaunchConfig
 
 if TYPE_CHECKING:
-    from ...infra.backend import Backend as BackendProtocol
+    from ...backends.backend import Backend as BackendProtocol
 
 
 class TaskWorker(Protocol):
