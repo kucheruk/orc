@@ -11,7 +11,7 @@ from ...log import log_event
 from ...tasks.ports import StreamMonitorProtocol
 from ...observability import debug_log, timeline_instant
 from .check_definitions import CompletionMonitor
-from .checks import DEFAULT_CHECK_CHAIN
+from .checks import DEFAULT_CHECK_REGISTRY
 from .check_queries import _monitor_pid_missing
 from .ports import BacklogQueryPort, NotifyPort
 
@@ -88,7 +88,7 @@ def wait_for_completion(
         },
     )
     while True:
-        for check_fn in DEFAULT_CHECK_CHAIN:
+        for _name, check_fn in DEFAULT_CHECK_REGISTRY.iter_ordered():
             result = check_fn(cm)
             if result is not None:
                 return result

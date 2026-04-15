@@ -16,7 +16,7 @@ modifying the wait_for_completion loop (OCP).
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Iterable, Optional
 
 from ..task_status import TaskCompletionStatus
 from ...log import log_event
@@ -344,21 +344,32 @@ def maybe_report(cm: CompletionMonitor) -> None:
     )
 
 
-# ── Default check chain (OCP: add/remove/reorder here) ────────
-#
-# Ordered chain mixing termination checks (return TaskCompletionStatus or None)
-# and side-effect hooks (maybe_report, check_tokens_stuck — always return None).
-# Order matters: side-effects may set state (e.g. ui_followup_prompt) observed by
-# later checks in the same iteration.
-DEFAULT_CHECK_CHAIN: tuple[CompletionCheck, ...] = (
-    check_escape,
-    check_task_file_removed,
-    check_pid_missing,
-    check_backlog_done_idle,
-    maybe_report,           # side-effect only (returns None)
-    check_tokens_stuck,     # side-effect only (returns None)
-    check_process_exited,
-    check_followup_prompt,
-    check_stall,
-    check_ttl,
-)
+class CheckRegistry:
+    def __init__(self) -> None:
+        self._entries: dict[int, tuple[str, CompletionCheck]] = {}
+
+    def register(self, name: str, priority: int, fn: CompletionCheck) -> None:
+        existing = self._entries.get(priority)
+        if existing is not None:
+            existing_name, _ = existing
+            raise ValueError(
+                f"check {name} priority {priority} conflicts with {existing_name}"
+            )
+        self._entries[priority] = (name, fn)
+
+    def iter_ordered(self) -> Iterable[tuple[str, CompletionCheck]]:
+        for priority in sorted(self._entries):
+            yield self._entries[priority]
+
+
+DEFAULT_CHECK_REGISTRY = CheckRegistry()
+DEFAULT_CHECK_REGISTRY.register("check_escape", 10, check_escape)
+DEFAULT_CHECK_REGISTRY.register("check_task_file_removed", 20, check_task_file_removed)
+DEFAULT_CHECK_REGISTRY.register("check_pid_missing", 30, check_pid_missing)
+DEFAULT_CHECK_REGISTRY.register("check_backlog_done_idle", 40, check_backlog_done_idle)
+DEFAULT_CHECK_REGISTRY.register("maybe_report", 50, maybe_report)
+DEFAULT_CHECK_REGISTRY.register("check_tokens_stuck", 60, check_tokens_stuck)
+DEFAULT_CHECK_REGISTRY.register("check_process_exited", 70, check_process_exited)
+DEFAULT_CHECK_REGISTRY.register("check_followup_prompt", 80, check_followup_prompt)
+DEFAULT_CHECK_REGISTRY.register("check_stall", 90, check_stall)
+DEFAULT_CHECK_REGISTRY.register("check_ttl", 100, check_ttl)
