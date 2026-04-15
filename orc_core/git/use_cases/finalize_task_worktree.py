@@ -22,7 +22,7 @@ from ...tasks.task_dto import Task
 
 class Integrator(Protocol):
     """Port for main-branch integration."""
-    def integrate(self, slot, task: Task, execution_workdir: str) -> bool: ...
+    def integrate(self, session_id: str, task: Task, execution_workdir: str) -> bool: ...
 
 
 def finalize_completed_worktree(
@@ -39,7 +39,7 @@ def finalize_completed_worktree(
 ) -> bool:
     """Integrate worktree into main and clean up. Returns True on success."""
     task_obj = slot.task or Task(task_id=card.id, text=card.title or card.id, done=True)
-    integrated = integrator.integrate(slot, task_obj, worktree.worktree_path)
+    integrated = integrator.integrate(slot.session_id, task_obj, worktree.worktree_path)
     if integrated:
         with worktree_lock:
             cleanup_fn(worktree, log_path)

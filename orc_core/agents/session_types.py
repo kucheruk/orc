@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
+from ..errors.truncation import TRACEBACK_TRUNCATE
 from ..tasks.task_dto import Task
 
 if TYPE_CHECKING:
@@ -35,14 +36,6 @@ SHUTDOWN_JOIN_TIMEOUT_SECONDS = 15.0
 RATE_LIMIT_MAX_RETRIES = 3
 RATE_LIMIT_BASE_BACKOFF_SECONDS = 30.0
 RATE_LIMIT_MAX_BACKOFF_SECONDS = 240.0
-
-# ── Error truncation constants ─────────────────────────────────
-
-TRACEBACK_TRUNCATE = 2000
-ERROR_TRUNCATE = 500
-REASON_TRUNCATE = 200
-CONFLICT_ERROR_TRUNCATE = 300
-
 
 # ── Session slot ─────────────────────────────────────────────────
 

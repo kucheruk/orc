@@ -44,7 +44,7 @@ class IntegrationManagerLockTest(unittest.TestCase):
     def test_integrate_acquires_lock(self, exec_mock) -> None:
         exec_mock.return_value = True
         mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))
-        result = mgr.integrate(_make_slot(), _make_task(), "/tmp/wt")
+        result = mgr.integrate(_make_slot().session_id, _make_task(), "/tmp/wt")
         self.assertTrue(result)
         exec_mock.assert_called_once()
 
@@ -53,7 +53,7 @@ class IntegrationManagerLockTest(unittest.TestCase):
         exec_mock.side_effect = RuntimeError("boom")
         mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))
         with patch.object(mgr, "_abort_cherry_pick"):
-            result = mgr.integrate(_make_slot(), _make_task(), "/tmp/wt")
+            result = mgr.integrate(_make_slot().session_id, _make_task(), "/tmp/wt")
         self.assertFalse(result)
 
 

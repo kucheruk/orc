@@ -14,11 +14,10 @@ from typing import Callable, Optional
 
 from ..infra.io.atomic_io import write_json_atomic
 from ..log import log_event
-from ..agents.session_types import (
+from ..errors.truncation import (
     ERROR_TRUNCATE,
     REASON_TRUNCATE,
     TRACEBACK_TRUNCATE,
-    SessionSlot,
 )
 from ..infra.io.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
@@ -91,7 +90,7 @@ class IntegrationManager:
 
     def integrate(
         self,
-        slot: SessionSlot,
+        session_id: str,
         task: Task,
         execution_workdir: str,
         merge_expert_fn: Optional[Callable[[], bool]] = None,
@@ -99,7 +98,7 @@ class IntegrationManager:
     ) -> bool:
         notify = status_fn or (lambda _msg: None)
         ctx = IntegrationContext(
-            session_id=slot.session_id,
+            session_id=session_id,
             task_id=task.task_id,
             workdir=self.workdir,
             main_branch=self.main_branch,
