@@ -83,14 +83,14 @@ def build_incident_prompt(
     traceback file (see ``write_incident_traceback``) before running the
     triage agent.
     """
-    from ..board.kanban_role_registry import load_role_template
+    from ..board.kanban_role_registry import default_template_loader
     from ..board.board_summary import format_board_summary
     from ..text_parse import SafeDict as _SafeDict
 
     # ORC install path — agent can read orc_core/ files for ORC error analysis
     orc_install_path = str(Path(__file__).resolve().parent)
 
-    template = load_role_template(ROLE_TEAMLEAD_TRIAGE)
+    template = default_template_loader().load(ROLE_TEAMLEAD_TRIAGE)
     return template.format_map(_SafeDict(
         board_summary=format_board_summary(board),
         error_type=incident.error_type,

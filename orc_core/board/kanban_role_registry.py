@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 # ── Worker role constants ──────────────────────────────────────────
 
@@ -23,9 +23,6 @@ ROLE_TEAMLEAD_TRIAGE = "teamlead_triage"
 
 # ── Registry ──────────────────────────────────────────────────────
 
-_BASE_DIR = Path(__file__).resolve().parents[2]
-_PROMPTS_DIR = _BASE_DIR / "prompts"
-
 _ROLE_PROMPT_FILES: dict[str, str] = {
     ROLE_PRODUCT: "kanban_product.txt",
     ROLE_ARCHITECT: "kanban_architect.txt",
@@ -37,34 +34,61 @@ _ROLE_PROMPT_FILES: dict[str, str] = {
     ROLE_TEAMLEAD_TRIAGE: "kanban_teamlead_triage.txt",
 }
 
-_template_cache: dict[str, str] = {}
-
 
 def register_role(name: str, prompt_file: str) -> None:
     """Register a new kanban role with its prompt template filename."""
     _ROLE_PROMPT_FILES[name] = prompt_file
-    _template_cache.pop(name, None)
-
-
-def load_role_template(role: str) -> str:
-    """Load and cache the prompt template for a role."""
-    if role in _template_cache:
-        return _template_cache[role]
-    filename = _ROLE_PROMPT_FILES.get(role)
-    if not filename:
-        raise ValueError(f"Unknown kanban role: {role!r}. "
-                         f"Known roles: {', '.join(sorted(_ROLE_PROMPT_FILES))}")
-    path = _PROMPTS_DIR / filename
-    template = path.read_text(encoding="utf-8")
-    _template_cache[role] = template
-    return template
-
-
-def clear_template_cache() -> None:
-    """Clear the template cache (useful for testing)."""
-    _template_cache.clear()
 
 
 def known_roles() -> list[str]:
     """Return all registered role names."""
     return sorted(_ROLE_PROMPT_FILES.keys())
+
+
+def role_prompt_filename(role: str) -> str:
+    """Return the prompt filename for a role, raising on unknown roles."""
+    filename = _ROLE_PROMPT_FILES.get(role)
+    if not filename:
+        raise ValueError(
+            f"Unknown kanban role: {role!r}. "
+            f"Known roles: {', '.join(sorted(_ROLE_PROMPT_FILES))}"
+        )
+    return filename
+
+
+# ── Template loader port & default implementation ─────────────────
+
+
+class TemplateLoader(Protocol):
+    """Port for loading role prompt templates."""
+
+    def load(self, role: str) -> str: ...
+
+
+class FileTemplateLoader:
+    """Load prompt templates from a directory on disk, caching per-role."""
+
+    def __init__(self, prompts_dir: Path) -> None:
+        self._dir = prompts_dir
+        self._cache: dict[str, str] = {}
+
+    def load(self, role: str) -> str:
+        cached = self._cache.get(role)
+        if cached is not None:
+            return cached
+        filename = role_prompt_filename(role)
+        template = (self._dir / filename).read_text(encoding="utf-8")
+        self._cache[role] = template
+        return template
+
+    def clear_cache(self) -> None:
+        self._cache.clear()
+
+
+def _default_prompts_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "prompts"
+
+
+def default_template_loader() -> FileTemplateLoader:
+    """Factory — build a FileTemplateLoader rooted at the bundled prompts/ dir."""
+    return FileTemplateLoader(_default_prompts_dir())

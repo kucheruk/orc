@@ -18,8 +18,8 @@ from ..board.kanban_role_registry import (
     ROLE_TEAMLEAD,
     ROLE_TEAMLEAD_TRIAGE,
     ROLE_TESTER,
-    clear_template_cache,
-    load_role_template,
+    TemplateLoader,
+    default_template_loader,
 )
 
 if TYPE_CHECKING:
@@ -60,9 +60,12 @@ def _escape_braces(text: str) -> str:
 
 
 def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard",
-                 *, main_branch: str = "main") -> str:
+                 *, main_branch: str = "main",
+                 loader: TemplateLoader | None = None) -> str:
     """Build a complete prompt for the given role, card, and board state."""
-    template = load_role_template(role)
+    if loader is None:
+        loader = default_template_loader()
+    template = loader.load(role)
     card_content = _escape_braces(card.to_markdown())
     card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
     board_summary = format_board_summary(board)
@@ -284,12 +287,15 @@ def build_teamlead_prompt(
     decision_path: str = "",
     agent_log_path: str = "",
     token_stats: dict[str, int] | None = None,
+    loader: TemplateLoader | None = None,
 ) -> str:
     """Build a teamlead prompt for any invocation mode.
 
     Modes: 'arbitration', 'directive', 'health'.
     """
-    template = load_role_template(ROLE_TEAMLEAD)
+    if loader is None:
+        loader = default_template_loader()
+    template = loader.load(ROLE_TEAMLEAD)
     board_detail = _escape_braces(format_board_detail(board, token_stats=token_stats))
     board_summary = format_board_summary(board)
 

@@ -22,7 +22,6 @@ from orc_core.board.kanban_pull import (
 from orc_core.agents.kanban_roles import (
     ROLE_TEAMLEAD,
     build_prompt,
-    clear_template_cache,
     format_board_summary,
 )
 
@@ -30,7 +29,6 @@ from orc_core.agents.kanban_roles import (
 class TestBuildPrompt(unittest.TestCase):
 
     def setUp(self):
-        clear_template_cache()
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = self._tmp.name
         self.tasks_dir = init_kanban_board(Path(self.tmp))
