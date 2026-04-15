@@ -13,7 +13,10 @@ from ...board.fs_card_repository import FsCardRepository
 from ...board.kanban_board import KanbanBoard
 from ...board.kanban_distributor import KanbanDistributor
 from ...config import OrcConfig
+from ...git.conflict_resolver import ConflictResolver
 from ...git.integration_manager import IntegrationManager
+from ...git.safe_files import SafeFilesGuard
+from ...git.subprocess_git import SubprocessGitRunner
 from ...incident.manager import IncidentManager
 from ...backends.backend import Backend
 from ...infra.io.state_paths_adapter import FsStatePaths
@@ -71,11 +74,17 @@ def build_session_manager(
     # Base infrastructure
     board = KanbanBoard(tasks_dir, repo=FsCardRepository())
     distributor = KanbanDistributor(board)
+    git_runner = SubprocessGitRunner()
+    safe_files = SafeFilesGuard(workdir, frozenset(), log_path=log_path)
+    conflicts = ConflictResolver(workdir)
     integrator = IntegrationManager(
         workdir=workdir,
         main_branch=resolved_main_branch,
         log_path=log_path,
         safe_tracked_paths=frozenset(),
+        git=git_runner,
+        conflicts=conflicts,
+        safe_files=safe_files,
     )
     publisher = KanbanPublisher()
 

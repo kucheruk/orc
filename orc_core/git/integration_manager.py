@@ -23,7 +23,7 @@ from ..infra.io.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
 from ..tasks.dto import Task
 from .conflict_resolver import ConflictResolver
-from .ports import GitRunner
+from .ports import ConflictResolverPort, GitRunner, SafeFilesGuardPort
 from .safe_files import SafeFilesGuard
 from .subprocess_git import SubprocessGitRunner
 from .worktree_flow import (
@@ -78,15 +78,19 @@ class IntegrationManager:
 
     def __init__(self, *, workdir: str, main_branch: str, log_path: Path,
                  safe_tracked_paths: frozenset[str] = frozenset(),
-                 git: Optional[GitRunner] = None) -> None:
+                 git: Optional[GitRunner] = None,
+                 conflicts: Optional[ConflictResolverPort] = None,
+                 safe_files: Optional[SafeFilesGuardPort] = None) -> None:
         self.workdir = workdir
         self.main_branch = main_branch
         self.log_path = log_path
         self._safe_tracked_paths = safe_tracked_paths
         self._git: GitRunner = git or SubprocessGitRunner()
-        self._safe_files = SafeFilesGuard(workdir, safe_tracked_paths, log_path=log_path)
+        self._safe_files: SafeFilesGuardPort = safe_files or SafeFilesGuard(
+            workdir, safe_tracked_paths, log_path=log_path,
+        )
         self._lock = threading.Lock()
-        self._conflict_resolver = ConflictResolver(workdir)
+        self._conflict_resolver: ConflictResolverPort = conflicts or ConflictResolver(workdir)
 
     def integrate(
         self,
