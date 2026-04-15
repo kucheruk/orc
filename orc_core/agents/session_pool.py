@@ -73,7 +73,7 @@ class SessionPool:
                 if s.status in (SlotStatus.IDLE, SlotStatus.RUNNING, SlotStatus.CLOSING)
             )
             if active >= self.max_sessions:
-                self.publisher._emit(
+                self.publisher.emit(
                     "system", "",
                     f"Cannot add agent: {active}/{self.max_sessions} slots used",
                 )
@@ -83,7 +83,7 @@ class SessionPool:
             self._slots[sid] = slot
         slot.role = role
         self._launch_thread(slot, target)
-        self.publisher._emit("system", "", f"{sid} session created (role={role})")
+        self.publisher.emit("system", "", f"{sid} session created (role={role})")
         if self.snapshot_publisher:
             self.snapshot_publisher(sid, None)
         log_event(self.log_path, "INFO", "kanban session started", session_id=sid, role=role)
@@ -162,16 +162,16 @@ class SessionPool:
             threads = [(s.session_id, s.thread) for s in self._slots.values() if s.thread]
         total = len(threads)
         if total:
-            self.publisher._emit("system", "", f"Shutting down {total} agents...")
+            self.publisher.emit("system", "", f"Shutting down {total} agents...")
         for i, (sid, t) in enumerate(threads, 1):
-            self.publisher._emit("system", "", f"Waiting for {sid} ({i}/{total})...")
+            self.publisher.emit("system", "", f"Waiting for {sid} ({i}/{total})...")
             t.join(timeout=SHUTDOWN_JOIN_TIMEOUT_SECONDS)
             if t.is_alive():
-                self.publisher._emit("system", "", f"{sid} still running, skipping")
+                self.publisher.emit("system", "", f"{sid} still running, skipping")
             else:
-                self.publisher._emit("system", "", f"{sid} stopped ({total - i} remaining)")
+                self.publisher.emit("system", "", f"{sid} stopped ({total - i} remaining)")
         if total:
-            self.publisher._emit("system", "", "All agents stopped")
+            self.publisher.emit("system", "", "All agents stopped")
 
     # ── Internal ─────────────────────────────────────────────────
 

@@ -39,38 +39,38 @@ class KanbanPublisher:
 
     def log_move(self, card_id: str, from_stage: str, to_stage: str, reason: str = "") -> None:
         extra = f" ({reason})" if reason else ""
-        self._emit("move", card_id, f"{card_id} {from_stage} -> {to_stage}{extra}")
+        self.emit("move", card_id, f"{card_id} {from_stage} -> {to_stage}{extra}")
 
     def log_roi(self, card_id: str, value: int, effort: int, roi: float) -> None:
-        self._emit("roi", card_id, f"{card_id} ROI={roi} (value={value}/effort={effort})")
+        self.emit("roi", card_id, f"{card_id} ROI={roi} (value={value}/effort={effort})")
 
     def log_complete(self, card_id: str, role: str, elapsed_seconds: float) -> None:
         mins = elapsed_seconds / 60.0
-        self._emit("complete", card_id, f"{card_id} {role} finished ({mins:.1f}m)")
+        self.emit("complete", card_id, f"{card_id} {role} finished ({mins:.1f}m)")
 
     def log_escalate(self, card_id: str, message: str) -> None:
-        self._emit("escalate", card_id, f"{card_id} {message}")
+        self.emit("escalate", card_id, f"{card_id} {message}")
 
     def log_inbox(self, card_id: str, title: str) -> None:
-        self._emit("inbox", card_id, f"{card_id} added to inbox: {title}")
+        self.emit("inbox", card_id, f"{card_id} added to inbox: {title}")
 
     def log_arbitration(self, card_id: str, decision: str) -> None:
-        self._emit("arbitration", card_id, f"{card_id} teamlead: {decision}")
+        self.emit("arbitration", card_id, f"{card_id} teamlead: {decision}")
 
     def log_unblock(self, card_id: str, directive: str) -> None:
         extra = f": {directive}" if directive else ""
-        self._emit("approval", card_id, f"{card_id} unblocked by human{extra}")
+        self.emit("approval", card_id, f"{card_id} unblocked by human{extra}")
 
     def log_incident(self, incident_id: str, message: str) -> None:
-        self._emit("incident", "", f"[{incident_id}] {message}")
+        self.emit("incident", "", f"[{incident_id}] {message}")
 
     def log_action_change(self, card_id: str, old_action: str, new_action: str, role: str) -> None:
-        self._emit("action", card_id, f"{card_id} {old_action} -> {new_action} (by {role})")
+        self.emit("action", card_id, f"{card_id} {old_action} -> {new_action} (by {role})")
 
     def log_assign(self, card_id: str, role: str, agent_id: str) -> None:
-        self._emit("assign", card_id, f"{card_id} assigned to {agent_id} as {role}")
+        self.emit("assign", card_id, f"{card_id} assigned to {agent_id} as {role}")
 
-    def _emit(self, category: str, card_id: str, message: str) -> None:
+    def emit(self, category: str, card_id: str, message: str) -> None:
         if not self.journal_callback:
             return
         entry = JournalEntry(

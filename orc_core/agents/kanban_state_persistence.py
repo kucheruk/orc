@@ -57,9 +57,9 @@ def release_stale_agents(board, publisher) -> set[str]:
             old_agent = card.assigned_agent
             board.release_agent(card)
             released += 1
-            publisher._emit("system", card.id, f"{card.id} released stale agent {old_agent}")
+            publisher.emit("system", card.id, f"{card.id} released stale agent {old_agent}")
     if released:
-        publisher._emit("system", "", f"Released {released} stale agent(s) from previous run")
+        publisher.emit("system", "", f"Released {released} stale agent(s) from previous run")
     return done_ids
 
 
@@ -92,4 +92,4 @@ def cleanup_done_worktrees(
                 log_event(log_path, "WARN", "failed to cleanup done worktree",
                           task_id=card_id, error=str(exc)[:200])
     if cleaned:
-        publisher._emit("system", "", f"Cleaned {cleaned} worktree(s) from completed cards")
+        publisher.emit("system", "", f"Cleaned {cleaned} worktree(s) from completed cards")

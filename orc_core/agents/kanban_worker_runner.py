@@ -79,7 +79,7 @@ class KanbanWorkerRunner:
 
     def run(self, slot: SessionSlot) -> None:
         sid = slot.session_id
-        self._publisher._emit("system", "", f"{sid} worker started, scanning board...")
+        self._publisher.emit("system", "", f"{sid} worker started, scanning board...")
         try:
             idle_reason_logged: str = ""
             while self._lifecycle.should_continue(slot):
@@ -88,24 +88,24 @@ class KanbanWorkerRunner:
                 if assignment is None:
                     reason = self._distributor.diagnose_no_work()
                     if reason != idle_reason_logged:
-                        self._publisher._emit("system", "", f"{sid} idle — {reason}")
+                        self._publisher.emit("system", "", f"{sid} idle — {reason}")
                         idle_reason_logged = reason
                     self._lifecycle.sleep(2.0)
                     if not self._distributor.has_remaining_work():
-                        self._publisher._emit("system", "", f"{sid} no remaining work, stopping")
+                        self._publisher.emit("system", "", f"{sid} no remaining work, stopping")
                         break
                     continue
                 idle_reason_logged = ""
                 self.execute_assignment(slot, assignment)
                 if is_quit_after_task_requested():
-                    self._publisher._emit("system", "", f"{sid} finished task, exiting (quit-after-task)")
+                    self._publisher.emit("system", "", f"{sid} finished task, exiting (quit-after-task)")
                     break
                 self._lifecycle.sleep(1.0)
         except KeyboardInterrupt:
             raise
         except Exception as exc:
             slot.mark_crashed(exc, traceback.format_exc())
-            self._publisher._emit("escalate", "", f"{sid} CRASHED: {type(exc).__name__}: {exc}")
+            self._publisher.emit("escalate", "", f"{sid} CRASHED: {type(exc).__name__}: {exc}")
             log_event(self._log_path, "ERROR", "worker crashed",
                       session_id=sid, error=str(exc),
                       traceback=traceback.format_exc()[:2000])
@@ -132,12 +132,12 @@ class KanbanWorkerRunner:
                     )
                 wd = worktree.worktree_path
                 if not worktree.reused:
-                    self._publisher._emit("system", card.id, f"{card.id} worktree ready")
+                    self._publisher.emit("system", card.id, f"{card.id} worktree ready")
             else:
                 wd = self._workdir
             task = Task(task_id=card.id, text=card.title or card.id, done=False)
             slot.task = task
-            self._publisher._emit("system", card.id, f"{card.id} launching {role} agent...")
+            self._publisher.emit("system", card.id, f"{card.id} launching {role} agent...")
             commit_phase = self._config.commit_phase and assignment.needs_worktree
             result = self._engine.execute(self._state_manager.make_request(task, prompt, wd, sid,
                                                               commit_phase, 1800.0))
@@ -161,7 +161,7 @@ class KanbanWorkerRunner:
                     self._publisher, self._notifier, self._log_path,
                 )
         except Exception as exc:
-            self._publisher._emit("escalate", card.id,
+            self._publisher.emit("escalate", card.id,
                                    f"{card.id} ERROR: {type(exc).__name__}: {exc}")
             log_event(self._log_path, "ERROR", "assignment failed",
                       task_id=card.id, error=str(exc))

@@ -88,7 +88,7 @@ def execute_teamlead_actions(
 
     errors: list[str] = []
     if decision.summary:
-        publisher._emit("teamlead", "", f"[TL] {decision.summary}")
+        publisher.emit("teamlead", "", f"[TL] {decision.summary}")
 
     for action in decision.actions:
         try:
@@ -122,7 +122,7 @@ def _do_move_card(board, p, reason, publisher, log_path=None):
         board.release_agent(card)
     board.move_card(card, to_stage, allow_backward=True,
                     reason=f"teamlead: {reason}" if reason else "teamlead action")
-    publisher._emit("teamlead", card_id, f"Moved {card_id} → {to_stage}: {reason}")
+    publisher.emit("teamlead", card_id, f"Moved {card_id} → {to_stage}: {reason}")
 
 
 def _do_set_action(board, p, reason, publisher, log_path=None):
@@ -145,10 +145,10 @@ def _do_set_action(board, p, reason, publisher, log_path=None):
     new_stage = _FORWARD_MOVES.get((card.stage, action_str))
     if new_stage and board.has_wip_room(new_stage):
         board.move_card(card, new_stage, reason=f"teamlead: {old} → {action_str}")
-        publisher._emit("teamlead", card_id,
+        publisher.emit("teamlead", card_id,
                         f"{card_id} action: {old} → {action_str}, moved → {new_stage}: {reason}")
     else:
-        publisher._emit("teamlead", card_id, f"{card_id} action: {old} → {action_str}: {reason}")
+        publisher.emit("teamlead", card_id, f"{card_id} action: {old} → {action_str}: {reason}")
 
 
 def _do_modify_deps(board, p, reason, publisher, log_path=None):
@@ -175,7 +175,7 @@ def _do_modify_deps(board, p, reason, publisher, log_path=None):
             changed = True
     if changed:
         board.save_card(card)
-        publisher._emit("teamlead", card_id,
+        publisher.emit("teamlead", card_id,
                         f"{card_id} deps: +[{','.join(to_add)}] -[{','.join(to_remove)}]: {reason}")
 
 
@@ -197,7 +197,7 @@ def _do_create_card(board, p, reason, publisher, log_path=None):
             board, title, body or "",
             stage=stage, action=action_str, cos_justification=reason,
         )
-    publisher._emit("teamlead", card.id, f"Created {card.id}: {title}: {reason}")
+    publisher.emit("teamlead", card.id, f"Created {card.id}: {title}: {reason}")
 
 
 def _do_set_wip_limit(board, p, reason, publisher, log_path=None):
@@ -208,7 +208,7 @@ def _do_set_wip_limit(board, p, reason, publisher, log_path=None):
     if limit < 1:
         raise ValueError(f"WIP limit must be >= 1, got {limit}")
     board.set_wip_limit(stage, limit)
-    publisher._emit("teamlead", "", f"WIP {stage}: → {limit}: {reason}")
+    publisher.emit("teamlead", "", f"WIP {stage}: → {limit}: {reason}")
 
 
 def _do_update_card(board, p, reason, publisher, log_path=None):
@@ -229,7 +229,7 @@ def _do_update_card(board, p, reason, publisher, log_path=None):
     setattr(card, field_name, value)
     card.refresh_roi()
     board.save_card(card)
-    publisher._emit("teamlead", card_id, f"{card_id}.{field_name}: {old_val} → {value}: {reason}")
+    publisher.emit("teamlead", card_id, f"{card_id}.{field_name}: {old_val} → {value}: {reason}")
 
 
 def _do_notify(board, p, reason, publisher, log_path=None):
@@ -240,7 +240,7 @@ def _do_notify(board, p, reason, publisher, log_path=None):
     if log_path is None:
         raise ValueError("notify action requires log_path (internal error)")
     send_telegram_message(message, log_path)
-    publisher._emit("teamlead", "", f"[TL] Telegram sent: {message[:100]}")
+    publisher.emit("teamlead", "", f"[TL] Telegram sent: {message[:100]}")
 
 
 def _do_skip_card(board, p, reason, publisher, log_path=None):
@@ -255,7 +255,7 @@ def _do_skip_card(board, p, reason, publisher, log_path=None):
     board.save_card(card)
     board.move_card(card, STAGE_DONE, allow_backward=True,
                     reason=f"teamlead skip: {reason}" if reason else "teamlead skip")
-    publisher._emit("teamlead", card_id, f"Skipped {card_id} → {STAGE_DONE}: {reason}")
+    publisher.emit("teamlead", card_id, f"Skipped {card_id} → {STAGE_DONE}: {reason}")
 
 
 def _do_write_feedback(board, p, reason, publisher, log_path=None):
@@ -275,7 +275,7 @@ def _do_write_feedback(board, p, reason, publisher, log_path=None):
         body = body.rstrip() + f"\n\n{marker}\n\n{text}\n"
     card.body = body
     board.save_card(card)
-    publisher._emit("teamlead", card_id, f"{card_id} feedback updated: {reason}")
+    publisher.emit("teamlead", card_id, f"{card_id} feedback updated: {reason}")
 
 
 def _require(params: dict, key: str) -> Any:
@@ -292,7 +292,7 @@ def _require(params: dict, key: str) -> Any:
 def _do_respond(board, p, reason, publisher, log_path=None):
     msg = str(p.get("message", ""))
     if msg:
-        publisher._emit("teamlead", "", msg)
+        publisher.emit("teamlead", "", msg)
 
 
 _ACTION_HANDLERS: dict[str, Callable] = {

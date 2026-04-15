@@ -83,7 +83,7 @@ class KanbanTeamleadRunner:
 
     def run(self, slot: SessionSlot) -> None:
         sid = slot.session_id
-        self._publisher._emit("system", "", f"{sid} teamlead started, monitoring board...")
+        self._publisher.emit("system", "", f"{sid} teamlead started, monitoring board...")
         incident: Optional[Incident] = None
         try:
             while self._lifecycle.should_continue(slot):
@@ -92,11 +92,11 @@ class KanbanTeamleadRunner:
                 if incident is not None:
                     incident = self._incident_mgr.process_incident(slot, incident)
                     if incident is None:
-                        self._publisher._emit("incident", "",
+                        self._publisher.emit("incident", "",
                                                "Incident resolved, resuming normal operations")
                     self._lifecycle.sleep(2.0)
                     if is_quit_after_task_requested():
-                        self._publisher._emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
+                        self._publisher.emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
                         break
                     continue
 
@@ -130,11 +130,11 @@ class KanbanTeamleadRunner:
                 self.auto_commit_cards()
 
                 if not self._distributor.has_remaining_work():
-                    self._publisher._emit("system", "", f"{sid} teamlead: no remaining work")
+                    self._publisher.emit("system", "", f"{sid} teamlead: no remaining work")
                     break
                 self._lifecycle.sleep(5.0)
                 if is_quit_after_task_requested():
-                    self._publisher._emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
+                    self._publisher.emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
                     break
         except KeyboardInterrupt:
             raise
@@ -160,7 +160,7 @@ class KanbanTeamleadRunner:
             return
         needs_esc = self._distributor.needs_escalation(card)
         if needs_esc:
-            self._publisher._emit("escalate", card.id,
+            self._publisher.emit("escalate", card.id,
                                    f"{card.id} loop_count={card.loop_count}, "
                                    f"teamlead arbitrating before escalation")
         log_event(self._log_path, "INFO", "teamlead arbitration",
@@ -200,7 +200,7 @@ class KanbanTeamleadRunner:
                                   action=refreshed.action, stage=refreshed.stage)
                     else:
                         self._outcomes.set_arbitrated_loop(card.id, card.loop_count)
-                        self._publisher._emit("arbitration", card.id,
+                        self._publisher.emit("arbitration", card.id,
                                                f"{card.id} teamlead resolved → {refreshed.action} "
                                                f"(loop_count={refreshed.loop_count})")
         finally:
@@ -211,7 +211,7 @@ class KanbanTeamleadRunner:
 
     def directive(self, slot: SessionSlot, sid: str, directive_text: str) -> None:
         """Run teamlead agent to process a user directive."""
-        self._publisher._emit("directive", "", f"Teamlead processing: {directive_text}")
+        self._publisher.emit("directive", "", f"Teamlead processing: {directive_text}")
         log_event(self._log_path, "INFO", "teamlead directive start",
                   session_id=sid, directive=directive_text[:200])
         dec_path = _teamlead_decision_path(self._workdir)
@@ -250,7 +250,7 @@ class KanbanTeamleadRunner:
         self._last_health_diagnostic = diagnostic.summary
         self._consecutive_health_checks += 1
         diag_text = diagnostic.summary
-        self._publisher._emit("escalate", "", f"[TL] Health check: {diag_text.strip()}")
+        self._publisher.emit("escalate", "", f"[TL] Health check: {diag_text.strip()}")
         log_event(self._log_path, "WARN", "board health issue detected",
                   session_id=sid, diagnostic=diag_text[:500])
         dec_path = _teamlead_decision_path(self._workdir)
@@ -278,9 +278,9 @@ class KanbanTeamleadRunner:
             )
             if errors:
                 for e in errors:
-                    self._publisher._emit("escalate", "", f"[TL] Action failed: {e}")
+                    self._publisher.emit("escalate", "", f"[TL] Action failed: {e}")
         except Exception as exc:
-            self._publisher._emit("escalate", "", f"[TL] Decision parse failed: {exc}")
+            self._publisher.emit("escalate", "", f"[TL] Decision parse failed: {exc}")
             log_event(self._log_path, "WARN", "teamlead decision parse failed", error=str(exc))
         finally:
             try:

@@ -48,7 +48,7 @@ def finalize_completed_worktree(
     else:
         log_event(log_path, "WARN", "integration failed, keeping worktree",
                   task_id=card.id, worktree=worktree.worktree_path)
-        publisher._emit("escalate", card.id,
+        publisher.emit("escalate", card.id,
                         f"{card.id} cherry-pick to {main_branch} failed; "
                         f"card moved back to Handoff")
         card.action = Action.INTEGRATING

@@ -32,7 +32,7 @@ class OutcomeTracker(Protocol):
 class CompletionPublisher(Protocol):
     """Port for publishing task lifecycle events."""
     def log_complete(self, card_id: str, role: str, elapsed: float) -> None: ...
-    def _emit(self, kind: str, card_id: str, message: str) -> None: ...
+    def emit(self, kind: str, card_id: str, message: str) -> None: ...
 
 
 class CompletionNotifier(Protocol):
@@ -69,7 +69,7 @@ def process_completed_task(
         publisher.log_complete(card.id, role, elapsed)
         notifier.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
     else:
-        publisher._emit("escalate", card.id,
+        publisher.emit("escalate", card.id,
                         f"{card.id} validation failed: {'; '.join(errors[:3])}")
         log_event(log_path, "WARN", "agent output validation failed",
                   task_id=card.id, role=role, errors=str(errors))
@@ -85,7 +85,7 @@ def handle_task_failure(
     role: str,
 ) -> None:
     """Record a failed task execution and publish escalation."""
-    publisher._emit("escalate", card.id, f"{card.id} {role} failed: {reason}")
+    publisher.emit("escalate", card.id, f"{card.id} {role} failed: {reason}")
     outcomes.record_failed(card.id)
 
 
@@ -108,7 +108,7 @@ def escalate_if_threshold_reached(
     try:
         card.block(error_desc)
         board.save_card(card)
-        publisher._emit("escalate", card.id,
+        publisher.emit("escalate", card.id,
                         f"{card.id} marked Blocked after {count} consecutive failures: {error_desc}")
         log_event(log_path, "WARN", "card blocked after repeated failures",
                   task_id=card.id, fail_count=count, error=error_desc)

@@ -110,7 +110,7 @@ class KanbanSessionManager:
         cleanup_done_worktrees(done_ids, self.workdir, self.log_path, self.publisher)
 
         done, _ip, total = self._distributor.get_progress()
-        self.publisher._emit("system", "", f"Kanban started: {total} cards, {self._pool.max_sessions} agents")
+        self.publisher.emit("system", "", f"Kanban started: {total} cards, {self._pool.max_sessions} agents")
         self._publish_board_state()
         self._integrator.recover_stale_git_state()
 
@@ -165,7 +165,7 @@ class KanbanSessionManager:
 
     def queue_teamlead_directive(self, text: str) -> None:
         self._directives.push(text)
-        self.publisher._emit("directive", "", f"Directive queued for teamlead: {text}")
+        self.publisher.emit("directive", "", f"Directive queued for teamlead: {text}")
         log_event(self.log_path, "INFO", "teamlead directive queued", directive=text[:200])
 
     # ── State persistence ───────────────────────────────────────
@@ -236,16 +236,16 @@ def _manager_loop(
             return EXIT_INTERRUPT
         if is_quit_after_task_requested():
             if not quit_after_logged:
-                publisher._emit("system", "", "Quit-after-task: waiting for active agents to finish...")
+                publisher.emit("system", "", "Quit-after-task: waiting for active agents to finish...")
                 quit_after_logged = True
             running = pool.running_info()
             now = time.time()
             if running:
                 if now - quit_after_last_status >= 10.0:
-                    publisher._emit("system", "", f"Still working: {running}")
+                    publisher.emit("system", "", f"Still working: {running}")
                     quit_after_last_status = now
             else:
-                publisher._emit("system", "", "All agents finished, exiting")
+                publisher.emit("system", "", "All agents finished, exiting")
                 return EXIT_OK
         elif not pool.has_active():
             if distributor.has_remaining_work():
