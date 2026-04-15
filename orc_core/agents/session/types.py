@@ -8,7 +8,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
 from ...errors.truncation import TRACEBACK_TRUNCATE
-from ...tasks.task_dto import Task
+from ...tasks.dto import Task
 
 if TYPE_CHECKING:
     from ...tasks.ports import MonitorSnapshot

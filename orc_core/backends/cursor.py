@@ -68,7 +68,7 @@ class CursorBackend:
         return cmd
 
     def setup_hooks(self, workdir: str, log_path: Path) -> None:
-        from ..tasks.hooks import ensure_repo_hooks, ensure_repo_hooks_config
+        from ..tasks.integration.hooks import ensure_repo_hooks, ensure_repo_hooks_config
         before_path, stop_path = ensure_repo_hooks(workdir)
         ensure_repo_hooks_config(workdir, before_path, stop_path, log_path)
 

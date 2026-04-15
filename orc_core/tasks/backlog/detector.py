@@ -11,16 +11,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from ..observability import debug_log
-from ..log import log_event
-from .execution.helpers import (
+from ...observability import debug_log
+from ...log import log_event
+from ..execution.helpers import (
     _should_defer_base_backlog_sync_to_integration,
     _sync_done_task_from_runtime_to_base,
 )
-from .execution.request import TaskExecutionResult
-from .execution.runtime import _ExecutionContext
-from .task_status import TaskExecutionStatus
-from .task_state import delete_runtime_state_file
+from ..execution.request import TaskExecutionResult
+from ..execution.runtime import _ExecutionContext
+from ..status import TaskExecutionStatus
+from ..state import delete_runtime_state_file
 
 
 def check_backlog_done(
@@ -66,7 +66,7 @@ def check_backlog_done(
     )
 
     try:
-        from .task_source import MarkdownTaskSource
+        from ..backlog.source import MarkdownTaskSource
 
         base_done = MarkdownTaskSource(base_backlog_path).is_task_done(task_id)
         runtime_done = False
@@ -198,8 +198,8 @@ def _process_done_result(
     Returns (action, result, stage_next_index, updated_retry_budget).
     action: 'return' | 'break' | 'retry'
     """
-    from .task_agent_phases import should_retry_after_missing_stage_artifact
-    from .execution.finalize import complete_stage, finalize_completed
+    from ..stages.phases import should_retry_after_missing_stage_artifact
+    from ..execution.finalize import complete_stage, finalize_completed
 
     request = ctx.request
     task_id = ctx.task_id

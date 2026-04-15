@@ -17,7 +17,7 @@ from orc_core.infra.io.atomic_io import write_json_atomic
 from orc_core.infra.io.state_paths import artifacts_dir as external_artifacts_dir
 from orc_core.infra.io.state_paths import metrics_path as external_metrics_path
 from orc_core.infra.io.state_paths import stats_path as external_stats_path
-from orc_core.tasks.task_source import MarkdownTaskSource
+from orc_core.tasks.backlog.source import MarkdownTaskSource
 
 GIT_COMMAND_TIMEOUT_SECONDS = 20.0
 ETA_WINDOW_SIZE = 3

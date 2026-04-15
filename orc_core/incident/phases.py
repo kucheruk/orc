@@ -11,9 +11,9 @@ from typing import Optional
 from ..board.action_constants import Action
 from ..board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_REVIEW
 from ..log import log_event
-from ..tasks.task_dto import Task
+from ..tasks.dto import Task
 from ..board.use_cases.create_card import create_expedite_card
-from ..tasks.task_status import TaskExecutionStatus
+from ..tasks.status import TaskExecutionStatus
 from .ports import ArtifactWriter
 from .domain import (
     DECISION_FILENAME,

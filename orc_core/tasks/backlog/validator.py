@@ -8,15 +8,15 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from ..log import log_event
-from ..observability import debug_log
-from .execution.helpers import (
+from ...log import log_event
+from ...observability import debug_log
+from ..execution.helpers import (
     _should_defer_base_backlog_sync_to_integration,
     _sync_done_task_from_runtime_to_base,
 )
-from .execution.request import TaskExecutionResult
-from .execution.runtime import _ExecutionContext
-from .task_status import TaskExecutionStatus
+from ..execution.request import TaskExecutionResult
+from ..execution.runtime import _ExecutionContext
+from ..status import TaskExecutionStatus
 
 _logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def validate_backlog_invariant(
     """Ensure base backlog reflects done state after completion. Returns failure result or None."""
     request = ctx.request
     try:
-        from .task_source import MarkdownTaskSource
+        from ..backlog.source import MarkdownTaskSource
 
         base_done = MarkdownTaskSource(base_backlog_path).is_task_done(current_task_id)
         runtime_done = False

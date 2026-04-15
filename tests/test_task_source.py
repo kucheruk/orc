@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.tasks.task_source import MarkdownTaskSource
+from orc_core.tasks.backlog.source import MarkdownTaskSource
 
 
 class TaskSourceTest(unittest.TestCase):

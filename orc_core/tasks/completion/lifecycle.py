@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..task_status import TaskCompletionStatus
+from ..status import TaskCompletionStatus
 from ...log import log_event
 from ...tasks.ports import StreamMonitorProtocol
 from ...observability import debug_log, timeline_instant

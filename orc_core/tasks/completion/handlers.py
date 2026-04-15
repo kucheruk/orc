@@ -7,11 +7,11 @@ from __future__ import annotations
 import logging
 from typing import Optional, Protocol
 
-from ..log import log_event
-from ..observability import timeline_instant
-from .hooks import update_task_restart_count
-from .execution.request import TaskExecutionResult
-from .task_status import TaskCompletionStatus, TaskExecutionStatus
+from ...log import log_event
+from ...observability import timeline_instant
+from ..integration.hooks import update_task_restart_count
+from ..execution.request import TaskExecutionResult
+from ..status import TaskCompletionStatus, TaskExecutionStatus
 
 _logger = logging.getLogger(__name__)
 

@@ -9,11 +9,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orc_core.tasks.execution.engine import TaskExecutionEngine
-import orc_core.tasks.main_integrator as main_integrator
+import orc_core.tasks.integration.main_integrator as main_integrator
 import orc_core.tasks.execution.preflight as task_execution_preflight
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
-from orc_core.tasks.task_dto import Task
+from orc_core.tasks.dto import Task
 from types import SimpleNamespace
 from orc_core.tasks.ports import PreflightResult
 from orc_core.git.git_helpers import classify_main_integration_error
@@ -183,9 +183,9 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
-    @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
+    @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.tasks.integration.main_integrator.get_head_commit", return_value="abc123")
+    @patch("orc_core.tasks.integration.main_integrator.integrate_commit_into_main")
     @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
@@ -222,9 +222,9 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertNotIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.main_integrator.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.tasks.main_integrator.get_head_commit", return_value="abc123")
-    @patch("orc_core.tasks.main_integrator.integrate_commit_into_main")
+    @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.tasks.integration.main_integrator.get_head_commit", return_value="abc123")
+    @patch("orc_core.tasks.integration.main_integrator.integrate_commit_into_main")
     @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")

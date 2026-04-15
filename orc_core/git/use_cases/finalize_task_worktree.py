@@ -17,7 +17,7 @@ from ...board.gateway import BoardGateway, CardView
 from ...board.stage_constants import STAGE_HANDOFF
 from ...log import log_event
 from ...git.git_dto import WorktreeSession
-from ...tasks.task_dto import Task
+from ...tasks.dto import Task
 
 
 class Integrator(Protocol):

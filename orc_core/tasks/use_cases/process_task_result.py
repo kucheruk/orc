@@ -17,7 +17,7 @@ from ...log import log_event
 # Callable type for processing agent output: (board, card, role) -> list[errors]
 AgentResultProcessor = Callable[[BoardGateway, CardView, str], list[str]]
 from ..execution.request import TaskExecutionResult
-from ..task_status import TaskExecutionStatus
+from ..status import TaskExecutionStatus
 
 
 class OutcomeTracker(Protocol):

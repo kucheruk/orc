@@ -18,7 +18,7 @@ from __future__ import annotations
 import time
 from typing import Iterable, Optional
 
-from ..task_status import TaskCompletionStatus
+from ..status import TaskCompletionStatus
 from ...log import log_event
 from ...observability import debug_log, debug_mode_log, timeline_instant
 from ..ports import TaskStateWriter

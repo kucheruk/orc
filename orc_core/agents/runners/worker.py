@@ -15,7 +15,7 @@ from ...config import OrcConfig
 from ...tasks.completion.outcomes import TaskOutcomeTracker
 from ...git.integration_manager import IntegrationManager
 from ...board.stage_constants import STAGE_DONE
-from ...tasks.task_status import TaskExecutionStatus
+from ...tasks.status import TaskExecutionStatus
 from ..kanban_protocols import CompletionNotifier, EventPublisher, RunnerLifecycle, RunnerStateManager, WorkDistributor
 from ...board.kanban_pull import WorkAssignment
 from ..kanban_agent_output import process_agent_result
@@ -30,7 +30,7 @@ from ...tasks.use_cases.process_task_result import (
 from ...git.use_cases.finalize_task_worktree import finalize_completed_worktree
 from ..session_types import SessionSlot, SlotStatus
 from ..kanban_protocols import TaskExecutor
-from ...tasks.task_dto import Task
+from ...tasks.dto import Task
 from ...git.git_dto import WorktreeSession
 from ...git.worktree_flow import cleanup_task_worktree, create_task_worktree
 

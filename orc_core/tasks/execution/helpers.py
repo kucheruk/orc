@@ -31,7 +31,7 @@ def _update_completion_stats(
 ) -> None:
     """Record token usage and task duration in stats file (replaces stop hook stats logic)."""
     from ...infra.io.state_paths import stats_path as get_stats_path
-    from ..task_state import read_task_active_seconds
+    from ..state import read_task_active_seconds
     writer = writer or _default_writer()
 
     stats_file = get_stats_path(workdir)
@@ -107,7 +107,7 @@ def _sync_done_task_from_runtime_to_base(
 ) -> bool:
     if runtime_backlog_path == base_backlog_path:
         return True
-    from ..task_source import MarkdownTaskSource
+    from ..backlog.source import MarkdownTaskSource
 
     try:
         base_source = MarkdownTaskSource(base_backlog_path)

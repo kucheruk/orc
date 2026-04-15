@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.tasks.hooks import ensure_repo_hooks
+from orc_core.tasks.integration.hooks import ensure_repo_hooks
 
 
 class HookLibEtaTest(unittest.TestCase):

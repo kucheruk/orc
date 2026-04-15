@@ -21,7 +21,7 @@ from ..errors.truncation import (
 )
 from ..infra.io.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
-from ..tasks.task_dto import Task
+from ..tasks.dto import Task
 from .conflict_resolver import ConflictResolver
 from .ports import GitRunner
 from .safe_files import SafeFilesGuard

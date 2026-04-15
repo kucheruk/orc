@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from ...tasks.task_dto import Task
+from ...tasks.dto import Task
 
 from ...infra.io.atomic_io import write_json_atomic
 from ...infra.io.logging import log_event, now_ms

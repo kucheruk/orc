@@ -16,7 +16,7 @@ from ...errors.failure_reasons import build_main_integration_preflight_reason
 from ...log import log_event
 from ..ports import MainIntegrationPreflight
 from .request import TaskExecutionResult
-from ..task_status import TaskExecutionStatus
+from ..status import TaskExecutionStatus
 
 
 def _default_preflight() -> MainIntegrationPreflight:

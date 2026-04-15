@@ -16,11 +16,11 @@ if TYPE_CHECKING:
 from ...observability import debug_log
 from ...log import log_event
 from ...agents.session.state import save_active_session, save_session_manifest
-from ..hooks import write_task_file
+from ..integration.hooks import write_task_file
 from ..ports import TaskStateWriter
 from .request import TaskExecutionResult
-from ..task_status import TaskExecutionStatus
-from ..task_state import delete_runtime_state_file, read_task_active_seconds
+from ..status import TaskExecutionStatus
+from ..state import delete_runtime_state_file, read_task_active_seconds
 
 
 def _default_writer() -> TaskStateWriter:
@@ -91,7 +91,7 @@ def recover_resume_state(
         resume.elapsed_before_start = 0.0
 
     if resume.resume_existing and active_task_id and request.task_path.exists():
-        from ..task_source import MarkdownTaskSource
+        from ..backlog.source import MarkdownTaskSource
 
         if MarkdownTaskSource(ctx.base_backlog_path).is_task_done(active_task_id):
             log_event(log_path, "INFO", "task already marked done; removing task file", task_id=active_task_id)

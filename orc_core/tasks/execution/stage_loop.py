@@ -12,12 +12,12 @@ from typing import TYPE_CHECKING, Optional
 from ...log import log_event
 from ...observability import debug_log, timeline_step
 from ...text_parse import SafeDict
-from ..backlog_detector import check_backlog_done as _check_backlog_done
-from ..completion_handlers import COMPLETION_HANDLERS
-from ..hooks import update_task_restart_count
-from ..stage_artifacts import build_stage_artifact_bundle
-from ..task_source import MarkdownTaskSource
-from ..task_status import TaskCompletionStatus, TaskExecutionStatus
+from ..backlog.detector import check_backlog_done as _check_backlog_done
+from ..completion.handlers import COMPLETION_HANDLERS
+from ..integration.hooks import update_task_restart_count
+from ..stages.artifacts import build_stage_artifact_bundle
+from ..backlog.source import MarkdownTaskSource
+from ..status import TaskCompletionStatus, TaskExecutionStatus
 from ..ports import GitDiffProbe
 from .finalize import complete_stage as _complete_stage, finalize_completed as _finalize_completed
 from .helpers import _find_first_stage_index, _write_prompt_file

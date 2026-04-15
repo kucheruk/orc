@@ -13,7 +13,7 @@ from orc_core.notifications.adapters import TelegramNotify
 from orc_core.tasks.completion.lifecycle import wait_for_completion, wait_for_process_exit
 from orc_core.tasks.completion.checks import PROCESS_EXIT_GRACE_SECONDS
 from orc_core.tasks.completion.ports import NoopNotify
-from orc_core.tasks.backlog_query import MarkdownBacklogQuery
+from orc_core.tasks.backlog.query import MarkdownBacklogQuery
 
 
 def _default_ports(log_path=None):

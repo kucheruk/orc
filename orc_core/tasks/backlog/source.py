@@ -4,8 +4,8 @@
 from pathlib import Path
 from typing import List, Optional, Protocol
 
-from ..board.backlog_markdown_parser import mark_task_done_in_lines, parse_backlog_markdown
-from .task_dto import Task
+from ...board.backlog_markdown_parser import mark_task_done_in_lines, parse_backlog_markdown
+from ..dto import Task
 
 
 class TaskSource(Protocol):

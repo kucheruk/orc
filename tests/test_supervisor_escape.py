@@ -7,7 +7,7 @@ from pathlib import Path
 
 from orc_core.tasks.completion.lifecycle import wait_for_completion, wait_for_process_exit
 from orc_core.tasks.completion.ports import NoopNotify
-from orc_core.tasks.backlog_query import MarkdownBacklogQuery
+from orc_core.tasks.backlog.query import MarkdownBacklogQuery
 
 
 class _FakeMetrics:

@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..task_status import TaskCompletionStatus
+from ..status import TaskCompletionStatus
 from ...tasks.ports import StreamMonitorProtocol
 from .ports import BacklogQueryPort, NotifyPort
 

@@ -6,11 +6,11 @@ import uuid
 from pathlib import Path
 from typing import Optional, Tuple
 
-from ..infra.io.atomic_io import write_json_atomic, write_text_atomic
-from .task_dto import Task
-from ..log import log_event, now_iso
-from ..infra.io.state_paths import active_task_path
-from .task_state import write_task_runtime_state
+from ...infra.io.atomic_io import write_json_atomic, write_text_atomic
+from ..dto import Task
+from ...log import log_event, now_iso
+from ...infra.io.state_paths import active_task_path
+from ..state import write_task_runtime_state
 
 
 def _render_hook_script(template_path: Path, replacements: dict[str, str]) -> str:
@@ -36,7 +36,7 @@ def ensure_repo_hooks(workdir: str) -> Tuple[Path, Path]:
     stop_path = cursor_hooks_dir / "orc_stop.py"
     hook_lib_path = cursor_hooks_dir / "orc_hook_lib.py"
 
-    orc_root = Path(__file__).resolve().parents[2]
+    orc_root = Path(__file__).resolve().parents[3]
     hook_scripts_dir = orc_root / "orc_core" / "hook_scripts"
     replacements = {"__ORC_ROOT__": repr(str(orc_root))}
     before_script = _render_hook_script(hook_scripts_dir / "orc_before_submit.py", replacements)

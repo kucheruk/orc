@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable, Mapping, Optional
 
 from ...tasks.ports import MonitorSnapshot
-from ..task_dto import Task
+from ..dto import Task
 from .config import ModelConfig, TemplateConfig, TimingConfig
 from .stage import TaskStageSpec
 

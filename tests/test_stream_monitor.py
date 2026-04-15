@@ -753,7 +753,7 @@ class StreamMonitorFormattingTest(unittest.TestCase):
 
     def test_refresh_backlog_progress_reads_counts_from_backlog_file(self) -> None:
         from orc_core.agents.monitoring.monitor_metrics_collector import MonitorMetricsCollector
-        from orc_core.tasks.task_source import MarkdownTaskSource
+        from orc_core.tasks.backlog.source import MarkdownTaskSource
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             backlog_path = root / "BACKLOG.md"

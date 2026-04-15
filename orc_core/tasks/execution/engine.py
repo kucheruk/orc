@@ -8,9 +8,9 @@ from typing import Optional
 
 from ...log import log_event
 from ...observability import timeline_step
-from ..backlog_query import MarkdownBacklogQuery
+from ..backlog.query import MarkdownBacklogQuery
 from ..completion.ports import BacklogQueryPort, NoopNotify, NotifyPort
-from ..task_state import runtime_state_path
+from ..state import runtime_state_path
 from .helpers import _build_agent_output_log_path, _resolve_runtime_backlog_path
 from .preflight import preflight_integration
 from .request import LaunchConfig, TaskExecutionRequest, TaskExecutionResult

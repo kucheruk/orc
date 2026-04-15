@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Mapping
 
-from ..task_status import RESTART_REASON_TEXT
+from ..status import RESTART_REASON_TEXT
 
 
 class RestartPolicy:
