@@ -6,32 +6,30 @@ Each check function implements the CompletionCheck protocol:
 takes a CompletionMonitor instance and returns Optional[TaskCompletionStatus].
 None means "continue to next check", a status means "done".
 
-Register new checks in DEFAULT_CHECK_CHAIN to extend without modifying
-the CompletionMonitor.check() method (OCP).
+Side-effect handlers (maybe_report, check_tokens_stuck) implement
+CheckSideEffect — they only mutate cm/monitor state and return None.
+
+Register new checks in COMPLETION_CHECKS / SIDE_EFFECTS to extend without
+modifying the wait_for_completion loop (OCP).
 """
 
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import Optional
 
 from ..tasks.task_status_types import TaskCompletionStatus
 from ..log import log_event
 from ..infra.io.debug_log import debug_log, debug_mode_log
 from ..infra.io.timeline import timeline_instant
 from ..tasks.task_state import delete_runtime_state_file
+from .check_definitions import CompletionCheck, CompletionMonitor
 from .check_queries import (
     _get_active_children_count,
     _is_model_unavailable_stderr,
     _monitor_pid_missing,
 )
 from .check_reporter import _force_close_active_tools_if_needed
-
-if TYPE_CHECKING:
-    from .lifecycle import CompletionMonitor
-
-# Protocol for completion checks: (CompletionMonitor) -> Optional[TaskCompletionStatus]
-CompletionCheck = Callable[["CompletionMonitor"], Optional[TaskCompletionStatus]]
 
 PROCESS_EXIT_GRACE_SECONDS = 3.0
 DONE_BACKLOG_IDLE_GRACE_SECONDS = 20.0
@@ -343,7 +341,11 @@ def maybe_report(cm: CompletionMonitor) -> None:
 
 
 # ── Default check chain (OCP: add/remove/reorder here) ────────
-
+#
+# Ordered chain mixing termination checks (return TaskCompletionStatus or None)
+# and side-effect hooks (maybe_report, check_tokens_stuck — always return None).
+# Order matters: side-effects may set state (e.g. ui_followup_prompt) observed by
+# later checks in the same iteration.
 DEFAULT_CHECK_CHAIN: tuple[CompletionCheck, ...] = (
     check_escape,
     check_task_file_removed,
