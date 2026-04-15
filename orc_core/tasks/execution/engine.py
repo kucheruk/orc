@@ -29,14 +29,12 @@ from .resume import recover_resume_state, init_task_file
 from ..task_source import MarkdownTaskSource
 from ...git.git_helpers import git_diff_numstat
 
-from ...models.task_status import RESTART_REASON_TEXT
 from .request import LaunchConfig, TaskExecutionRequest, TaskExecutionResult
 from .runtime import _ExecutionContext, _ResumeState
 from .stage import TaskStageSpec
 from .worker import TaskWorker
 
 from .helpers import (
-    _restart_backoff_seconds,
     _write_prompt_file,
     _build_agent_output_log_path,
     _resolve_runtime_backlog_path,
@@ -50,6 +48,7 @@ from .finalize import (
     complete_stage as _complete_stage,
 )
 from .launch import launch_and_wait
+from .restart_policy import RestartPolicy
 from ..completion_handlers import COMPLETION_HANDLERS
 
 
@@ -150,6 +149,7 @@ def _run_stage_loop(engine: TaskExecutionEngine, ctx: _ExecutionContext, resume:
     effective_agent_env = ctx.effective_agent_env
     artifact_prompt_vars = dict(ctx.artifact_bundle.to_prompt_vars())
     log_path = engine.log_path
+    restart_policy = RestartPolicy(max_restarts=request.timing.max_restarts)
 
     stage_index = 0
     while stage_index < len(stage_specs):
@@ -296,20 +296,20 @@ def _run_stage_loop(engine: TaskExecutionEngine, ctx: _ExecutionContext, resume:
                 restart_count += 1
                 ts_attempt.result = "restart"
                 ts_attempt.reason = result
-            if restart_count > request.timing.max_restarts:
+            if restart_policy.exceeded(restart_count):
                 log_event(log_path, "ERROR", "max restarts exceeded", task_id=task_id)
                 debug_log(
                     "H6",
                     "orc_core/task_execution.py:_run_stage_loop:max_restarts",
                     "max restarts exceeded",
-                    {"task_id": task_id, "restart_count": restart_count, "max_restarts": request.timing.max_restarts},
+                    {"task_id": task_id, "restart_count": restart_count, "max_restarts": restart_policy.max_restarts},
                 )
                 _logger.error("max restarts exceeded for task %s", task_id)
                 ts_exec.result = "failed"
                 ts_exec.reason = "max_restarts_exceeded"
                 return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="max_restarts_exceeded")
             log_event(log_path, "WARN", "restarting task", task_id=task_id, restart_count=restart_count, reason=result)
-            reason_text = RESTART_REASON_TEXT.get(result, result)
+            reason_text = restart_policy.reason_text(result)
             continue_vars = SafeDict(
                 task_text=task_text,
                 task_id=task_id,
@@ -326,7 +326,7 @@ def _run_stage_loop(engine: TaskExecutionEngine, ctx: _ExecutionContext, resume:
             prompt = request.templates.continue_template.format_map(continue_vars)
             prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}__r{restart_count}")
             resume_prompt_text = prompt
-            delay = _restart_backoff_seconds(restart_count)
+            delay = restart_policy.backoff_seconds(restart_count)
             log_event(log_path, "INFO", "restart backoff", task_id=task_id, restart_count=restart_count, delay_seconds=delay)
             with timeline_step(
                 timeline_id=timeline_id,
