@@ -8,9 +8,10 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+from .card_repository import CardRepository
 from .kanban_board_health import detect_wip_deadlock as _detect_wip_deadlock
 from .kanban_card import KanbanCard
-from .limits_constants import DEFAULT_WIP_LIMITS, INDEX_FILENAME, WIP_STAGES
+from .limits_constants import DEFAULT_WIP_LIMITS, WIP_STAGES
 from .stage_constants import STAGES
 
 _logger = logging.getLogger(__name__)
@@ -52,15 +53,9 @@ class WIPManager:
     def detect_deadlock(self, cards: list[KanbanCard]) -> str:
         return _detect_wip_deadlock(cards, dict(self._wip_limits))
 
-    def set_limit(self, tasks_dir: Path, stage: str, limit: int, *, repo=None) -> None:
-        """Write WIP limit to _index.md and update in-memory cache."""
+    def set_limit(self, tasks_dir: Path, stage: str, limit: int, *, repo: CardRepository) -> None:
+        """Write WIP limit to the stage's _index.md via the CardRepository port."""
         if stage not in STAGES:
             raise ValueError(f"Unknown stage: {stage}")
-        stage_dir = tasks_dir / stage
-        if repo is not None:
-            repo.write_index(stage_dir, f"---\nwip_limit: {limit}\n---\n")
-        else:
-            stage_dir.mkdir(parents=True, exist_ok=True)
-            idx = stage_dir / INDEX_FILENAME
-            idx.write_text(f"---\nwip_limit: {limit}\n---\n", encoding="utf-8")
+        repo.write_index(tasks_dir / stage, f"---\nwip_limit: {limit}\n---\n")
         self._wip_limits[stage] = limit
