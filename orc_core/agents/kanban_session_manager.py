@@ -11,19 +11,10 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..infra.backend import Backend
 from ..git.integration_manager import IntegrationManager
-from ..incident.manager import IncidentManager
 from ..board.kanban_distributor import KanbanDistributor
 from ..board.stage_constants import STAGE_INBOX
 from ..config import OrcConfig
-from .kanban_adapters import (
-    DirectiveAdapter,
-    LifecycleAdapter,
-    NotifierAdapter,
-    SessionControllerAdapter,
-    StateManagerAdapter,
-)
 from .kanban_board_event_bridge import BoardEventBridge
 from .kanban_directive_queue import DirectiveQueue
 from .kanban_notification_service import NotificationService
@@ -45,7 +36,6 @@ from ..models.session_types import (
     STAGGER_DELAY_SECONDS,
     SessionSlot,
 )
-from ..tasks.execution.engine import TaskExecutionEngine
 from ..infra.process.process_groups import kill_own_process_group
 
 EXIT_OK = 0
@@ -63,8 +53,6 @@ class KanbanSessionManager:
         tasks_dir: Path,
         config: OrcConfig,
         log_path: Path,
-        engine: TaskExecutionEngine,
-        backend: Backend,
         distributor: KanbanDistributor,
         integrator: IntegrationManager,
         publisher: KanbanPublisher,
@@ -72,27 +60,22 @@ class KanbanSessionManager:
         outcomes: TaskOutcomeTracker,
         directives: DirectiveQueue,
         notifications: NotificationService,
-        commit_template: str = "",
-        merge_expert_template: str = "",
-        merge_expert_model: str = "",
+        board_events: BoardEventBridge,
+        request_factory: KanbanRequestFactory,
+        worker_runner: KanbanWorkerRunner,
+        teamlead_runner: KanbanTeamleadRunner,
         main_branch: str = "main",
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
-        self.backend = backend
         self.workdir = workdir
         self.tasks_dir = tasks_dir
         self.config = config
         self.log_path = log_path
-        self.engine = engine
-        self.commit_template = commit_template
-        self.merge_expert_template = merge_expert_template
-        self.merge_expert_model = (merge_expert_model or "").strip()
         self.main_branch = (main_branch or "main").strip() or "main"
         self.sleep_fn = sleep_fn
 
         self._distributor = distributor
         self._integrator = integrator
-        self._worktree_lock = threading.Lock()
 
         self.publisher = publisher
         self.last_failure_reason = ""
@@ -102,79 +85,10 @@ class KanbanSessionManager:
         self._notifications = notifications
         self._pool = pool
 
-        self._board_events = BoardEventBridge(
-            workdir=workdir,
-            distributor=distributor,
-            publisher=publisher,
-            outcomes=outcomes,
-            pool=pool,
-        )
-        self._request_factory = KanbanRequestFactory(
-            workdir=workdir,
-            tasks_dir=tasks_dir,
-            config=config,
-            backend=backend,
-            distributor=distributor,
-            pool=pool,
-            commit_template=self.commit_template,
-            merge_expert_template=self.merge_expert_template,
-            merge_expert_model=self.merge_expert_model,
-            main_branch=self.main_branch,
-        )
-        self._wire_runners()
-
-    def _wire_runners(self) -> None:
-        """Build protocol adapters and wire up runners with all dependencies."""
-        self._lifecycle_adapter = LifecycleAdapter(self._pool)
-        self._notifier_adapter = NotifierAdapter(self._notifications)
-        self._state_adapter = StateManagerAdapter(self)
-        self._directive_adapter = DirectiveAdapter(self._directives)
-        self._session_ctrl_adapter = SessionControllerAdapter(self)
-
-        self._incident_mgr = IncidentManager(
-            distributor=self._distributor,
-            publisher=self.publisher,
-            engine=self.engine,
-            slots=self._pool.slots,
-            slots_lock=self._pool.slots_lock,
-            outcomes=self._outcomes,
-            log_path=self.log_path,
-            workdir=self.workdir,
-            max_sessions=self._pool.max_sessions,
-            sleep_fn=self.sleep_fn,
-            state_manager=self._state_adapter,
-            session_controller=self._session_ctrl_adapter,
-        )
-        self._worker_runner = KanbanWorkerRunner(
-            workdir=self.workdir,
-            log_path=self.log_path,
-            engine=self.engine,
-            distributor=self._distributor,
-            publisher=self.publisher,
-            config=self.config,
-            main_branch=self.main_branch,
-            slots_lock=self._pool.slots_lock,
-            worktree_lock=self._worktree_lock,
-            outcomes=self._outcomes,
-            lifecycle=self._lifecycle_adapter,
-            notifier=self._notifier_adapter,
-            state_manager=self._state_adapter,
-            integrator=self._integrator,
-        )
-        self._teamlead_runner = KanbanTeamleadRunner(
-            workdir=self.workdir,
-            log_path=self.log_path,
-            engine=self.engine,
-            distributor=self._distributor,
-            publisher=self.publisher,
-            incident_mgr=self._incident_mgr,
-            slots_lock=self._pool.slots_lock,
-            outcomes=self._outcomes,
-            lifecycle=self._lifecycle_adapter,
-            notifier=self._notifier_adapter,
-            state_manager=self._state_adapter,
-            directives=self._directive_adapter,
-        )
+        self._board_events = board_events
+        self._request_factory = request_factory
+        self._worker_runner = worker_runner
+        self._teamlead_runner = teamlead_runner
 
     # ── Public API ──────────────────────────────────────────────
 

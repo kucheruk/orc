@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Protocol adapter classes that bridge extracted services to Runner protocols."""
+"""Protocol adapter classes that bridge extracted services to Runner protocols.
+
+Adapters depend on the underlying services directly (not on
+KanbanSessionManager), so they can be constructed in the composition
+root before the session manager exists.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
+    from ..models.session_types import SessionSlot
+    from ..supervision.outcomes import TaskOutcomeTracker
     from .kanban_directive_queue import DirectiveQueue
     from .kanban_notification_service import NotificationService
-    from .kanban_session_manager import KanbanSessionManager
+    from .kanban_request_factory import KanbanRequestFactory
     from .session_pool import SessionPool
 
 
@@ -42,16 +49,24 @@ class NotifierAdapter:
 
 
 class StateManagerAdapter:
-    __slots__ = ("_mgr",)
+    __slots__ = ("_factory", "_outcomes")
 
-    def __init__(self, mgr: KanbanSessionManager) -> None:
-        self._mgr = mgr
+    def __init__(self, factory: KanbanRequestFactory, outcomes: TaskOutcomeTracker) -> None:
+        self._factory = factory
+        self._outcomes = outcomes
 
     def mark_dirty(self) -> None:
-        self._mgr.mark_state_dirty()
+        self._outcomes.mark_dirty()
 
     def make_request(self, task, prompt: str, workdir: str, session_id: str, commit_phase: bool, ttl: float):
-        return self._mgr.make_request(task, prompt, workdir, session_id, commit_phase, ttl)
+        return self._factory.make(
+            task=task,
+            prompt=prompt,
+            workdir=workdir,
+            session_id=session_id,
+            commit_phase=commit_phase,
+            task_ttl=ttl,
+        )
 
 
 class DirectiveAdapter:
@@ -65,13 +80,20 @@ class DirectiveAdapter:
 
 
 class SessionControllerAdapter:
-    __slots__ = ("_mgr",)
+    """Implements IncidentSessionController — adds/removes worker sessions.
 
-    def __init__(self, mgr: KanbanSessionManager) -> None:
-        self._mgr = mgr
+    Takes the pool and the worker-thread target directly so construction
+    never needs a back-reference to KanbanSessionManager.
+    """
+
+    __slots__ = ("_pool", "_worker_target")
+
+    def __init__(self, pool: SessionPool, worker_target: Callable[["SessionSlot"], None]) -> None:
+        self._pool = pool
+        self._worker_target = worker_target
 
     def add_session(self):
-        return self._mgr.request_add_session()
+        return self._pool.request_add(target=self._worker_target)
 
     def remove_session(self, session_id: str) -> None:
-        self._mgr.request_remove_session(session_id)
+        self._pool.request_remove(session_id)
