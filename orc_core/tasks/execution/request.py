@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Optional
 
-from ...infra.monitoring.monitor_types import MonitorSnapshot
-from ...models.task_types import Task
+from ...models.monitor_dto import MonitorSnapshot
+from ...models.task_dto import Task
 from .config import ModelConfig, TemplateConfig, TimingConfig
 from .stage import TaskStageSpec
 

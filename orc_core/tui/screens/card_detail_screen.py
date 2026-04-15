@@ -10,7 +10,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Label
 
 from ...board.kanban_snapshot import CardSnapshot
-from ...infra.monitoring.monitor_types import MonitorSnapshot
+from ...models.monitor_dto import MonitorSnapshot
 from .session_panel import SessionPanel
 
 

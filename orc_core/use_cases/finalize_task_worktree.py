@@ -17,8 +17,8 @@ from ..board.kanban_board import KanbanBoard
 from ..board.kanban_card import KanbanCard
 from ..board.stage_constants import STAGE_HANDOFF
 from ..log import log_event
-from ..models.git_types import WorktreeSession
-from ..models.task_types import Task
+from ..models.git_dto import WorktreeSession
+from ..models.task_dto import Task
 
 
 class Integrator(Protocol):

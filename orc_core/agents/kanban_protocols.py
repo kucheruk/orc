@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..board.kanban_pull import WorkAssignment
     from ..models.session_types import SessionSlot
     from ..tasks.execution.request import TaskExecutionRequest, TaskExecutionResult
-    from ..models.task_types import Task
+    from ..models.task_dto import Task
 
 
 class RunnerLifecycle(Protocol):

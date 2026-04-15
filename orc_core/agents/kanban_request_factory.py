@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from ..board.kanban_distributor import KanbanDistributor
 from ..config import OrcConfig
 from ..infra.backend import Backend
-from ..infra.monitoring.monitor_types import MonitorSnapshot
+from ..models.monitor_dto import MonitorSnapshot
 from .kanban_request_builder import build_kanban_request
 
 if TYPE_CHECKING:

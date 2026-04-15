@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from .kanban_board import KanbanBoard
 from .stage_constants import STAGE_DONE
-from ..models.task_types import Task
+from ..models.task_dto import Task
 
 
 class KanbanTaskSource:

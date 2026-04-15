@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 from orc_core.git.integration_manager import IntegrationContext, IntegrationManager
 from orc_core.models.session_types import SessionSlot, SlotStatus
-from orc_core.models.task_types import Task
+from orc_core.models.task_dto import Task
 
 
 def _make_slot(sid: str = "s1") -> SessionSlot:

@@ -2,6 +2,6 @@
 # -*- coding: utf-8 -*-
 
 from .stream_monitor import StreamJsonMonitor
-from .monitor_types import MetricsStore
+from ...models.monitor_dto import MetricsStore
 
 __all__ = ["MetricsStore", "StreamJsonMonitor"]

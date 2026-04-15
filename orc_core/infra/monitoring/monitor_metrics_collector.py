@@ -8,11 +8,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from ...models.task_types import Task
+from ...models.task_dto import Task
 
 from ..io.atomic_io import write_json_atomic
 from ..io.logging import log_event, now_ms
-from .monitor_types import MetricsStore, MonitorSnapshot
+from ...models.monitor_dto import MetricsStore, MonitorSnapshot
 from ..io.timeline import timeline_instant
 
 

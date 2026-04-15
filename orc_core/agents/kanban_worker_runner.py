@@ -30,8 +30,8 @@ from ..use_cases.process_task_result import (
 from ..use_cases.finalize_task_worktree import finalize_completed_worktree
 from ..models.session_types import SessionSlot, SlotStatus
 from .kanban_protocols import TaskExecutor
-from ..models.task_types import Task
-from ..models.git_types import WorktreeSession
+from ..models.task_dto import Task
+from ..models.git_dto import WorktreeSession
 from ..git.worktree_flow import cleanup_task_worktree, create_task_worktree
 
 _logger = logging.getLogger(__name__)

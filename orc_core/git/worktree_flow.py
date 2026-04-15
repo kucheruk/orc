@@ -7,7 +7,7 @@ from pathlib import Path
 from .git_helpers import is_runtime_artifact, parse_git_porcelain as _parse_git_porcelain, run_git
 from ..log import log_event
 from ..persistence.state_paths import worktrees_root
-from ..models.git_types import IntegrationPreflightResult, IntegrationResult, WorktreeSession
+from ..models.git_dto import IntegrationPreflightResult, IntegrationResult, WorktreeSession
 
 
 def _safe_name(value: str, limit: int = 64) -> str:

@@ -9,7 +9,7 @@ import re
 from typing import TYPE_CHECKING, Dict, Optional
 
 if TYPE_CHECKING:
-    from .monitor_types import MetricsStore
+    from ...models.monitor_dto import MetricsStore
 
 
 class TokenTracker:

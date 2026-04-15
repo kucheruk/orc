@@ -9,7 +9,7 @@ import threading
 from typing import Callable, Optional
 
 from ..log import log_event
-from ..infra.monitoring.monitor_types import MonitorSnapshot
+from ..models.monitor_dto import MonitorSnapshot
 from ..quit_signal import is_stop_requested, is_session_stop_requested
 from .kanban_publisher import KanbanPublisher
 from ..models.session_types import (

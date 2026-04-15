@@ -15,7 +15,7 @@ from .monitor_metrics_collector import MonitorMetricsCollector
 from ..io.timeline import timeline_instant
 from ...persistence.state_paths import active_task_path, metrics_path, stats_path
 
-from .monitor_types import MonitorSnapshot
+from ...models.monitor_dto import MonitorSnapshot
 from .stream_monitor_state import StreamMonitorState
 from .stream_parser import is_followup_prompt_event, parse_stream_line
 

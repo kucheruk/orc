@@ -25,7 +25,7 @@ from ..quit_signal import is_quit_after_task_requested
 from ..models.session_types import SessionSlot, SlotStatus
 from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
 from .kanban_protocols import TaskExecutor
-from ..models.task_types import Task
+from ..models.task_dto import Task
 from ..incident.domain import Incident
 
 _logger = logging.getLogger(__name__)
