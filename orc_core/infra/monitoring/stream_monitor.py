@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Stream-JSON monitor: parses agent output, collects metrics, publishes snapshots."""
+"""Stream-JSON monitor coordinator: delegates to dedicated collaborators for paths, event dispatch,
+process lifecycle, metrics, and conversation persistence."""
 
 import time
 import uuid
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Mapping, Optional
 
-from ..process.agent_process import AgentProcess
 from ..io.logging import log_event, now_ms
+from ..io.timeline import timeline_instant
+from ..process.agent_process import AgentProcess
 from .agent_output_sink import AgentOutputSink
 from .conversation_persister import ConversationIdPersister
 from .monitor_metrics_collector import MonitorMetricsCollector
-from ..io.timeline import timeline_instant
-from ...persistence.state_paths import active_task_path, metrics_path, stats_path
+from .stream_event_dispatcher import StreamEventDispatcher
+from .stream_monitor_paths import StreamMonitorPaths
 
 from ...models.monitor_dto import MonitorSnapshot
 from .stream_monitor_state import StreamMonitorState
-from .stream_parser import is_followup_prompt_event, parse_stream_line
 
 GIT_STATS_TIMEOUT_SECONDS = 10.0
 
@@ -48,13 +49,7 @@ class StreamJsonMonitor:
         self.run_token = uuid.uuid4().hex
         self.timeline_id = str(timeline_id or "")
         self.attempt = max(int(attempt), 0)
-        self.stderr_count = 0
-        self.last_stderr_line = ""
         self.last_nudge_time = 0.0
-        self.status_only_reports = 0
-        self.ui_followup_prompt = False
-        self.result_status: Optional[str] = None
-        self.result_seen_at: Optional[float] = None
         self._snapshot_publisher = snapshot_publisher
         self._output_sink = AgentOutputSink(
             agent_output_log_path,
@@ -66,38 +61,38 @@ class StreamJsonMonitor:
         self.metrics = self._state.metrics
         self._report_interval = max(report_interval, 1.0)
         self._last_report_time = 0.0
-        child_env = {str(k): str(v) for k, v in (child_env_overrides or {}).items()}
-        task_state_override = child_env.get("ORC_TASK_FILE", "").strip()
-        self._task_state_path = Path(task_state_override) if task_state_override else active_task_path(self.workdir)
-        runtime_override = child_env.get("ORC_TASK_RUNTIME_FILE", "").strip()
-        if runtime_override:
-            self._task_runtime_state_path = Path(runtime_override)
-        else:
-            from ...persistence.runtime_state import runtime_state_path
-            self._task_runtime_state_path = runtime_state_path(self._task_state_path)
-        stats_override = child_env.get("ORC_STATS_FILE", "").strip()
-        self._stats_path = Path(stats_override) if stats_override else stats_path(self.workdir)
-        metrics_override = child_env.get("ORC_METRICS_FILE", "").strip()
-        self._metrics_path = Path(metrics_override) if metrics_override else metrics_path(self.workdir)
+
+        self._paths = StreamMonitorPaths.resolve(workdir, child_env_overrides)
         self._conversation_persister = ConversationIdPersister(
-            task_state_path=self._task_state_path,
+            task_state_path=self._paths.task_state,
             task_id=task_id,
             log_path=log_path,
         )
-        self._first_output_recorded = False
+        self._dispatcher = StreamEventDispatcher(
+            state=self._state,
+            output_sink=self._output_sink,
+            conversation_persister=self._conversation_persister,
+            log_path=log_path,
+            task_id=task_id,
+            timeline_id=self.timeline_id,
+            attempt=self.attempt,
+            started_at=self.started_at,
+            snapshot_publisher=self._publish_snapshot,
+        )
         self._last_live_status_marker: tuple[str, str, int, bool] | None = None
         self._collector = collector or MonitorMetricsCollector(
             task_id=task_id, workdir=workdir, log_path=log_path,
             metrics=self.metrics,
-            task_state_path=self._task_state_path,
-            task_runtime_state_path=self._task_runtime_state_path,
-            stats_path=self._stats_path, metrics_path=self._metrics_path,
+            task_state_path=self._paths.task_state,
+            task_runtime_state_path=self._paths.task_runtime_state,
+            stats_path=self._paths.stats, metrics_path=self._paths.metrics,
             timeline_id=self.timeline_id, attempt=self.attempt,
             started_at=self.started_at,
             backlog_task_lister=backlog_task_lister,
             git_diff_fn=git_diff_fn,
         )
 
+        child_env = {str(k): str(v) for k, v in (child_env_overrides or {}).items()}
         # Spawn agent subprocess — callbacks run on the asyncio reader thread
         self._agent = AgentProcess(
             agent_cmd=agent_cmd,
@@ -105,8 +100,8 @@ class StreamJsonMonitor:
             log_path=log_path,
             child_env_overrides=child_env,
             run_token=self.run_token,
-            on_stdout_line=self._on_stdout_line,
-            on_stderr_line=self._on_stderr_line,
+            on_stdout_line=self._dispatcher.on_stdout_line,
+            on_stderr_line=self._dispatcher.on_stderr_line,
             on_process_exit=lambda rc: self._finalize_orphaned_tool_calls_on_process_exit(
                 reason=f"process_exit_rc_{rc}",
             ),
@@ -115,6 +110,32 @@ class StreamJsonMonitor:
         self.proc = self._agent.proc
         self.init_pid = self._agent.init_pid
         self.process_group_id = self._agent.process_group_id
+
+    # ── Delegated event-derived attributes (preserve public surface) ─
+
+    @property
+    def stderr_count(self) -> int:
+        return self._dispatcher.stderr_count
+
+    @property
+    def last_stderr_line(self) -> str:
+        return self._dispatcher.last_stderr_line
+
+    @property
+    def status_only_reports(self) -> int:
+        return self._dispatcher.status_only_reports
+
+    @property
+    def ui_followup_prompt(self) -> bool:
+        return self._dispatcher.ui_followup_prompt
+
+    @property
+    def result_status(self) -> Optional[str]:
+        return self._dispatcher.result_status
+
+    @property
+    def result_seen_at(self) -> Optional[float]:
+        return self._dispatcher.result_seen_at
 
     @property
     def last_output_time(self) -> float:
@@ -144,50 +165,6 @@ class StreamJsonMonitor:
 
     def _summarize_event(self, event: Dict[str, object], text: str) -> str:
         return self._state._summarize_event(event, text)
-
-    # ── Stream callbacks (called from AgentProcess reader thread) ─
-
-    def _on_stdout_line(self, decoded: str) -> None:
-        self._output_sink.append("stdout", decoded)
-        event = parse_stream_line(decoded, log_path=self.log_path)
-        if event is not None:
-            self._record_event(event)
-
-    def _on_stderr_line(self, decoded: str) -> None:
-        self._output_sink.append("stderr", decoded)
-        raw = decoded.strip()
-        if not raw:
-            return
-        self.last_stderr_line = raw[:500]
-        self.stderr_count += 1
-        log_event(self.log_path, "WARN", "agent_stderr", line=self.last_stderr_line)
-
-    # ── Event processing ────────────────────────────────────────
-
-    def _record_event(self, event: Dict[str, object]) -> None:
-        if not self._first_output_recorded:
-            self._first_output_recorded = True
-            timeline_instant(
-                timeline_id=self.timeline_id,
-                task_id=self.task_id,
-                step="first_meaningful_output",
-                location="orc_core/stream_monitor.py:StreamJsonMonitor._record_event",
-                attempt=self.attempt,
-                result="received",
-                data={"latency_ms": max(now_ms() - int(self.started_at * 1000), 0)},
-            )
-        had_session_id = self._state.session_id is not None
-        event_type, subtype, raw = self._state.record_event(event)
-        if not had_session_id and self._state.session_id is not None:
-            self._conversation_persister.persist(self._state.session_id)
-        if event_type == "result":
-            status = subtype or str(event.get("status") or "")
-            self.result_status = status.lower() if status else "success"
-            self.result_seen_at = time.time()
-        if is_followup_prompt_event(event_type, subtype, raw):
-            self.ui_followup_prompt = True
-        log_event(self.log_path, "INFO", "stream_json_event", event_type=event_type, subtype=subtype, size=len(raw))
-        self._publish_snapshot()
 
     # ── Periodic reporting (delegated to MonitorMetricsCollector) ─
 
