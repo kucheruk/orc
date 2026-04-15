@@ -18,13 +18,18 @@ from orc_core.board.kanban_init import init_kanban_board
 from orc_core.incident.domain import (
     DECISION_FILENAME,
     FIX_CARD_PREFIX,
+    TRACEBACK_FILENAME,
     Incident,
     IncidentPhase,
     TriageDecision,
     build_incident_prompt,
     fallback_decision,
-    parse_incident_decision,
+    parse_incident_decision_text,
 )
+
+
+def _parse_decision_file(p: Path) -> TriageDecision:
+    return parse_incident_decision_text(p.read_text(encoding="utf-8"), source=str(p))
 
 
 def _make_board(tmp: str) -> tuple[Path, KanbanBoard]:
@@ -81,7 +86,7 @@ class TestParseIncidentDecision(unittest.TestCase):
                 "# 1. Product Requirements\n\nFix the test.\n\n"
                 "# 2. Technical Design & DoD\n\n- [ ] Fix it\n"
             ))
-            d = parse_incident_decision(p)
+            d = _parse_decision_file(p)
             self.assertEqual(d.classification, "project")
             self.assertEqual(d.target_role, "coder")
             self.assertEqual(d.fix_title, "Fix broken test in app.py")
@@ -97,7 +102,7 @@ class TestParseIncidentDecision(unittest.TestCase):
                 "---\n\n"
                 "ORC BUG: kanban_board.move_card\n"
             ))
-            d = parse_incident_decision(p)
+            d = _parse_decision_file(p)
             self.assertEqual(d.classification, "orc")
             self.assertIn("kanban_board", d.body)
 
@@ -105,7 +110,7 @@ class TestParseIncidentDecision(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             p = self._write_decision(tmp, "No frontmatter here")
             with self.assertRaises(ValueError):
-                parse_incident_decision(p)
+                _parse_decision_file(p)
 
     def test_invalid_classification_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -117,7 +122,7 @@ class TestParseIncidentDecision(unittest.TestCase):
                 "---\n\nbody\n"
             ))
             with self.assertRaises(ValueError):
-                parse_incident_decision(p)
+                _parse_decision_file(p)
 
     def test_missing_fix_title_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -128,7 +133,7 @@ class TestParseIncidentDecision(unittest.TestCase):
                 "---\n\nbody\n"
             ))
             with self.assertRaises(ValueError):
-                parse_incident_decision(p)
+                _parse_decision_file(p)
 
     def test_classification_case_insensitive(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -139,7 +144,7 @@ class TestParseIncidentDecision(unittest.TestCase):
                 'fix_title: "Fix it"\n'
                 "---\n\nbody\n"
             ))
-            d = parse_incident_decision(p)
+            d = _parse_decision_file(p)
             self.assertEqual(d.classification, "project")
             self.assertEqual(d.target_role, "coder")
 
@@ -183,10 +188,11 @@ class TestBuildIncidentPrompt(unittest.TestCase):
             incident = _sample_incident()
 
             orc_root = Path(tmp) / ".orc"
+            traceback_file = orc_root / TRACEBACK_FILENAME
             prompt = build_incident_prompt(
                 incident, board, card,
                 decision_path=str(orc_root / DECISION_FILENAME),
-                orc_root=orc_root,
+                traceback_file=str(traceback_file),
             )
 
             self.assertIn("worker_crash", prompt)
@@ -194,11 +200,7 @@ class TestBuildIncidentPrompt(unittest.TestCase):
             self.assertIn("RuntimeError", prompt)
             self.assertIn("TASK-001", prompt)
             self.assertIn("incident-decision.md", prompt)
-            self.assertIn("incident-traceback.txt", prompt)
-            # Traceback file should be written
-            tb_path = orc_root / "incident-traceback.txt"
-            self.assertTrue(tb_path.exists())
-            self.assertIn("RuntimeError", tb_path.read_text())
+            self.assertIn(str(traceback_file), prompt)
 
     def test_no_source_card(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,10 +208,11 @@ class TestBuildIncidentPrompt(unittest.TestCase):
             incident = _sample_incident(source_task_id="")
 
             orc_root = Path(tmp) / ".orc"
+            traceback_file = orc_root / TRACEBACK_FILENAME
             prompt = build_incident_prompt(
                 incident, board, None,
                 decision_path=str(orc_root / DECISION_FILENAME),
-                orc_root=orc_root,
+                traceback_file=str(traceback_file),
             )
             self.assertIn("No card was being processed", prompt)
 

@@ -10,6 +10,7 @@ from typing import Optional
 
 from ..board.action_constants import Action
 from ..board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_REVIEW
+from ..infra.io.atomic_io import write_text_atomic
 from ..log import log_event
 from ..models.task_types import Task
 from ..use_cases.create_card import create_expedite_card
@@ -19,11 +20,12 @@ from .domain import (
     FIX_CARD_PREFIX,
     INCIDENT_FIX_TIMEOUT,
     SCALE_DOWN_WAIT_TIMEOUT,
+    TRACEBACK_FILENAME,
     Incident,
     IncidentPhase,
     build_incident_prompt,
     fallback_decision,
-    parse_incident_decision,
+    parse_incident_decision_text,
 )
 
 
@@ -54,8 +56,13 @@ def handle_triage(ctx, slot, incident: Incident) -> Incident:
     orc_root = Path(ctx.workdir) / ".orc"
     orc_root.mkdir(parents=True, exist_ok=True)
     decision_path = orc_root / DECISION_FILENAME
+    traceback_path = orc_root / TRACEBACK_FILENAME
 
-    prompt = build_incident_prompt(incident, board, source_card, str(decision_path), orc_root)
+    write_text_atomic(traceback_path, incident.traceback or "(no traceback)")
+
+    prompt = build_incident_prompt(
+        incident, board, source_card, str(decision_path), str(traceback_path),
+    )
     task = Task(task_id=f"triage-{incident.id}", text=f"[TL] Triage {incident.id}", done=False)
     slot.task = task
 
@@ -64,7 +71,8 @@ def handle_triage(ctx, slot, incident: Incident) -> Incident:
 
     try:
         if result and result.status == TaskExecutionStatus.COMPLETED and decision_path.exists():
-            decision = parse_incident_decision(decision_path)
+            decision_text = decision_path.read_text(encoding="utf-8")
+            decision = parse_incident_decision_text(decision_text, source=str(decision_path))
         else:
             ctx.publisher.log_incident(incident.id, "AI triage failed, using fallback")
             log_event(ctx.log_path, "WARN", "triage agent failed, using fallback",
@@ -76,7 +84,7 @@ def handle_triage(ctx, slot, incident: Incident) -> Incident:
                   incident_id=incident.id, error=str(exc), error_type=type(exc).__name__)
         decision = fallback_decision(incident)
     finally:
-        for cleanup_path in (decision_path, orc_root / "incident-traceback.txt"):
+        for cleanup_path in (decision_path, traceback_path):
             if cleanup_path.exists():
                 try:
                     cleanup_path.unlink()

@@ -75,21 +75,17 @@ def build_incident_prompt(
     board: "KanbanBoard",
     source_card: Optional["KanbanCard"],
     decision_path: str,
-    orc_root: Path,
+    traceback_file: str,
 ) -> str:
     """Build the triage prompt with incident context injected.
 
-    Writes the full traceback to a file at ``orc_root / TRACEBACK_FILENAME``
-    so the agent can read the untruncated version.
+    Pure: returns the prompt text. Callers are responsible for writing the
+    traceback file (see ``write_incident_traceback``) before running the
+    triage agent.
     """
     from ..board.kanban_role_registry import load_role_template
     from ..board.board_summary import format_board_summary
     from ..text_parse import SafeDict as _SafeDict
-
-    # Write full traceback to a separate file so the agent isn't limited by prompt size
-    traceback_path = orc_root / TRACEBACK_FILENAME
-    orc_root.mkdir(parents=True, exist_ok=True)
-    traceback_path.write_text(incident.traceback or "(no traceback)", encoding="utf-8")
 
     # ORC install path — agent can read orc_core/ files for ORC error analysis
     orc_install_path = str(Path(__file__).resolve().parent)
@@ -101,7 +97,7 @@ def build_incident_prompt(
         source_slot_id=incident.source_slot_id,
         error_message=incident.error_message,
         error_traceback=incident.traceback[:2000],
-        traceback_file=str(traceback_path),
+        traceback_file=traceback_file,
         source_card_path=str(source_card.file_path) if source_card else "N/A",
         source_card_content=source_card.to_markdown() if source_card else "No card was being processed.",
         worktree_path=incident.worktree_path or "N/A (main workdir)",
@@ -120,20 +116,20 @@ class TriageDecision:
     body: str             # fix card body (project) or telegram message (orc)
 
 
-def parse_incident_decision(decision_path: Path) -> TriageDecision:
-    """Parse the AI agent's decision file.
+def parse_incident_decision_text(text: str, source: str = "<decision>") -> TriageDecision:
+    """Parse the AI agent's decision text.
 
-    Raises ValueError if the file is missing required fields.
+    Pure: accepts the file contents directly. Raises ValueError if required
+    fields are missing. ``source`` is used in error messages only.
     """
-    text = decision_path.read_text(encoding="utf-8")
     m = _FRONT_RE.match(text)
     if not m:
-        raise ValueError(f"No YAML frontmatter in {decision_path}")
+        raise ValueError(f"No YAML frontmatter in {source}")
 
     raw_yaml, body = m.group(1), m.group(2).strip()
     data = yaml.safe_load(raw_yaml)
     if not isinstance(data, dict):
-        raise ValueError(f"Frontmatter is not a dict in {decision_path}")
+        raise ValueError(f"Frontmatter is not a dict in {source}")
 
     classification = str(data.get("classification", "")).strip().lower()
     if classification not in ("project", "orc"):
