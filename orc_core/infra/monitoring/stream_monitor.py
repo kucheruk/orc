@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """Stream-JSON monitor: parses agent output, collects metrics, publishes snapshots."""
 
-import json
 import time
 import uuid
 from pathlib import Path
@@ -18,6 +17,7 @@ from ...persistence.state_paths import active_task_path, metrics_path, stats_pat
 
 from .monitor_types import MonitorSnapshot
 from .stream_monitor_state import StreamMonitorState
+from .stream_parser import is_followup_prompt_event, parse_stream_line
 
 GIT_STATS_TIMEOUT_SECONDS = 10.0
 
@@ -149,15 +149,8 @@ class StreamJsonMonitor:
 
     def _on_stdout_line(self, decoded: str) -> None:
         self._output_sink.append("stdout", decoded)
-        raw = decoded.strip()
-        if not raw:
-            return
-        try:
-            event = json.loads(raw)
-        except Exception as exc:
-            log_event(self.log_path, "WARN", "stream_json_bad_line", error=str(exc), raw=raw[:500])
-            return
-        if isinstance(event, dict):
+        event = parse_stream_line(decoded, log_path=self.log_path)
+        if event is not None:
             self._record_event(event)
 
     def _on_stderr_line(self, decoded: str) -> None:
@@ -191,26 +184,10 @@ class StreamJsonMonitor:
             status = subtype or str(event.get("status") or "")
             self.result_status = status.lower() if status else "success"
             self.result_seen_at = time.time()
-        if self._is_followup_prompt_event(event_type, subtype, raw):
+        if is_followup_prompt_event(event_type, subtype, raw):
             self.ui_followup_prompt = True
         log_event(self.log_path, "INFO", "stream_json_event", event_type=event_type, subtype=subtype, size=len(raw))
         self._publish_snapshot()
-
-    def _is_followup_prompt_event(self, event_type: str, subtype: str, raw: str) -> bool:
-        if event_type != "result":
-            return False
-        status = (subtype or "").strip().lower()
-        if status not in {"error", "failed", "failure"}:
-            return False
-        normalized = raw.lower()
-        markers = (
-            "add a follow-up",
-            "follow-up",
-            "follow up",
-            "need your input",
-            "waiting for your input",
-        )
-        return any(marker in normalized for marker in markers)
 
     # ── Periodic reporting (delegated to MonitorMetricsCollector) ─
 

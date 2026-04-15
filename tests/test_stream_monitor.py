@@ -788,8 +788,8 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertIn("[stderr] warning", content)
 
     def test_followup_detection_uses_result_error_context(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
-        detected = monitor._is_followup_prompt_event(
+        from orc_core.infra.monitoring.stream_parser import is_followup_prompt_event
+        detected = is_followup_prompt_event(
             "result",
             "error",
             '{"type":"result","subtype":"error","text":"Please add a follow-up question"}',
@@ -797,8 +797,8 @@ class StreamMonitorFormattingTest(unittest.TestCase):
         self.assertTrue(detected)
 
     def test_followup_detection_ignores_non_error_results(self) -> None:
-        monitor = StreamJsonMonitor.__new__(StreamJsonMonitor)
-        detected = monitor._is_followup_prompt_event(
+        from orc_core.infra.monitoring.stream_parser import is_followup_prompt_event
+        detected = is_followup_prompt_event(
             "result",
             "success",
             '{"type":"result","subtype":"success","text":"add a follow-up"}',
