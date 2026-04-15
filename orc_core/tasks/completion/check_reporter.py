@@ -6,10 +6,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..log import log_event
+from ...log import log_event
 
 if TYPE_CHECKING:
-    from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
+    from ...infra.monitoring.monitor_protocol import StreamMonitorProtocol
 
 
 def _force_close_active_tools_if_needed(

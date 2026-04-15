@@ -25,7 +25,7 @@ from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
 from .teamlead_stats import find_latest_agent_log, load_token_stats
 
 if TYPE_CHECKING:
-    from ..task_completion.outcomes import TaskOutcomeTracker
+    from ..tasks.completion.outcomes import TaskOutcomeTracker
 
 
 @dataclass

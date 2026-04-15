@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Adapters implementing task_completion NotifyPort."""
+"""Adapters implementing tasks.completion NotifyPort."""
 
 from __future__ import annotations
 

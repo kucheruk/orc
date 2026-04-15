@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..incident.manager import IncidentManager
-from ..task_completion.outcomes import TaskOutcomeTracker
+from ..tasks.completion.outcomes import TaskOutcomeTracker
 from .kanban_protocols import (
     DirectiveSource, EventPublisher, RunnerLifecycle, RunnerNotifier,
     RunnerStateManager, TaskExecutor, WorkDistributor,

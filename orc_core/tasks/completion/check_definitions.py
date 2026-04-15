@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Shared definitions for task_completion checks and lifecycle.
+"""Shared definitions for tasks.completion checks and lifecycle.
 
 Holds `CompletionMonitor` data-holder and callable type aliases so that
 `checks.py` and `lifecycle.py` both depend on this module instead of on
@@ -13,8 +13,8 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..models.task_status import TaskCompletionStatus
-from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
+from ...models.task_status import TaskCompletionStatus
+from ...infra.monitoring.monitor_protocol import StreamMonitorProtocol
 from .ports import BacklogQueryPort, NotifyPort
 
 

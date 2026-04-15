@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 
 import psutil
 
-from ..infra.process.process import is_pid_alive
+from ...infra.process.process import is_pid_alive
 
 if TYPE_CHECKING:
-    from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
+    from ...infra.monitoring.monitor_protocol import StreamMonitorProtocol
 
 
 def _monitor_pid_missing(monitor: "StreamMonitorProtocol") -> bool:

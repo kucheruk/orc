@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from orc_core.task_completion.lifecycle import wait_for_process_exit
+from orc_core.tasks.completion.lifecycle import wait_for_process_exit
 
 
 class _FakeMonitor:
