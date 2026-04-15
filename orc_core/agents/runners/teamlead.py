@@ -12,15 +12,15 @@ from typing import Optional
 
 from ...incident.manager import IncidentManager
 from ...tasks.completion.outcomes import TaskOutcomeTracker
-from ..kanban_protocols import (
+from ..infra.protocols import (
     DirectiveSource, EventPublisher, RunnerLifecycle, RunnerNotifier,
     RunnerStateManager, TaskExecutor, WorkDistributor,
 )
 from ...log import log_event
 from ...quit_signal import is_quit_after_task_requested
-from ..session_types import SessionSlot, SlotStatus
+from ..session.types import SessionSlot, SlotStatus
 from ...incident.domain import Incident
-from ..teamlead_steps import (
+from .teamlead_steps import (
     ArbitrationStep, AutoCommitStep, DirectiveStep, HealthCheckStep, TeamleadContext,
 )
 

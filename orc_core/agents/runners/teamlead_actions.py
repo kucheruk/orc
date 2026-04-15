@@ -22,7 +22,7 @@ from ...board.use_cases.create_card import create_expedite_card, create_inbox_ca
 
 if TYPE_CHECKING:
     from ...board.kanban_board import KanbanBoard
-    from ..kanban_publisher import KanbanPublisher
+    from ..infra.publisher import KanbanPublisher
 
 _logger = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ class SetActionHandler:
         if card.assigned_agent:
             ctx.board.release_agent(card)
         ctx.board.save_card(card, old_action=old, role="teamlead")
-        from ..kanban_agent_output import _FORWARD_MOVES
+        from ..infra.agent_output import _FORWARD_MOVES
         new_stage = _FORWARD_MOVES.get((card.stage, action_str))
         if new_stage and ctx.board.has_wip_room(new_stage):
             ctx.board.move_card(card, new_stage, reason=f"teamlead: {old} → {action_str}")

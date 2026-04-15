@@ -23,23 +23,23 @@ from ...infra.io.state_paths_adapter import FsStatePaths
 from ...infra.io.task_state_adapter import FsTaskStateWriter
 from ...infra.process.lifecycle import SubprocessProcessLifecycle
 from ...tasks.execution.engine import TaskExecutionEngine
-from ..kanban_adapters import (
+from .adapters import (
     DirectiveAdapter,
     LifecycleAdapter,
     NotifierAdapter,
     SessionControllerAdapter,
     StateManagerAdapter,
 )
-from ..kanban_board_event_bridge import BoardEventBridge
-from ..kanban_directive_queue import DirectiveQueue
-from ..kanban_notification_service import NotificationService
-from ..kanban_publisher import KanbanPublisher
-from ..kanban_request_factory import KanbanRequestFactory
-from ..kanban_session_manager import KanbanSessionManager
-from ..kanban_state_persistence import load_kanban_state
-from ..kanban_teamlead_runner import KanbanTeamleadRunner
-from ..kanban_worker_runner import KanbanWorkerRunner
-from ..session_pool import SessionPool
+from .board_event_bridge import BoardEventBridge
+from .directive_queue import DirectiveQueue
+from .notification_service import NotificationService
+from .publisher import KanbanPublisher
+from .request_factory import KanbanRequestFactory
+from ..session.manager import KanbanSessionManager
+from ..session.state_persistence import load_kanban_state
+from ..runners.teamlead import KanbanTeamleadRunner
+from ..runners.worker import KanbanWorkerRunner
+from ..session.pool import SessionPool
 from ...tasks.completion.outcomes import TaskOutcomeTracker
 
 

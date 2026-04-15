@@ -14,7 +14,7 @@ from ...tasks.ports import MonitorSnapshot, ProcessLifecyclePort, StatePathsPort
 from .request_builder import build_kanban_request
 
 if TYPE_CHECKING:
-    from ..session_pool import SessionPool
+    from ..session.pool import SessionPool
 
 
 class KanbanRequestFactory:

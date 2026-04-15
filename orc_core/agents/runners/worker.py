@@ -16,10 +16,10 @@ from ...tasks.completion.outcomes import TaskOutcomeTracker
 from ...git.integration_manager import IntegrationManager
 from ...board.stage_constants import STAGE_DONE
 from ...tasks.status import TaskExecutionStatus
-from ..kanban_protocols import CompletionNotifier, EventPublisher, RunnerLifecycle, RunnerStateManager, WorkDistributor
+from ..infra.protocols import CompletionNotifier, EventPublisher, RunnerLifecycle, RunnerStateManager, WorkDistributor
 from ...board.kanban_pull import WorkAssignment
-from ..kanban_agent_output import process_agent_result
-from ..kanban_roles import build_prompt
+from ..infra.agent_output import process_agent_result
+from ..roles import build_prompt
 from ...log import log_event
 from ...quit_signal import is_quit_after_task_requested
 from ...tasks.use_cases.process_task_result import (
@@ -28,8 +28,8 @@ from ...tasks.use_cases.process_task_result import (
     escalate_if_threshold_reached,
 )
 from ...git.use_cases.finalize_task_worktree import finalize_completed_worktree
-from ..session_types import SessionSlot, SlotStatus
-from ..kanban_protocols import TaskExecutor
+from ..session.types import SessionSlot, SlotStatus
+from ..infra.protocols import TaskExecutor
 from ...tasks.dto import Task
 from ...git.git_dto import WorktreeSession
 from ...git.worktree_flow import cleanup_task_worktree, create_task_worktree

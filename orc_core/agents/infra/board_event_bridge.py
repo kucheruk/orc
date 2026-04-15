@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING
 from ...board.kanban_distributor import KanbanDistributor
 from ...board.stage_constants import STAGE_SHORT_NAMES
 from ...git.project_hooks import fire_hooks
-from ..kanban_publisher import KanbanPublisher
-from ..kanban_state_persistence import save_kanban_state
+from .publisher import KanbanPublisher
+from ..session.state_persistence import save_kanban_state
 
 if TYPE_CHECKING:
-    from ..session_pool import SessionPool
+    from ..session.pool import SessionPool
     from ...tasks.completion.outcomes import TaskOutcomeTracker
 
 

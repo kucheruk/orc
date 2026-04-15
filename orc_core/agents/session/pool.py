@@ -11,8 +11,8 @@ from typing import Callable, Optional
 from ...log import log_event
 from ...tasks.ports import MonitorSnapshot
 from ...quit_signal import is_stop_requested, is_session_stop_requested
-from ..kanban_publisher import KanbanPublisher
-from ..session_types import (
+from ..infra.publisher import KanbanPublisher
+from .types import (
     MAX_SESSIONS,
     SHUTDOWN_JOIN_TIMEOUT_SECONDS,
     SessionSlot,

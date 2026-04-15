@@ -15,13 +15,13 @@ from ...log import log_event
 from ...tasks.ports import StatePathsPort
 from ...tasks.status import TaskExecutionStatus
 from ...tasks.dto import Task
-from ..session_types import SessionSlot
+from ..session.types import SessionSlot
 from ...git.git_helpers import run_git
-from ..kanban_protocols import (
+from ..infra.protocols import (
     EventPublisher, RunnerLifecycle, RunnerNotifier, RunnerStateManager,
     TaskExecutor, WorkDistributor,
 )
-from ..kanban_roles import build_teamlead_prompt
+from ..roles import build_teamlead_prompt
 from .arbitration_outcomes import ARBITRATION_OUTCOMES
 from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
 from .teamlead_stats import find_latest_agent_log, load_token_stats
