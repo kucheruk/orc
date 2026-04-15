@@ -36,26 +36,48 @@ class Backend(Protocol):
     def list_models_cmd(self) -> list[str] | None: ...
 
 
-_BACKEND_REGISTRY: dict[str, tuple[str, str]] = {
-    "cursor": ("orc_core.backends.cursor", "CursorBackend"),
-    "claude": ("orc_core.backends.claude", "ClaudeBackend"),
-    "codex": ("orc_core.backends.codex", "CodexBackend"),
-}
+class BackendRegistry:
+    """Instance-scoped registry of backend implementations."""
 
-SUPPORTED_BACKENDS: tuple[str, ...] = tuple(_BACKEND_REGISTRY)
+    def __init__(self, entries: dict[str, tuple[str, str]] | None = None) -> None:
+        self._entries: dict[str, tuple[str, str]] = dict(entries or {})
+
+    def register(self, name: str, module_path: str, class_name: str) -> None:
+        self._entries[name] = (module_path, class_name)
+
+    def get(self, name: str = "cursor") -> Backend:
+        entry = self._entries.get(name)
+        if entry is None:
+            raise ValueError(
+                f"Unknown backend: {name!r}. Supported: {', '.join(sorted(self._entries))}"
+            )
+        module_path, class_name = entry
+        mod = __import__(module_path, fromlist=[class_name])
+        return getattr(mod, class_name)()
+
+    @property
+    def supported(self) -> tuple[str, ...]:
+        return tuple(self._entries)
+
+
+DEFAULT_BACKEND_REGISTRY = BackendRegistry(
+    {
+        "cursor": ("orc_core.backends.cursor", "CursorBackend"),
+        "claude": ("orc_core.backends.claude", "ClaudeBackend"),
+        "codex": ("orc_core.backends.codex", "CodexBackend"),
+    }
+)
 
 
 def register_backend(name: str, module_path: str, class_name: str) -> None:
-    """Register a new backend. Updates SUPPORTED_BACKENDS."""
-    global SUPPORTED_BACKENDS
-    _BACKEND_REGISTRY[name] = (module_path, class_name)
-    SUPPORTED_BACKENDS = tuple(sorted(_BACKEND_REGISTRY))
+    DEFAULT_BACKEND_REGISTRY.register(name, module_path, class_name)
 
 
 def get_backend(name: str = "cursor") -> Backend:
-    entry = _BACKEND_REGISTRY.get(name)
-    if entry is None:
-        raise ValueError(f"Unknown backend: {name!r}. Supported: {', '.join(sorted(_BACKEND_REGISTRY))}")
-    module_path, class_name = entry
-    mod = __import__(module_path, fromlist=[class_name])
-    return getattr(mod, class_name)()
+    return DEFAULT_BACKEND_REGISTRY.get(name)
+
+
+def __getattr__(attr: str):
+    if attr == "SUPPORTED_BACKENDS":
+        return DEFAULT_BACKEND_REGISTRY.supported
+    raise AttributeError(f"module 'orc_core.backends.backend' has no attribute {attr!r}")
