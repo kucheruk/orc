@@ -20,7 +20,7 @@ from ..git.git_helpers import (
     runtime_artifact_paths_from_porcelain_lines as _runtime_artifact_paths_from_porcelain_lines,
 )
 from .execution.request import LaunchConfig
-from .task_status_types import TaskCompletionStatus, TaskExecutionStatus
+from ..models.task_status import TaskCompletionStatus, TaskExecutionStatus
 from ..log import log_event
 from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
 from ..infra.io.timeline import timeline_step

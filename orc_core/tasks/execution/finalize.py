@@ -29,7 +29,7 @@ from .helpers import (
 )
 from .request import TaskExecutionResult
 from .runtime import _ExecutionContext
-from ..task_status_types import TaskExecutionStatus
+from ...models.task_status import TaskExecutionStatus
 from ..task_state import delete_runtime_state_file
 from ...text_parse import SafeDict, clean_summary_lines
 

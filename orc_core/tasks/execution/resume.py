@@ -19,7 +19,7 @@ from ...log import log_event
 from ...persistence.session_state import save_active_session, save_session_manifest
 from ..hooks import write_task_file
 from .request import TaskExecutionResult
-from ..task_status_types import TaskExecutionStatus
+from ...models.task_status import TaskExecutionStatus
 from ..task_state import delete_runtime_state_file, read_task_active_seconds
 
 _logger = logging.getLogger(__name__)

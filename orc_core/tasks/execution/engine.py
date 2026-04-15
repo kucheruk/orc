@@ -17,7 +17,7 @@ from ...log import log_event
 from ...infra.io.debug_log import debug_log
 from ...infra.io.timeline import timeline_instant, timeline_step
 from ...quit_signal import is_stop_requested
-from ..task_status_types import TaskCompletionStatus, TaskExecutionStatus
+from ...models.task_status import TaskCompletionStatus, TaskExecutionStatus
 from ...supervision.lifecycle import wait_for_completion
 from ...supervision.ports import BacklogQueryPort, NoopNotify, NotifyPort
 from ..backlog_query import MarkdownBacklogQuery
@@ -29,7 +29,7 @@ from .resume import recover_resume_state, init_task_file
 from ..task_source import MarkdownTaskSource
 from ...git.git_helpers import git_diff_numstat
 
-from ..task_status_types import RESTART_REASON_TEXT
+from ...models.task_status import RESTART_REASON_TEXT
 from .request import LaunchConfig, TaskExecutionRequest, TaskExecutionResult
 from .runtime import _ExecutionContext, _ResumeState
 from .stage import TaskStageSpec

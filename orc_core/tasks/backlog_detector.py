@@ -19,7 +19,7 @@ from .execution.helpers import (
 )
 from .execution.request import TaskExecutionResult
 from .execution.runtime import _ExecutionContext
-from .task_status_types import TaskExecutionStatus
+from ..models.task_status import TaskExecutionStatus
 from .task_state import delete_runtime_state_file
 
 

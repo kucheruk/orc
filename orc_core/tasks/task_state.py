@@ -8,6 +8,7 @@ from typing import Optional
 from ..infra.io.atomic_io import write_json_atomic
 from ..log import log_event
 from ..persistence.runtime_state import (
+    delete_runtime_state_file,
     init_runtime_payload,
     load_runtime_payload,
     runtime_state_path,
@@ -54,26 +55,6 @@ def read_task_active_seconds(task_path: Path, expected_task_id: str = "") -> flo
         return max(float(payload.get("active_seconds") or 0.0), 0.0)
     except (TypeError, ValueError):
         return 0.0
-
-
-def delete_runtime_state_file(task_path: Path, log_path: Path, reason: str) -> bool:
-    runtime_path = runtime_state_path(task_path)
-    if not runtime_path.exists():
-        return False
-    try:
-        runtime_path.unlink()
-        log_event(log_path, "WARN", "runtime state file removed", reason=reason, runtime_path=str(runtime_path))
-        return True
-    except Exception as exc:
-        log_event(
-            log_path,
-            "ERROR",
-            "failed to remove runtime state file",
-            reason=reason,
-            error=str(exc),
-            runtime_path=str(runtime_path),
-        )
-        return False
 
 
 def delete_task_file(

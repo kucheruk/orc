@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..tasks.task_status_types import TaskCompletionStatus
+from ..models.task_status import TaskCompletionStatus
 from ..log import log_event
 from ..infra.io.debug_log import debug_log
 from ..infra.monitoring.monitor_protocol import StreamMonitorProtocol
