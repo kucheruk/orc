@@ -24,12 +24,13 @@ from ..persistence.state_paths import integration_report_path
 from .git_helpers import has_commits_ahead_of_branch
 from ..models.task_types import Task
 from .conflict_resolver import ConflictResolver
+from .ports import GitRunner
 from .safe_files import SafeFilesGuard
+from .subprocess_git import SubprocessGitRunner
 from .worktree_flow import (
     get_head_commit,
     integrate_commit_into_main,
     preflight_main_integration,
-    run_git,
 )
 
 
@@ -77,11 +78,13 @@ class IntegrationManager:
     """Serializes cherry-pick integration of task commits into main."""
 
     def __init__(self, *, workdir: str, main_branch: str, log_path: Path,
-                 safe_tracked_paths: frozenset[str] = frozenset()) -> None:
+                 safe_tracked_paths: frozenset[str] = frozenset(),
+                 git: Optional[GitRunner] = None) -> None:
         self.workdir = workdir
         self.main_branch = main_branch
         self.log_path = log_path
         self._safe_tracked_paths = safe_tracked_paths
+        self._git: GitRunner = git or SubprocessGitRunner()
         self._safe_files = SafeFilesGuard(workdir, safe_tracked_paths, log_path=log_path)
         self._lock = threading.Lock()
         self._conflict_resolver = ConflictResolver(workdir)
@@ -117,7 +120,7 @@ class IntegrationManager:
 
     def recover_stale_git_state(self) -> None:
         # Resolve actual git dir (handles worktrees where .git is a file)
-        ok, git_dir_out, _, _ = run_git(self.workdir, ["git", "rev-parse", "--git-dir"])
+        ok, git_dir_out, _, _ = self._git.run(self.workdir, ["git", "rev-parse", "--git-dir"])
         if ok:
             git_dir = Path(git_dir_out.strip())
             if not git_dir.is_absolute():
@@ -134,7 +137,7 @@ class IntegrationManager:
                 continue
             log_event(self.log_path, "WARN", f"stale {marker} detected, aborting",
                       workdir=self.workdir)
-            ok, _, stderr, _ = run_git(self.workdir, abort_cmd)
+            ok, _, stderr, _ = self._git.run(self.workdir, abort_cmd)
             if ok:
                 log_event(self.log_path, "INFO", f"stale {marker} aborted")
             else:
@@ -175,10 +178,10 @@ class IntegrationManager:
         in a finally block to restore the user's changes.
         """
         # Quick check: is there anything to stash?
-        ok, stdout, _, _ = run_git(self.workdir, ["git", "status", "--porcelain"])
+        ok, stdout, _, _ = self._git.run(self.workdir, ["git", "status", "--porcelain"])
         if not ok or not stdout.strip():
             return False
-        ok_stash, _, stderr, _ = run_git(
+        ok_stash, _, stderr, _ = self._git.run(
             self.workdir,
             ["git", "stash", "push", "--include-untracked", "-m", "orc-integration-autostash"],
         )
@@ -190,18 +193,18 @@ class IntegrationManager:
 
     def _pop_stash(self, ctx: IntegrationContext) -> None:
         """Restore stashed state after cherry-pick. Conflicts are left for user."""
-        ok, _, stderr, _ = run_git(self.workdir, ["git", "stash", "pop"])
+        ok, _, stderr, _ = self._git.run(self.workdir, ["git", "stash", "pop"])
         if ok:
             ctx.step("autostash_restored")
         else:
             # Pop failed (conflict with cherry-picked changes). The stash is
             # still on the stack. Try to apply instead — git stash apply leaves
             # the stash so nothing is lost even if working-tree conflicts remain.
-            ok_apply, _, stderr_apply, _ = run_git(self.workdir, ["git", "stash", "apply"])
+            ok_apply, _, stderr_apply, _ = self._git.run(self.workdir, ["git", "stash", "apply"])
             if ok_apply:
                 ctx.step("autostash_applied_with_conflicts")
                 # Drop the stash entry since apply succeeded
-                run_git(self.workdir, ["git", "stash", "drop"])
+                self._git.run(self.workdir, ["git", "stash", "drop"])
             else:
                 ctx.step("autostash_pop_failed", stderr=stderr_apply[:ERROR_TRUNCATE])
                 log_event(self.log_path, "WARN",
@@ -273,14 +276,14 @@ class IntegrationManager:
 
     def _git_dir(self) -> Path:
         """Resolve the actual .git directory (handles worktrees)."""
-        ok, out, _, _ = run_git(self.workdir, ["git", "rev-parse", "--git-dir"])
+        ok, out, _, _ = self._git.run(self.workdir, ["git", "rev-parse", "--git-dir"])
         if ok:
             p = Path(out.strip())
             return p if p.is_absolute() else Path(self.workdir) / p
         return Path(self.workdir) / ".git"
 
     def _abort_cherry_pick(self, ctx: IntegrationContext) -> None:
-        ok, _, stderr, _ = run_git(self.workdir, ["git", "cherry-pick", "--abort"])
+        ok, _, stderr, _ = self._git.run(self.workdir, ["git", "cherry-pick", "--abort"])
         if ok:
             ctx.step("cherry_pick_aborted")
             return

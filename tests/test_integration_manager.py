@@ -58,10 +58,13 @@ class IntegrationManagerLockTest(unittest.TestCase):
 
 
 class RecoverStaleGitStateTest(unittest.TestCase):
-    @patch("orc_core.git.integration_manager.run_git")
-    def test_no_abort_when_no_marker_files(self, git_mock) -> None:
-        git_mock.return_value = (True, ".git\n", "", 0)  # rev-parse --git-dir
-        mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))
+    def test_no_abort_when_no_marker_files(self) -> None:
+        fake_git = MagicMock()
+        fake_git.run.return_value = (True, ".git\n", "", 0)  # rev-parse --git-dir
+        mgr = IntegrationManager(
+            workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"),
+            git=fake_git,
+        )
         mgr.recover_stale_git_state()
         # Only rev-parse call, no abort calls because marker files don't exist
-        self.assertEqual(git_mock.call_count, 1)
+        self.assertEqual(fake_git.run.call_count, 1)

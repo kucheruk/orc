@@ -11,27 +11,27 @@ from orc_core.infra.failure_reasons import IntegrationErrorKind
 
 
 class GitStatusPorcelainTest(unittest.TestCase):
-    @patch("orc_core.git.git_helpers.subprocess.run")
+    @patch("orc_core.git.subprocess_git.subprocess.run")
     def test_returns_stdout_on_success(self, run_mock) -> None:
         run_mock.return_value = MagicMock(returncode=0, stdout=" M file.py\n?? new.py\n", stderr="")
         ok, output = git_helpers.git_status_porcelain("/tmp/repo", Path("/tmp/orc.log"))
         self.assertTrue(ok)
         self.assertIn("file.py", output)
 
-    @patch("orc_core.git.git_helpers.subprocess.run")
+    @patch("orc_core.git.subprocess_git.subprocess.run")
     def test_returns_false_on_nonzero_exit(self, run_mock) -> None:
         run_mock.return_value = MagicMock(returncode=128, stdout="", stderr="fatal: not a repo")
         ok, output = git_helpers.git_status_porcelain("/tmp/repo", Path("/tmp/orc.log"))
         self.assertFalse(ok)
         self.assertEqual(output, "")
 
-    @patch("orc_core.git.git_helpers.subprocess.run")
+    @patch("orc_core.git.subprocess_git.subprocess.run")
     def test_returns_false_on_timeout(self, run_mock) -> None:
         run_mock.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=20)
         ok, output = git_helpers.git_status_porcelain("/tmp/repo", Path("/tmp/orc.log"))
         self.assertFalse(ok)
 
-    @patch("orc_core.git.git_helpers.subprocess.run")
+    @patch("orc_core.git.subprocess_git.subprocess.run")
     def test_returns_false_on_exception(self, run_mock) -> None:
         run_mock.side_effect = OSError("disk error")
         ok, output = git_helpers.git_status_porcelain("/tmp/repo", Path("/tmp/orc.log"))
@@ -77,7 +77,7 @@ class IsRuntimeArtifactTest(unittest.TestCase):
 
 
 class GitRunTest(unittest.TestCase):
-    @patch("orc_core.git.git_helpers.subprocess.run")
+    @patch("orc_core.git.subprocess_git.subprocess.run")
     def test_success_returns_ok_and_output(self, run_mock) -> None:
         run_mock.return_value = MagicMock(returncode=0, stdout="abc123\n", stderr="")
         ok, stdout, stderr, rc = git_helpers.git_run("/tmp", Path("/tmp/orc.log"), ["git", "rev-parse", "HEAD"], "test")
@@ -85,14 +85,14 @@ class GitRunTest(unittest.TestCase):
         self.assertEqual(stdout, "abc123\n")
         self.assertEqual(rc, 0)
 
-    @patch("orc_core.git.git_helpers.subprocess.run")
+    @patch("orc_core.git.subprocess_git.subprocess.run")
     def test_failure_returns_not_ok(self, run_mock) -> None:
         run_mock.return_value = MagicMock(returncode=1, stdout="", stderr="error")
         ok, stdout, stderr, rc = git_helpers.git_run("/tmp", Path("/tmp/orc.log"), ["git", "status"], "test")
         self.assertFalse(ok)
         self.assertEqual(rc, 1)
 
-    @patch("orc_core.git.git_helpers.subprocess.run")
+    @patch("orc_core.git.subprocess_git.subprocess.run")
     def test_timeout_returns_code_124(self, run_mock) -> None:
         run_mock.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=20)
         ok, stdout, stderr, rc = git_helpers.git_run("/tmp", Path("/tmp/orc.log"), ["git", "status"], "test")

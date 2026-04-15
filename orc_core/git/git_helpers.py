@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """Git helper utilities: status checks, command execution, integration classification."""
 
-import subprocess
 from pathlib import Path
 
 from ..infra.failure_reasons import IntegrationErrorKind
 from ..log import log_event
+from .subprocess_git import GIT_COMMAND_TIMEOUT_SECONDS, SubprocessGitRunner
 
-GIT_COMMAND_TIMEOUT_SECONDS = 30.0
+_default_runner = SubprocessGitRunner()
 
 
 def run_git(
@@ -17,25 +17,12 @@ def run_git(
     *,
     timeout: float = GIT_COMMAND_TIMEOUT_SECONDS,
 ) -> tuple[bool, str, str, int]:
-    """Run a git command and return (ok, stdout, stderr, returncode).
+    """Run a git command via the default SubprocessGitRunner.
 
-    This is the single entry point for synchronous git subprocess calls.
+    Module-level convenience — class-based callers should depend on the
+    GitRunner port instead and receive a runner via DI.
     """
-    try:
-        result = subprocess.run(
-            args,
-            cwd=workdir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        return False, "", "timeout", 124
-    except Exception as exc:
-        return False, "", str(exc), 1
-    return result.returncode == 0, result.stdout or "", result.stderr or "", int(result.returncode)
+    return _default_runner.run(workdir, args, timeout=timeout)
 
 
 def git_run(workdir: str, log_path: Path, args: list[str], label: str) -> tuple[bool, str, str, int]:
