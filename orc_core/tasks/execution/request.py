@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Optional
 
-from ...tasks.ports import MonitorSnapshot, ProcessLifecyclePort
+from ...tasks.ports import (
+    MonitorSnapshot,
+    ProcessLifecyclePort,
+    StatePathsPort,
+    TaskStateWriter,
+)
 from ..dto import Task
 from .config import ModelConfig, TemplateConfig, TimingConfig
 from .stage import TaskStageSpec
@@ -33,6 +38,8 @@ class TaskExecutionRequest:
     progress_done: int
     progress_total: int
     process_lifecycle: ProcessLifecyclePort
+    state_writer: TaskStateWriter
+    state_paths: StatePathsPort
     progress_in_progress: int = 0
     enforce_stage_artifacts: bool = False
     stage_specs: tuple[TaskStageSpec, ...] = ()

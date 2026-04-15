@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""No-op ProcessLifecyclePort for tests — records calls for assertions."""
+"""No-op ProcessLifecyclePort + StatePathsPort + TaskStateWriter for tests."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 
 class FakeLifecycle:
@@ -54,3 +55,64 @@ class FakeLifecycle:
             "run_token": run_token,
         })
         return []
+
+
+class FakeStateWriter:
+    """Test double for TaskStateWriter — performs real atomic-ish writes for integration scenarios."""
+
+    def __init__(self) -> None:
+        self.deleted_runtime_paths: list[Path] = []
+
+    def write_json(self, path: Path, payload: Any, *, ensure_ascii: bool = False, indent: int = 2) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=ensure_ascii, indent=indent), encoding="utf-8")
+
+    def write_text(self, path: Path, content: str, *, encoding: str = "utf-8") -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding=encoding)
+
+    def delete_runtime_state(self, task_path: Path, log_path: Path, *, reason: str) -> bool:
+        runtime = task_path.with_name("orc-task-runtime.json")
+        self.deleted_runtime_paths.append(runtime)
+        if runtime.exists():
+            runtime.unlink()
+            return True
+        return False
+
+    def init_runtime_state(self, task_path: Path, task_id: str) -> Path:
+        runtime = task_path.with_name("orc-task-runtime.json")
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.write_text(
+            json.dumps({"version": 1, "task_id": task_id, "active_seconds": 0.0}),
+            encoding="utf-8",
+        )
+        return runtime
+
+    def read_runtime_payload(self, task_path: Path) -> dict:
+        runtime = task_path.with_name("orc-task-runtime.json")
+        if not runtime.exists():
+            return {}
+        try:
+            payload = json.loads(runtime.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
+
+
+class FakeStatePaths:
+    """Test double for StatePathsPort — derives paths under tmpdir/.orc."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = Path(root)
+
+    def active_task(self, workdir: str) -> Path:
+        return Path(workdir) / ".cursor" / "orc-task.json"
+
+    def tmp_dir(self, workdir: str) -> Path:
+        return Path(workdir) / ".orc" / "tmp"
+
+    def stats(self, workdir: str) -> Path:
+        return Path(workdir) / ".orc" / "analytics" / "stats.json"
+
+    def run_root(self, workdir: str, name: str = "backlog-run") -> Path:
+        return Path(workdir) / ".orc" / "runs" / name

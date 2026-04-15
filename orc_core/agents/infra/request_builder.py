@@ -11,7 +11,7 @@ from ...config import OrcConfig
 from ...backends.backend import Backend
 from ...infra.io.state_paths import parallel_task_path
 from ...infra.io.state_paths import run_root as state_run_root
-from ...tasks.ports import MonitorSnapshot, ProcessLifecyclePort
+from ...tasks.ports import MonitorSnapshot, ProcessLifecyclePort, StatePathsPort, TaskStateWriter
 from ...tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from ...tasks.execution.request import TaskExecutionRequest
 from ...tasks.dto import Task
@@ -44,6 +44,8 @@ def build_kanban_request(
     main_branch: str,
     progress: tuple[int, int, int],
     process_lifecycle: ProcessLifecyclePort,
+    state_writer: TaskStateWriter,
+    state_paths: StatePathsPort,
     snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
 ) -> TaskExecutionRequest:
     task_path = parallel_task_path(base_workdir, session_id)
@@ -96,5 +98,7 @@ def build_kanban_request(
         agent_env={"ORC_SESSION_ID": session_id, "ORC_BASE_WORKSPACE": base_workdir, "ORC_TASK_FILE": str(task_path), "PYTHONDONTWRITEBYTECODE": "1"},
         snapshot_publisher=snapshot_publisher,
         process_lifecycle=process_lifecycle,
+        state_writer=state_writer,
+        state_paths=state_paths,
     )
 

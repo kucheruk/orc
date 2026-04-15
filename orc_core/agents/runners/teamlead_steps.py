@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Optional, Protocol
 from ...board.kanban_card import KanbanCard
 from ...board.action_constants import Action
 from ...log import log_event
+from ...tasks.ports import StatePathsPort
 from ...tasks.status import TaskExecutionStatus
 from ...tasks.dto import Task
 from ..session_types import SessionSlot
@@ -21,8 +22,8 @@ from ..kanban_protocols import (
     TaskExecutor, WorkDistributor,
 )
 from ..kanban_roles import build_teamlead_prompt
-from ..teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
-from ..teamlead_stats import find_latest_agent_log, load_token_stats
+from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
+from .teamlead_stats import find_latest_agent_log, load_token_stats
 
 if TYPE_CHECKING:
     from ...tasks.completion.outcomes import TaskOutcomeTracker
@@ -40,6 +41,7 @@ class TeamleadContext:
     notifier: RunnerNotifier
     state_manager: RunnerStateManager
     outcomes: "TaskOutcomeTracker"
+    state_paths: StatePathsPort
 
     def decision_path(self) -> Path:
         p = Path(self.workdir) / ".orc"
@@ -120,11 +122,11 @@ class ArbitrationStep:
         card.action = Action.ARBITRATION
         ctx.distributor.board.save_card(card)
         dec_path = ctx.decision_path()
-        agent_log = find_latest_agent_log(ctx.workdir, card.id)
+        agent_log = find_latest_agent_log(ctx.workdir, card.id, paths=ctx.state_paths)
         prompt = build_teamlead_prompt(
             mode="arbitration", board=ctx.distributor.board, card=card,
             decision_path=str(dec_path), agent_log_path=agent_log,
-            token_stats=load_token_stats(ctx.workdir),
+            token_stats=load_token_stats(ctx.workdir, paths=ctx.state_paths),
         )
         task = Task(task_id=card.id, text=f"[TL] {card.title}", done=False)
         try:
@@ -171,7 +173,7 @@ class DirectiveStep:
         prompt = build_teamlead_prompt(
             mode="directive", board=ctx.distributor.board,
             directive_text=directive_text, decision_path=str(dec_path),
-            token_stats=load_token_stats(ctx.workdir),
+            token_stats=load_token_stats(ctx.workdir, paths=ctx.state_paths),
         )
         task = Task(task_id="tl-directive", text=f"[TL] {directive_text[:40]}", done=False)
         ctx.invoke_teamlead(slot, sid, task, prompt)
@@ -228,7 +230,7 @@ class HealthCheckStep:
         prompt = build_teamlead_prompt(
             mode="health", board=ctx.distributor.board,
             diagnostic_info=diag_text, decision_path=str(dec_path),
-            token_stats=load_token_stats(ctx.workdir),
+            token_stats=load_token_stats(ctx.workdir, paths=ctx.state_paths),
         )
         task = Task(task_id="tl-health", text="[TL] Board health check", done=False)
         ctx.invoke_teamlead(slot, sid, task, prompt)

@@ -10,7 +10,7 @@ from orc_core.tasks.execution.engine import TaskExecutionEngine
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
 from orc_core.tasks.dto import Task
-from tests._fake_lifecycle import FakeLifecycle
+from tests._fake_lifecycle import FakeLifecycle, FakeStatePaths, FakeStateWriter
 
 
 class _FakeProc:
@@ -105,6 +105,8 @@ def _request(tmpdir: str) -> TaskExecutionRequest:
         progress_total=1,
         agent_output_log_path=None,
         process_lifecycle=FakeLifecycle(),
+        state_writer=FakeStateWriter(),
+        state_paths=FakeStatePaths(root),
     )
 
 class WaitingForInputNoticeTest(unittest.TestCase):

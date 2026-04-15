@@ -5,19 +5,25 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from ..infra.io.atomic_io import write_json_atomic
 from ..log import log_event
-from ..infra.io.runtime_state import (
-    delete_runtime_state_file,
-    init_runtime_payload,
-    load_runtime_payload,
-    runtime_state_path,
-)
-from ..infra.io.state_paths import tmp_dir
+from .ports import StatePathsPort, TaskStateWriter
+
+TASK_RUNTIME_FILE_NAME = "orc-task-runtime.json"
 
 
-def create_temp_backlog(workdir: str, task_text: str, log_path: Path) -> tuple[Path, str]:
-    run_dir = tmp_dir(workdir)
+def runtime_state_path(task_path: Path) -> Path:
+    """Pure path computation — keeps callers free of infra.io."""
+    return task_path.with_name(TASK_RUNTIME_FILE_NAME)
+
+
+def create_temp_backlog(
+    workdir: str,
+    task_text: str,
+    log_path: Path,
+    *,
+    paths: StatePathsPort,
+) -> tuple[Path, str]:
+    run_dir = paths.tmp_dir(workdir)
     run_dir.mkdir(parents=True, exist_ok=True)
     task_id = "ORC-SMOKE-001"
     backlog_path = run_dir / f"BACKLOG.temp.{__import__('datetime').datetime.now().strftime('%Y%m%d-%H%M%S')}.md"
@@ -36,15 +42,22 @@ def load_task_payload(task_path: Path) -> dict:
         return {}
 
 
-def write_task_runtime_state(task_path: Path, task_id: str) -> Path:
-    runtime_path = runtime_state_path(task_path)
-    payload = init_runtime_payload(task_id)
-    write_json_atomic(runtime_path, payload, ensure_ascii=False, indent=2)
-    return runtime_path
+def write_task_runtime_state(
+    task_path: Path,
+    task_id: str,
+    *,
+    writer: TaskStateWriter,
+) -> Path:
+    return writer.init_runtime_state(task_path, task_id)
 
 
-def read_task_active_seconds(task_path: Path, expected_task_id: str = "") -> float:
-    payload = load_runtime_payload(runtime_state_path(task_path))
+def read_task_active_seconds(
+    task_path: Path,
+    *,
+    writer: TaskStateWriter,
+    expected_task_id: str = "",
+) -> float:
+    payload = writer.read_runtime_payload(task_path)
     if not payload:
         return 0.0
     task_id = str(expected_task_id or "").strip()
@@ -61,6 +74,8 @@ def delete_task_file(
     task_path: Path,
     log_path: Path,
     reason: str,
+    *,
+    writer: TaskStateWriter,
     expected_task_id: Optional[str] = None,
     expected_backlog: Optional[Path] = None,
 ) -> bool:
@@ -92,25 +107,31 @@ def delete_task_file(
     try:
         task_path.unlink()
         log_event(log_path, "WARN", "task file removed", reason=reason, task_path=str(task_path))
-        delete_runtime_state_file(task_path, log_path, reason=f"{reason}:task_removed")
+        writer.delete_runtime_state(task_path, log_path, reason=f"{reason}:task_removed")
         return True
     except Exception as exc:
         log_event(log_path, "ERROR", "failed to remove task file", reason=reason, error=str(exc), task_path=str(task_path))
         return False
 
 
-def cleanup_stale_task_file(task_path: Path, log_path: Path, allowed_backlog: Optional[Path] = None) -> bool:
+def cleanup_stale_task_file(
+    task_path: Path,
+    log_path: Path,
+    *,
+    writer: TaskStateWriter,
+    allowed_backlog: Optional[Path] = None,
+) -> bool:
     if not task_path.exists():
         return False
     payload = load_task_payload(task_path)
     if not payload:
-        return delete_task_file(task_path, log_path, reason="invalid_task_json")
+        return delete_task_file(task_path, log_path, reason="invalid_task_json", writer=writer)
     backlog_path_raw = str(payload.get("backlog_path") or "").strip()
     if not backlog_path_raw:
-        return delete_task_file(task_path, log_path, reason="missing_backlog_path")
+        return delete_task_file(task_path, log_path, reason="missing_backlog_path", writer=writer)
     backlog_path = Path(backlog_path_raw)
     if not backlog_path.exists():
-        return delete_task_file(task_path, log_path, reason="backlog_missing")
+        return delete_task_file(task_path, log_path, reason="backlog_missing", writer=writer)
     if allowed_backlog is not None and backlog_path.resolve() != allowed_backlog.resolve():
         log_event(
             log_path,
@@ -122,7 +143,13 @@ def cleanup_stale_task_file(task_path: Path, log_path: Path, allowed_backlog: Op
     return False
 
 
-def update_task_conversation_id(task_path: Path, log_path: Path, conversation_id: str) -> None:
+def update_task_conversation_id(
+    task_path: Path,
+    log_path: Path,
+    conversation_id: str,
+    *,
+    writer: TaskStateWriter,
+) -> None:
     try:
         payload = json.loads(task_path.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -132,9 +159,7 @@ def update_task_conversation_id(task_path: Path, log_path: Path, conversation_id
         return
     payload["conversation_id"] = conversation_id
     try:
-        write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
+        writer.write_json(task_path, payload, ensure_ascii=False, indent=2)
         log_event(log_path, "INFO", "stored conversation_id from agent ls", conversation_id=conversation_id)
     except Exception as exc:
         log_event(log_path, "ERROR", "failed to update conversation_id", error=str(exc))
-
-

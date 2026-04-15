@@ -20,12 +20,8 @@ from ..integration.hooks import write_task_file
 from ..ports import TaskStateWriter
 from .request import TaskExecutionResult
 from ..status import TaskExecutionStatus
-from ..state import delete_runtime_state_file, read_task_active_seconds
+from ..state import read_task_active_seconds
 
-
-def _default_writer() -> TaskStateWriter:
-    from ...infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
-    return DEFAULT_TASK_STATE_WRITER
 
 _logger = logging.getLogger(__name__)
 
@@ -59,7 +55,11 @@ def recover_resume_state(
             resume.persisted_restart_count = max(int(raw_restart_count), 0)
         except (TypeError, ValueError):
             resume.persisted_restart_count = 0
-        resume.elapsed_before_start = read_task_active_seconds(request.task_path, expected_task_id=str(active_task_id or ""))
+        resume.elapsed_before_start = read_task_active_seconds(
+            request.task_path,
+            writer=request.state_writer,
+            expected_task_id=str(active_task_id or ""),
+        )
     except (OSError, json.JSONDecodeError, ValueError, KeyError) as exc:
         log_event(log_path, "ERROR", "failed to read task file", error=str(exc))
         _logger.warning(
@@ -98,7 +98,7 @@ def recover_resume_state(
             _logger.info(f"✅ {active_task_id} уже отмечена [x]. Удаляю {request.task_path} и продолжаю.")
             try:
                 request.task_path.unlink()
-                delete_runtime_state_file(request.task_path, log_path, reason="stale_done_task_file")
+                request.state_writer.delete_runtime_state(request.task_path, log_path, reason="stale_done_task_file")
             except OSError as exc:
                 log_event(log_path, "ERROR", "failed to delete task file", error=str(exc))
             ctx.ts_exec.result = "continue"
@@ -121,7 +121,7 @@ def recover_resume_state(
             _logger.info(f"🗑️ Стейт {ctx.task_id} без conversation_id — авто-сброс для чистого старта.")
             try:
                 request.task_path.unlink()
-                delete_runtime_state_file(request.task_path, log_path, reason="auto_drop_no_conversation")
+                request.state_writer.delete_runtime_state(request.task_path, log_path, reason="auto_drop_no_conversation")
             except OSError:
                 pass
             resume.resume_existing = False
@@ -151,6 +151,8 @@ def init_task_file(
             request.task,
             request.backlog_path,
             log_path,
+            writer=request.state_writer,
+            paths=request.state_paths,
             restart_count=0,
             task_path_override=request.task_path,
         )
@@ -161,7 +163,7 @@ def init_task_file(
                     payload["worktree_path"] = ctx.worktree_path_value
                 payload["branch_name"] = str(payload.get("branch_name") or "")
                 payload["status"] = "active"
-                _default_writer().write_json(request.task_path, payload, ensure_ascii=False, indent=2)
+                request.state_writer.write_json(request.task_path, payload, ensure_ascii=False, indent=2)
             except (OSError, json.JSONDecodeError, ValueError) as exc:
                 log_event(log_path, "WARN", "failed to enrich task state with worktree metadata", error=str(exc))
     if request.task_path.exists():

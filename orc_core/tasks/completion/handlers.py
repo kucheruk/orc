@@ -54,7 +54,7 @@ class WaitingForInputHandler:
                timeline_id, attempt_number, ts_attempt, ts_exec, **kw) -> CompletionAction:
         ts_attempt.result = "waiting_for_input"
         restart_count += 1
-        update_task_restart_count(request.task_path, log_path, restart_count)
+        update_task_restart_count(request.task_path, log_path, restart_count, writer=request.state_writer)
         log_event(log_path, "INFO", "waiting_for_input_budget_tick",
                   task_id=task_id, restart_count=restart_count,
                   max_restarts=request.timing.max_restarts)

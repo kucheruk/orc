@@ -18,7 +18,7 @@ import orc_core.tasks.execution.preflight as task_execution_preflight
 from orc_core.git.git_helpers import classify_main_integration_error
 from orc_core.tasks.ports import PreflightResult
 from orc_core.tasks.stages.phases import run_commit_phase
-from tests._fake_lifecycle import FakeLifecycle
+from tests._fake_lifecycle import FakeLifecycle, FakeStatePaths, FakeStateWriter
 
 
 def _fake_preflight(*, ok: bool, error: str):
@@ -215,6 +215,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
             stage_specs=stage_specs,
             agent_output_log_path=None,
             process_lifecycle=FakeLifecycle(),
+            state_writer=FakeStateWriter(),
+            state_paths=FakeStatePaths(root),
         )
 
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")

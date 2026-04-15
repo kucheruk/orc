@@ -9,15 +9,10 @@ from pathlib import Path
 from typing import Optional
 
 from ...log import log_event
-from ..ports import TaskStateWriter
+from ..ports import StatePathsPort, TaskStateWriter
 from .config import ETA_WINDOW_SIZE
 from .request import TaskExecutionRequest
 from .stage import TaskStageSpec
-
-
-def _default_writer() -> TaskStateWriter:
-    from ...infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
-    return DEFAULT_TASK_STATE_WRITER
 
 
 def _update_completion_stats(
@@ -27,14 +22,13 @@ def _update_completion_stats(
     task_path: Path,
     workdir: str,
     log_path: Path,
-    writer: Optional[TaskStateWriter] = None,
+    writer: TaskStateWriter,
+    paths: StatePathsPort,
 ) -> None:
     """Record token usage and task duration in stats file (replaces stop hook stats logic)."""
-    from ...infra.io.state_paths import stats_path as get_stats_path
     from ..state import read_task_active_seconds
-    writer = writer or _default_writer()
 
-    stats_file = get_stats_path(workdir)
+    stats_file = paths.stats(workdir)
     try:
         stats = json.loads(stats_file.read_text(encoding="utf-8")) if stats_file.exists() else {}
     except (OSError, json.JSONDecodeError, ValueError):
@@ -52,7 +46,7 @@ def _update_completion_stats(
         stats["tokens_total"] = int(stats["tokens_total"]) + int(task_tokens)
 
     # Duration
-    duration = read_task_active_seconds(task_path, expected_task_id=task_id)
+    duration = read_task_active_seconds(task_path, writer=writer, expected_task_id=task_id)
     if duration > 0 and task_id and task_id not in stats["durations_by_task"]:
         duration_int = max(int(duration), 0)
         stats["durations_by_task"][task_id] = duration_int

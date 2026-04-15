@@ -16,7 +16,6 @@ from ..stages.phases import run_merge_expert_phase
 from ..execution.request import TaskExecutionResult
 from ..execution.runtime import _ExecutionContext
 from ..status import TaskExecutionStatus
-from ..state import delete_runtime_state_file
 
 _logger = logging.getLogger(__name__)
 
@@ -52,7 +51,7 @@ def handle_main_integration(
             )
             try:
                 request.task_path.unlink(missing_ok=True)
-                delete_runtime_state_file(request.task_path, engine.log_path, reason="task_completed")
+                request.state_writer.delete_runtime_state(request.task_path, engine.log_path, reason="task_completed")
             except OSError:
                 pass
             ts_integ.result = "skipped"

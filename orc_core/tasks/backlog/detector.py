@@ -20,7 +20,6 @@ from ..execution.helpers import (
 from ..execution.request import TaskExecutionResult
 from ..execution.runtime import _ExecutionContext
 from ..status import TaskExecutionStatus
-from ..state import delete_runtime_state_file
 
 
 def check_backlog_done(
@@ -232,7 +231,7 @@ def _process_done_result(
     if stage_completed_final and request.task_path.exists():
         try:
             request.task_path.unlink()
-            delete_runtime_state_file(request.task_path, engine.log_path, reason=completion_reason)
+            request.state_writer.delete_runtime_state(request.task_path, engine.log_path, reason=completion_reason)
         except OSError as exc:
             log_event(engine.log_path, "ERROR", "failed to delete task file", error=str(exc))
     if stage_completed_final:

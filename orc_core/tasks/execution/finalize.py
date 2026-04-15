@@ -30,7 +30,6 @@ from .helpers import (
 from .request import TaskExecutionResult
 from .runtime import _ExecutionContext
 from ..status import TaskExecutionStatus
-from ..state import delete_runtime_state_file
 from ...text_parse import SafeDict, clean_summary_lines
 
 _logger = logging.getLogger(__name__)
@@ -55,6 +54,7 @@ def _collect_completion_stats(log_path: Path, task_id: str, request, monitor) ->
     _update_completion_stats(
         monitor=monitor, task_id=task_id, task_path=request.task_path,
         workdir=request.workdir, log_path=log_path,
+        writer=request.state_writer, paths=request.state_paths,
     )
     debug_log("H8", "orc_core/task_execution.py:execute:summary", "summary prepared", {
         "summary_len": len(summary_text),
@@ -132,7 +132,7 @@ def finalize_completed(
     # Clean up task state files (previously done by stop hook)
     try:
         request.task_path.unlink(missing_ok=True)
-        delete_runtime_state_file(request.task_path, engine.log_path, reason="task_completed")
+        request.state_writer.delete_runtime_state(request.task_path, engine.log_path, reason="task_completed")
     except OSError:
         pass
     return TaskExecutionResult(status=TaskExecutionStatus.COMPLETED, committed=commit_completed)

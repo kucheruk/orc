@@ -107,7 +107,7 @@ def run_stage_loop(engine: "TaskExecutionEngine", ctx: _ExecutionContext, resume
                 attempt=attempt_number,
                 data={"restart_count": restart_count, "stage_id": stage_id, "stage_index": stage_index + 1},
             ) as ts_attempt:
-                update_task_restart_count(request.task_path, log_path, restart_count)
+                update_task_restart_count(request.task_path, log_path, restart_count, writer=request.state_writer)
                 log_event(
                     log_path,
                     "INFO",

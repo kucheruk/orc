@@ -6,10 +6,9 @@ import uuid
 from pathlib import Path
 from typing import Optional, Tuple
 
-from ...infra.io.atomic_io import write_json_atomic, write_text_atomic
 from ..dto import Task
 from ...log import log_event, now_iso
-from ...infra.io.state_paths import active_task_path
+from ..ports import StatePathsPort, TaskStateWriter
 from ..state import write_task_runtime_state
 
 
@@ -20,13 +19,13 @@ def _render_hook_script(template_path: Path, replacements: dict[str, str]) -> st
     return script
 
 
-def _write_if_changed(path: Path, content: str) -> None:
+def _write_if_changed(path: Path, content: str, *, writer: TaskStateWriter) -> None:
     if path.exists() and path.read_text(encoding="utf-8") == content:
         return
-    write_text_atomic(path, content, encoding="utf-8")
+    writer.write_text(path, content, encoding="utf-8")
 
 
-def ensure_repo_hooks(workdir: str) -> Tuple[Path, Path]:
+def ensure_repo_hooks(workdir: str, *, writer: TaskStateWriter) -> Tuple[Path, Path]:
     cursor_dir = Path(workdir) / ".cursor"
     cursor_dir.mkdir(parents=True, exist_ok=True)
     cursor_hooks_dir = cursor_dir / "hooks"
@@ -43,16 +42,23 @@ def ensure_repo_hooks(workdir: str) -> Tuple[Path, Path]:
     stop_script = _render_hook_script(hook_scripts_dir / "orc_stop.py", replacements)
     hook_lib_script = _render_hook_script(hook_scripts_dir / "orc_hook_lib.py", replacements)
 
-    _write_if_changed(before_path, before_script)
-    _write_if_changed(stop_path, stop_script)
-    _write_if_changed(hook_lib_path, hook_lib_script)
+    _write_if_changed(before_path, before_script, writer=writer)
+    _write_if_changed(stop_path, stop_script, writer=writer)
+    _write_if_changed(hook_lib_path, hook_lib_script, writer=writer)
     before_path.chmod(0o755)
     stop_path.chmod(0o755)
     hook_lib_path.chmod(0o755)
     return before_path, stop_path
 
 
-def ensure_repo_hooks_config(workdir: str, before_path: Path, stop_path: Path, log_path: Path) -> Path:
+def ensure_repo_hooks_config(
+    workdir: str,
+    before_path: Path,
+    stop_path: Path,
+    log_path: Path,
+    *,
+    writer: TaskStateWriter,
+) -> Path:
     def _ensure_hooks_file(hooks_path: Path, before_cmd: str, stop_cmd: str, label: str) -> None:
         hooks_path.parent.mkdir(parents=True, exist_ok=True)
         if hooks_path.exists():
@@ -75,7 +81,7 @@ def ensure_repo_hooks_config(workdir: str, before_path: Path, stop_path: Path, l
             stop_list.append({"command": stop_cmd})
             log_event(log_path, "INFO", f"{label}: added stop", command=stop_cmd)
 
-        write_json_atomic(hooks_path, data, ensure_ascii=False, indent=2)
+        writer.write_json(hooks_path, data, ensure_ascii=False, indent=2)
 
     cursor_dir = Path(workdir) / ".cursor"
     cursor_dir.mkdir(parents=True, exist_ok=True)
@@ -94,10 +100,13 @@ def write_task_file(
     task: Task,
     backlog_path: Path,
     log_path: Path,
+    *,
+    writer: TaskStateWriter,
+    paths: StatePathsPort,
     restart_count: int = 0,
     task_path_override: Optional[Path] = None,
 ) -> Path:
-    task_path = task_path_override or active_task_path(workdir)
+    task_path = task_path_override or paths.active_task(workdir)
     task_path.parent.mkdir(parents=True, exist_ok=True)
     created_at = now_iso()
     payload = {
@@ -115,13 +124,19 @@ def write_task_file(
         "branch_name": "",
         "status": "active",
     }
-    write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
-    write_task_runtime_state(task_path, task.task_id)
+    writer.write_json(task_path, payload, ensure_ascii=False, indent=2)
+    write_task_runtime_state(task_path, task.task_id, writer=writer)
     log_event(log_path, "INFO", "task file written", path=str(task_path), task_id=task.task_id)
     return task_path
 
 
-def update_task_restart_count(task_path: Path, log_path: Path, restart_count: int) -> None:
+def update_task_restart_count(
+    task_path: Path,
+    log_path: Path,
+    restart_count: int,
+    *,
+    writer: TaskStateWriter,
+) -> None:
     try:
         payload = json.loads(task_path.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -129,7 +144,7 @@ def update_task_restart_count(task_path: Path, log_path: Path, restart_count: in
         return
     payload["restart_count"] = restart_count
     try:
-        write_json_atomic(task_path, payload, ensure_ascii=False, indent=2)
+        writer.write_json(task_path, payload, ensure_ascii=False, indent=2)
     except Exception as exc:
         log_event(log_path, "ERROR", "failed to update task restart count", error=str(exc))
         return

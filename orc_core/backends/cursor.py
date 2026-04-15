@@ -68,9 +68,11 @@ class CursorBackend:
         return cmd
 
     def setup_hooks(self, workdir: str, log_path: Path) -> None:
+        from ..infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
         from ..tasks.integration.hooks import ensure_repo_hooks, ensure_repo_hooks_config
-        before_path, stop_path = ensure_repo_hooks(workdir)
-        ensure_repo_hooks_config(workdir, before_path, stop_path, log_path)
+        writer = DEFAULT_TASK_STATE_WRITER
+        before_path, stop_path = ensure_repo_hooks(workdir, writer=writer)
+        ensure_repo_hooks_config(workdir, before_path, stop_path, log_path, writer=writer)
 
     def get_resume_id(self, workdir: str, log_path: Path) -> Optional[str]:
         return _get_resume_id_from_agent_ls(workdir, log_path)

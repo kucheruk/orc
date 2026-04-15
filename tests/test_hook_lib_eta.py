@@ -6,13 +6,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from orc_core.infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
 from orc_core.tasks.integration.hooks import ensure_repo_hooks
 
 
 class HookLibEtaTest(unittest.TestCase):
     def _load_rendered_hook_lib(self):
         tmpdir = tempfile.TemporaryDirectory()
-        _, _ = ensure_repo_hooks(tmpdir.name)
+        _, _ = ensure_repo_hooks(tmpdir.name, writer=DEFAULT_TASK_STATE_WRITER)
         module_path = Path(tmpdir.name) / ".cursor" / "hooks" / "orc_hook_lib.py"
         spec = importlib.util.spec_from_file_location("rendered_orc_hook_lib", module_path)
         if spec is None or spec.loader is None:

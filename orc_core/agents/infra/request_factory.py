@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from ...board.kanban_distributor import KanbanDistributor
 from ...config import OrcConfig
 from ...backends.backend import Backend
-from ...tasks.ports import MonitorSnapshot, ProcessLifecyclePort
+from ...tasks.ports import MonitorSnapshot, ProcessLifecyclePort, StatePathsPort, TaskStateWriter
 from .request_builder import build_kanban_request
 
 if TYPE_CHECKING:
@@ -34,6 +34,8 @@ class KanbanRequestFactory:
         merge_expert_model: str,
         main_branch: str,
         process_lifecycle: ProcessLifecyclePort,
+        state_writer: TaskStateWriter,
+        state_paths: StatePathsPort,
     ) -> None:
         self._workdir = workdir
         self._tasks_dir = tasks_dir
@@ -46,6 +48,8 @@ class KanbanRequestFactory:
         self._merge_expert_model = merge_expert_model
         self._main_branch = main_branch
         self._process_lifecycle = process_lifecycle
+        self._state_writer = state_writer
+        self._state_paths = state_paths
 
     def make(self, task, prompt: str, workdir: str, session_id: str, commit_phase: bool, task_ttl: float):
         def _pub(snapshot: MonitorSnapshot) -> None:
@@ -67,5 +71,7 @@ class KanbanRequestFactory:
             main_branch=self._main_branch,
             progress=self._distributor.get_progress(),
             process_lifecycle=self._process_lifecycle,
+            state_writer=self._state_writer,
+            state_paths=self._state_paths,
             snapshot_publisher=_pub,
         )

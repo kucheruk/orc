@@ -10,7 +10,7 @@ from orc_core.tasks.execution.engine import TaskExecutionEngine
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
 from orc_core.tasks.dto import Task
-from tests._fake_lifecycle import FakeLifecycle
+from tests._fake_lifecycle import FakeLifecycle, FakeStatePaths, FakeStateWriter
 
 
 class _FakeMonitor:
@@ -108,6 +108,8 @@ class TaskExecutionProcessCleanupTest(unittest.TestCase):
             progress_total=1,
             agent_output_log_path=None,
             process_lifecycle=lifecycle,
+            state_writer=FakeStateWriter(),
+            state_paths=FakeStatePaths(root),
         )
 
     def test_execute_cleans_up_monitor_when_wait_raises_keyboard_interrupt(self) -> None:

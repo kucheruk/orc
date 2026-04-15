@@ -17,7 +17,7 @@ from orc_core.tasks.dto import Task
 from types import SimpleNamespace
 from orc_core.tasks.ports import PreflightResult
 from orc_core.git.git_helpers import classify_main_integration_error
-from tests._fake_lifecycle import FakeLifecycle
+from tests._fake_lifecycle import FakeLifecycle, FakeStatePaths, FakeStateWriter
 
 
 def _fake_preflight(*, ok: bool, error: str):
@@ -123,6 +123,8 @@ def _request(base_dir: Path, worktree_dir: Path) -> TaskExecutionRequest:
         progress_total=1,
         agent_output_log_path=None,
         process_lifecycle=FakeLifecycle(),
+        state_writer=FakeStateWriter(),
+        state_paths=FakeStatePaths(base_dir),
     )
 
 class TaskExecutionWorktreeStateTest(unittest.TestCase):

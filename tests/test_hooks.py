@@ -11,6 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orc_core.infra.io.atomic_io import write_json_atomic
+from orc_core.infra.io.state_paths_adapter import DEFAULT_STATE_PATHS
+from orc_core.infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
 from orc_core.tasks.integration.hooks import ensure_repo_hooks, ensure_repo_hooks_config, write_task_file
 from orc_core.tasks.integration.hooks import update_task_restart_count
 from orc_core.infra.io.runtime_state import runtime_state_path
@@ -39,12 +41,14 @@ class HooksStopBehaviorTest(unittest.TestCase):
             log_path = tmpdir / ".orc" / "orc.log"
             backlog.write_text("- [ ] TASK-001 test task\n", encoding="utf-8")
 
-            _, stop_path = ensure_repo_hooks(str(tmpdir))
+            _, stop_path = ensure_repo_hooks(str(tmpdir), writer=DEFAULT_TASK_STATE_WRITER)
             task_path = write_task_file(
                 str(tmpdir),
                 Task(task_id="TASK-001", text="test task", done=False),
                 backlog,
                 log_path,
+                writer=DEFAULT_TASK_STATE_WRITER,
+                paths=DEFAULT_STATE_PATHS,
             )
 
             payload = {"status": "error", "loop_count": 0, "conversation_id": "conv-123"}
@@ -80,12 +84,14 @@ class HooksStopBehaviorTest(unittest.TestCase):
                 tmpdir,
             )
 
-            _, stop_path = ensure_repo_hooks(str(tmpdir))
+            _, stop_path = ensure_repo_hooks(str(tmpdir), writer=DEFAULT_TASK_STATE_WRITER)
             task_path = write_task_file(
                 str(tmpdir),
                 Task(task_id="TASK-001", text="test task", done=False),
                 backlog,
                 log_path,
+                writer=DEFAULT_TASK_STATE_WRITER,
+                paths=DEFAULT_STATE_PATHS,
             )
             task_payload = json.loads(task_path.read_text(encoding="utf-8"))
             task_payload["created_at"] = "2999-01-01T00:00:00Z"
@@ -120,7 +126,10 @@ class HooksAtomicWriteTest(unittest.TestCase):
             task = Task(task_id="TASK-001", text="test task", done=False)
 
             with patch.object(Path, "write_text", side_effect=RuntimeError("Path.write_text should not be used")):
-                task_path = write_task_file(str(tmpdir), task, backlog, log_path)
+                task_path = write_task_file(
+                    str(tmpdir), task, backlog, log_path,
+                    writer=DEFAULT_TASK_STATE_WRITER, paths=DEFAULT_STATE_PATHS,
+                )
 
             self.assertTrue(task_path.exists())
             payload = json.loads(task_path.read_text(encoding="utf-8"))
@@ -153,7 +162,7 @@ class HooksAtomicWriteTest(unittest.TestCase):
             )
 
             with patch.object(Path, "write_text", side_effect=RuntimeError("Path.write_text should not be used")):
-                update_task_restart_count(task_path, log_path, restart_count=2)
+                update_task_restart_count(task_path, log_path, restart_count=2, writer=DEFAULT_TASK_STATE_WRITER)
 
             self.assertIn('"restart_count": 2', task_path.read_text(encoding="utf-8"))
 
@@ -168,7 +177,7 @@ class HooksAtomicWriteTest(unittest.TestCase):
             log_path = tmpdir / ".orc" / "orc.log"
 
             with patch.object(Path, "write_text", side_effect=RuntimeError("Path.write_text should not be used")):
-                hooks_path = ensure_repo_hooks_config(str(tmpdir), before_path, stop_path, log_path)
+                hooks_path = ensure_repo_hooks_config(str(tmpdir), before_path, stop_path, log_path, writer=DEFAULT_TASK_STATE_WRITER)
 
             payload = json.loads(hooks_path.read_text(encoding="utf-8"))
             hooks_payload = payload.get("hooks", {})

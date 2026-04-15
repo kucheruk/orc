@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orc_core.infra.io.atomic_io import write_json_atomic
+from orc_core.infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
 from orc_core.tasks.state import update_task_conversation_id
 
 
@@ -31,7 +32,7 @@ class TaskStateAtomicWriteTest(unittest.TestCase):
             )
 
             with patch.object(Path, "write_text", side_effect=RuntimeError("Path.write_text should not be used")):
-                update_task_conversation_id(task_path, log_path, "conv-123")
+                update_task_conversation_id(task_path, log_path, "conv-123", writer=DEFAULT_TASK_STATE_WRITER)
 
             payload = task_path.read_text(encoding="utf-8")
             self.assertIn('"conversation_id": "conv-123"', payload)

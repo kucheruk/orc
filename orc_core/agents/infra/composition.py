@@ -16,6 +16,8 @@ from ...config import OrcConfig
 from ...git.integration_manager import IntegrationManager
 from ...incident.manager import IncidentManager
 from ...backends.backend import Backend
+from ...infra.io.state_paths_adapter import FsStatePaths
+from ...infra.io.task_state_adapter import FsTaskStateWriter
 from ...infra.process.lifecycle import SubprocessProcessLifecycle
 from ...tasks.execution.engine import TaskExecutionEngine
 from ..kanban_adapters import (
@@ -63,6 +65,8 @@ def build_session_manager(
     merge_expert_model_resolved = (merge_expert_model or "").strip()
     worktree_lock = threading.Lock()
     process_lifecycle = SubprocessProcessLifecycle()
+    state_writer = FsTaskStateWriter()
+    state_paths = FsStatePaths()
 
     # Base infrastructure
     board = KanbanBoard(tasks_dir, repo=FsCardRepository())
@@ -115,6 +119,8 @@ def build_session_manager(
         merge_expert_model=merge_expert_model_resolved,
         main_branch=resolved_main_branch,
         process_lifecycle=process_lifecycle,
+        state_writer=state_writer,
+        state_paths=state_paths,
     )
 
     # Protocol adapters (no back-reference to session manager)

@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from orc_core.infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
 from orc_core.tasks.integration.hooks import ensure_repo_hooks
 
 
@@ -31,7 +32,7 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             worktree_dir = root / "worktree"
             base_dir.mkdir(parents=True, exist_ok=True)
             worktree_dir.mkdir(parents=True, exist_ok=True)
-            ensure_repo_hooks(str(worktree_dir))
+            ensure_repo_hooks(str(worktree_dir), writer=DEFAULT_TASK_STATE_WRITER)
             script_path = worktree_dir / ".cursor" / "hooks" / "orc_before_submit.py"
 
             task_path = base_dir / ".cursor" / "orc-task.json"
@@ -96,7 +97,7 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             # Create a dirty file so git_has_changes returns True
             (worktree_dir / "dirty.txt").write_text("change", encoding="utf-8")
 
-            ensure_repo_hooks(str(worktree_dir))
+            ensure_repo_hooks(str(worktree_dir), writer=DEFAULT_TASK_STATE_WRITER)
             script_path = worktree_dir / ".cursor" / "hooks" / "orc_stop.py"
 
             backlog_path = base_dir / "BACKLOG.md"

@@ -7,12 +7,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ...infra.io.state_paths import run_root, stats_path
+from ...tasks.ports import StatePathsPort
 
 
-def find_latest_agent_log(workdir: str, card_id: str) -> str:
+def find_latest_agent_log(workdir: str, card_id: str, *, paths: StatePathsPort) -> str:
     """Find the most recent raw-stream log for a card across all kanban sessions."""
-    runs_dir = run_root(workdir, "").parent / "runs"
+    runs_dir = paths.run_root(workdir, "").parent / "runs"
     if not runs_dir.exists():
         return ""
     best: Path | None = None
@@ -28,9 +28,9 @@ def find_latest_agent_log(workdir: str, card_id: str) -> str:
     return str(best) if best else ""
 
 
-def load_token_stats(workdir: str) -> dict[str, int]:
+def load_token_stats(workdir: str, *, paths: StatePathsPort) -> dict[str, int]:
     """Load per-task token stats from analytics."""
-    path = stats_path(workdir)
+    path = paths.stats(workdir)
     if not path.exists():
         return {}
     try:
