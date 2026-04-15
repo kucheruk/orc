@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import OrcConfig
-from ..supervision.outcomes import TaskOutcomeTracker
+from ..task_completion.outcomes import TaskOutcomeTracker
 from ..git.integration_manager import IntegrationManager
 from ..board.stage_constants import STAGE_DONE
 from ..models.task_status import TaskExecutionStatus

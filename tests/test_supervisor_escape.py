@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.supervision.lifecycle import wait_for_completion, wait_for_process_exit
-from orc_core.supervision.ports import NoopNotify
+from orc_core.task_completion.lifecycle import wait_for_completion, wait_for_process_exit
+from orc_core.task_completion.ports import NoopNotify
 from orc_core.tasks.backlog_query import MarkdownBacklogQuery
 
 

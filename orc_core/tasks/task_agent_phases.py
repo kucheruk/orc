@@ -33,7 +33,7 @@ from ..infra.process.process import (
 )
 from ..infra.process.process_groups import terminate_process_group
 from ..quit_signal import is_stop_requested
-from ..supervision.lifecycle import wait_for_process_exit
+from ..task_completion.lifecycle import wait_for_process_exit
 from .execution.helpers import _write_prompt_file
 from .execution.request import TaskExecutionRequest, TaskExecutionResult
 from .execution.stage import AgentPhaseSpec

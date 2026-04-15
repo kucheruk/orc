@@ -34,7 +34,7 @@ from .kanban_state_persistence import load_kanban_state
 from .kanban_teamlead_runner import KanbanTeamleadRunner
 from .kanban_worker_runner import KanbanWorkerRunner
 from .session_pool import SessionPool
-from ..supervision.outcomes import TaskOutcomeTracker
+from ..task_completion.outcomes import TaskOutcomeTracker
 
 
 def build_session_manager(

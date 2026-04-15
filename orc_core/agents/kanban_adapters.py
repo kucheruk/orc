@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from ..models.session_types import SessionSlot
-    from ..supervision.outcomes import TaskOutcomeTracker
+    from ..task_completion.outcomes import TaskOutcomeTracker
     from .kanban_directive_queue import DirectiveQueue
     from .kanban_notification_service import NotificationService
     from .kanban_request_factory import KanbanRequestFactory

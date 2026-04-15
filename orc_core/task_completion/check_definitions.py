@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Shared definitions for supervision checks and lifecycle.
+"""Shared definitions for task_completion checks and lifecycle.
 
 Holds `CompletionMonitor` data-holder and callable type aliases so that
 `checks.py` and `lifecycle.py` both depend on this module instead of on

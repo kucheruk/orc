@@ -18,8 +18,8 @@ from ...infra.io.debug_log import debug_log
 from ...infra.io.timeline import timeline_instant, timeline_step
 from ...quit_signal import is_stop_requested
 from ...models.task_status import TaskCompletionStatus, TaskExecutionStatus
-from ...supervision.lifecycle import wait_for_completion
-from ...supervision.ports import BacklogQueryPort, NoopNotify, NotifyPort
+from ...task_completion.lifecycle import wait_for_completion
+from ...task_completion.ports import BacklogQueryPort, NoopNotify, NotifyPort
 from ..backlog_query import MarkdownBacklogQuery
 from ..stage_artifacts import build_stage_artifact_bundle
 from ..task_state import runtime_state_path

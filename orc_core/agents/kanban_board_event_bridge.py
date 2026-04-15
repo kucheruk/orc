@@ -15,7 +15,7 @@ from .kanban_state_persistence import save_kanban_state
 
 if TYPE_CHECKING:
     from .session_pool import SessionPool
-    from ..supervision.outcomes import TaskOutcomeTracker
+    from ..task_completion.outcomes import TaskOutcomeTracker
 
 
 class BoardEventBridge:

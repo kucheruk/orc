@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Ports for supervision: external services injected from composition root."""
+"""Ports for task_completion: external services injected from composition root."""
 
 from __future__ import annotations
 
