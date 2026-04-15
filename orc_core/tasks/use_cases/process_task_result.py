@@ -11,12 +11,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional, Protocol
 
-from ...board.kanban_board import KanbanBoard
-from ...board.kanban_card import KanbanCard
+from ...board.gateway import BoardGateway, CardView
 from ...log import log_event
 
 # Callable type for processing agent output: (board, card, role) -> list[errors]
-AgentResultProcessor = Callable[[KanbanBoard, KanbanCard, str], list[str]]
+AgentResultProcessor = Callable[[BoardGateway, CardView, str], list[str]]
 from ...tasks.execution.request import TaskExecutionResult
 from ...models.task_status import TaskExecutionStatus
 
@@ -38,15 +37,15 @@ class CompletionPublisher(Protocol):
 class CompletionNotifier(Protocol):
     """Port for sending completion notifications."""
     def notify_completion(
-        self, card: KanbanCard, role: str,
+        self, card: CardView, role: str,
         old_stage: str, old_action: str, old_cos: str, elapsed: float,
     ) -> None: ...
     def send_telegram(self, text: str) -> None: ...
 
 
 def process_completed_task(
-    board: KanbanBoard,
-    card: KanbanCard,
+    board: BoardGateway,
+    card: CardView,
     role: str,
     elapsed: float,
     outcomes: OutcomeTracker,
@@ -78,7 +77,7 @@ def process_completed_task(
 
 
 def handle_task_failure(
-    card: KanbanCard,
+    card: CardView,
     reason: str,
     outcomes: OutcomeTracker,
     publisher: CompletionPublisher,
@@ -93,9 +92,9 @@ FAIL_BLOCK_THRESHOLD = 3
 
 
 def escalate_if_threshold_reached(
-    card: KanbanCard,
+    card: CardView,
     error_desc: str,
-    board: KanbanBoard,
+    board: BoardGateway,
     outcomes: OutcomeTracker,
     publisher: CompletionPublisher,
     notifier: CompletionNotifier,

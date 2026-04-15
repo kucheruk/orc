@@ -13,8 +13,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ...board.action_constants import Action
-from ...board.kanban_board import KanbanBoard
-from ...board.kanban_card import KanbanCard
+from ...board.gateway import BoardGateway, CardView
 from ...board.stage_constants import STAGE_HANDOFF
 from ...log import log_event
 from ...models.git_dto import WorktreeSession
@@ -27,10 +26,10 @@ class Integrator(Protocol):
 
 
 def finalize_completed_worktree(
-    card: KanbanCard,
+    card: CardView,
     worktree: WorktreeSession,
     slot,
-    board: KanbanBoard,
+    board: BoardGateway,
     integrator: Integrator,
     cleanup_fn,
     log_path: Path,
