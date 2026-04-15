@@ -103,7 +103,7 @@ class OrcApp(App[int]):
 
     def on_inbox_card_requested(self, message: InboxCardRequested) -> None:
         if self._session_manager:
-            from ..use_cases.create_card import create_inbox_card
+            from ..board.use_cases.create_card import create_inbox_card
             create_inbox_card(
                 self._session_manager.board,
                 message.text,
@@ -113,7 +113,7 @@ class OrcApp(App[int]):
 
     def on_unblock_card_requested(self, message: UnblockCardRequested) -> None:
         if self._session_manager:
-            from ..use_cases.unblock_card import unblock_card
+            from ..board.use_cases.unblock_card import unblock_card
             unblock_card(
                 self._session_manager.board,
                 message.card_id,

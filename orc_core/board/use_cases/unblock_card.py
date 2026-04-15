@@ -7,9 +7,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-from ..board.kanban_board import KanbanBoard
-from ..board.action_constants import Action
-from ..log import log_event
+from ...board.kanban_board import KanbanBoard
+from ...board.action_constants import Action
+from ...log import log_event
 
 
 def unblock_card(

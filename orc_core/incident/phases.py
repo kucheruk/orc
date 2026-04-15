@@ -13,7 +13,7 @@ from ..board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, ST
 from ..infra.io.atomic_io import write_text_atomic
 from ..log import log_event
 from ..models.task_dto import Task
-from ..use_cases.create_card import create_expedite_card
+from ..board.use_cases.create_card import create_expedite_card
 from ..models.task_status import TaskExecutionStatus
 from .domain import (
     DECISION_FILENAME,

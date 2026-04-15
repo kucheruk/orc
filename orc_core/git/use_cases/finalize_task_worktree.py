@@ -12,13 +12,13 @@ import threading
 from pathlib import Path
 from typing import Protocol
 
-from ..board.action_constants import Action
-from ..board.kanban_board import KanbanBoard
-from ..board.kanban_card import KanbanCard
-from ..board.stage_constants import STAGE_HANDOFF
-from ..log import log_event
-from ..models.git_dto import WorktreeSession
-from ..models.task_dto import Task
+from ...board.action_constants import Action
+from ...board.kanban_board import KanbanBoard
+from ...board.kanban_card import KanbanCard
+from ...board.stage_constants import STAGE_HANDOFF
+from ...log import log_event
+from ...models.git_dto import WorktreeSession
+from ...models.task_dto import Task
 
 
 class Integrator(Protocol):

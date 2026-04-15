@@ -143,7 +143,7 @@ class TestKanbanPublisher(unittest.TestCase):
 class TestBoardCreateInbox(unittest.TestCase):
 
     def test_create_inbox_card(self):
-        from orc_core.use_cases.create_card import create_inbox_card
+        from orc_core.board.use_cases.create_card import create_inbox_card
         with tempfile.TemporaryDirectory() as tmp:
             td, board = _setup(tmp)
             card = create_inbox_card(board, "My feature", card_id="NEW-01")

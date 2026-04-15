@@ -7,10 +7,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-from ..board.kanban_board import KanbanBoard
-from ..board.kanban_card import KanbanCard
-from ..board.kanban_card_factory import KanbanCardFactory
-from ..log import log_event
+from ...board.kanban_board import KanbanBoard
+from ...board.kanban_card import KanbanCard
+from ...board.kanban_card_factory import KanbanCardFactory
+from ...log import log_event
 
 
 def _factory_for(board: KanbanBoard) -> KanbanCardFactory:

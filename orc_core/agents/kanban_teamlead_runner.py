@@ -229,7 +229,7 @@ class KanbanTeamleadRunner:
 
     def health_check(self, slot: SessionSlot, sid: str) -> bool:
         """Run health check. Returns True if problems found and agent was invoked."""
-        from ..use_cases.check_board_health import diagnose_board_health, should_skip_repeated_diagnostic
+        from ..board.use_cases.check_board_health import diagnose_board_health, should_skip_repeated_diagnostic
 
         self._last_health_check = time.time()
         diagnostic = diagnose_board_health(self._distributor.board, self._distributor)

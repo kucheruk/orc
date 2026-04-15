@@ -11,14 +11,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional, Protocol
 
-from ..board.kanban_board import KanbanBoard
-from ..board.kanban_card import KanbanCard
-from ..log import log_event
+from ...board.kanban_board import KanbanBoard
+from ...board.kanban_card import KanbanCard
+from ...log import log_event
 
 # Callable type for processing agent output: (board, card, role) -> list[errors]
 AgentResultProcessor = Callable[[KanbanBoard, KanbanCard, str], list[str]]
-from ..tasks.execution.request import TaskExecutionResult
-from ..models.task_status import TaskExecutionStatus
+from ...tasks.execution.request import TaskExecutionResult
+from ...models.task_status import TaskExecutionStatus
 
 
 class OutcomeTracker(Protocol):

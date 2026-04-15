@@ -22,12 +22,12 @@ from .kanban_agent_output import process_agent_result
 from .kanban_roles import build_prompt
 from ..log import log_event
 from ..quit_signal import is_quit_after_task_requested
-from ..use_cases.process_task_result import (
+from ..tasks.use_cases.process_task_result import (
     process_completed_task,
     handle_task_failure,
     escalate_if_threshold_reached,
 )
-from ..use_cases.finalize_task_worktree import finalize_completed_worktree
+from ..git.use_cases.finalize_task_worktree import finalize_completed_worktree
 from ..models.session_types import SessionSlot, SlotStatus
 from .kanban_protocols import TaskExecutor
 from ..models.task_dto import Task

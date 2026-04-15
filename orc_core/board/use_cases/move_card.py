@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from ..board.kanban_board import KanbanBoard
-from ..board.kanban_card import KanbanCard
+from ...board.kanban_board import KanbanBoard
+from ...board.kanban_card import KanbanCard
 
 
 def move_card(
