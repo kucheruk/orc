@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..infra.clock import Clock, SystemClock
+from .clock import Clock, SystemClock
 from .card_prioritizer import pick_best as _pick_best
 from .card_repository import CardRepository
 from .kanban_card import KanbanCard, parse_card

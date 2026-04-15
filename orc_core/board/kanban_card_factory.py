@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..infra.clock import Clock, SystemClock
+from .clock import Clock, SystemClock
 from .card_repository import CardRepository
 from .kanban_card import KanbanCard, new_card_body
 from .stage_constants import STAGE_CODING, STAGE_INBOX
