@@ -8,10 +8,15 @@ from typing import TYPE_CHECKING
 
 import psutil
 
-from ...infra.process.process import is_pid_alive
+from ..ports import ProcessProbe
 
 if TYPE_CHECKING:
     from ...tasks.ports import StreamMonitorProtocol
+
+
+def _default_probe() -> ProcessProbe:
+    from ...infra.process.process_probe import DEFAULT_PROCESS_PROBE
+    return DEFAULT_PROCESS_PROBE
 
 
 def _monitor_pid_missing(monitor: "StreamMonitorProtocol") -> bool:
@@ -24,7 +29,7 @@ def _monitor_pid_missing(monitor: "StreamMonitorProtocol") -> bool:
     pid = monitor.proc.pid or monitor.init_pid
     if not isinstance(pid, int) or pid <= 0:
         return False
-    return not is_pid_alive(pid)
+    return not _default_probe().is_alive(pid)
 
 
 def _is_model_unavailable_stderr(last_stderr_line: str) -> bool:

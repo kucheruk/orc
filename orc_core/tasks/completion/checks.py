@@ -21,8 +21,13 @@ from typing import Optional
 from ..task_status import TaskCompletionStatus
 from ...log import log_event
 from ...observability import debug_log, debug_mode_log, timeline_instant
-from ...infra.io.runtime_state import delete_runtime_state_file
+from ..ports import TaskStateWriter
 from .check_definitions import CompletionCheck, CompletionMonitor
+
+
+def _default_writer() -> TaskStateWriter:
+    from ...infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
+    return DEFAULT_TASK_STATE_WRITER
 from .check_queries import (
     _get_active_children_count,
     _is_model_unavailable_stderr,
@@ -87,7 +92,7 @@ def check_pid_missing(cm: CompletionMonitor) -> Optional[TaskCompletionStatus]:
             log_event(cm.log_path, "INFO", "agent pid missing and task marked done; treating as completed", task_id=cm.task_id)
             try:
                 cm.task_path.unlink()
-                delete_runtime_state_file(cm.task_path, cm.log_path, reason="pid_missing_task_done")
+                _default_writer().delete_runtime_state(cm.task_path, cm.log_path, reason="pid_missing_task_done")
             except OSError:
                 pass
             timeline_instant(
@@ -121,7 +126,7 @@ def check_backlog_done_idle(cm: CompletionMonitor) -> Optional[TaskCompletionSta
         log_event(cm.log_path, "INFO", "task marked done and agent idle; treating as completed", task_id=cm.task_id)
         try:
             cm.task_path.unlink()
-            delete_runtime_state_file(cm.task_path, cm.log_path, reason="idle_task_done")
+            _default_writer().delete_runtime_state(cm.task_path, cm.log_path, reason="idle_task_done")
         except OSError:
             pass
         timeline_instant(
@@ -190,7 +195,7 @@ def check_process_exited(cm: CompletionMonitor) -> Optional[TaskCompletionStatus
                     log_event(cm.log_path, "INFO", "task marked done during exit grace window", task_id=cm.task_id)
                     try:
                         cm.task_path.unlink()
-                        delete_runtime_state_file(cm.task_path, cm.log_path, reason="exit_grace_task_done")
+                        _default_writer().delete_runtime_state(cm.task_path, cm.log_path, reason="exit_grace_task_done")
                     except OSError:
                         pass
                     timeline_instant(

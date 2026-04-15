@@ -13,14 +13,19 @@ if TYPE_CHECKING:
     from .request import TaskExecutionResult
     from .runtime import _ExecutionContext, _ResumeState
 
-from ...infra.io.atomic_io import write_json_atomic
 from ...observability import debug_log
 from ...log import log_event
 from ...agents.session_state import save_active_session, save_session_manifest
 from ..hooks import write_task_file
+from ..ports import TaskStateWriter
 from .request import TaskExecutionResult
 from ..task_status import TaskExecutionStatus
 from ..task_state import delete_runtime_state_file, read_task_active_seconds
+
+
+def _default_writer() -> TaskStateWriter:
+    from ...infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
+    return DEFAULT_TASK_STATE_WRITER
 
 _logger = logging.getLogger(__name__)
 
@@ -156,7 +161,7 @@ def init_task_file(
                     payload["worktree_path"] = ctx.worktree_path_value
                 payload["branch_name"] = str(payload.get("branch_name") or "")
                 payload["status"] = "active"
-                write_json_atomic(request.task_path, payload, ensure_ascii=False, indent=2)
+                _default_writer().write_json(request.task_path, payload, ensure_ascii=False, indent=2)
             except (OSError, json.JSONDecodeError, ValueError) as exc:
                 log_event(log_path, "WARN", "failed to enrich task state with worktree metadata", error=str(exc))
     if request.task_path.exists():

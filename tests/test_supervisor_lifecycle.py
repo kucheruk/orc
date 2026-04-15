@@ -335,7 +335,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
             with (
                 patch("orc_core.tasks.completion.checks._get_active_children_count", return_value=0),
                 patch("orc_core.tasks.completion.checks.TOOL_DIGESTION_GRACE_SECONDS", 5.0),
-                patch("orc_core.tasks.completion.lifecycle.is_pid_alive", return_value=True),
+                patch("orc_core.infra.process.process.is_pid_alive", return_value=True),
             ):
                 result = wait_for_completion(
                     task_path=task_path,
@@ -375,7 +375,7 @@ class SupervisorLifecycleTest(unittest.TestCase):
 
             with (
                 patch("orc_core.tasks.completion.checks._get_active_children_count", return_value=1),
-                patch("orc_core.tasks.completion.lifecycle.is_pid_alive", return_value=True),
+                patch("orc_core.infra.process.process.is_pid_alive", return_value=True),
             ):
                 result = wait_for_completion(
                     task_path=task_path,

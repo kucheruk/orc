@@ -8,11 +8,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from ...infra.io.atomic_io import write_json_atomic
 from ...log import log_event
+from ..ports import TaskStateWriter
 from .config import ETA_WINDOW_SIZE
 from .request import TaskExecutionRequest
 from .stage import TaskStageSpec
+
+
+def _default_writer() -> TaskStateWriter:
+    from ...infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
+    return DEFAULT_TASK_STATE_WRITER
 
 
 def _update_completion_stats(
@@ -22,10 +27,12 @@ def _update_completion_stats(
     task_path: Path,
     workdir: str,
     log_path: Path,
+    writer: Optional[TaskStateWriter] = None,
 ) -> None:
     """Record token usage and task duration in stats file (replaces stop hook stats logic)."""
     from ...infra.io.state_paths import stats_path as get_stats_path
     from ..task_state import read_task_active_seconds
+    writer = writer or _default_writer()
 
     stats_file = get_stats_path(workdir)
     try:
@@ -57,7 +64,7 @@ def _update_completion_stats(
         stats["active_seconds_total"] = float(stats.get("active_seconds_total", 0)) + float(duration_int)
 
     try:
-        write_json_atomic(stats_file, stats, ensure_ascii=False, indent=2)
+        writer.write_json(stats_file, stats, ensure_ascii=False, indent=2)
     except Exception as exc:
         log_event(log_path, "WARN", "failed to update completion stats", error=str(exc))
 

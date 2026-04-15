@@ -10,7 +10,8 @@ agents/, git/.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Protocol
+from pathlib import Path
+from typing import Any, Optional, Protocol
 
 
 # ── Monitor DTOs ────────────────────────────────────────────────────
@@ -112,3 +113,21 @@ class StreamMonitorProtocol(
 
     def maybe_report(self) -> None: ...
     def get_summary_text(self) -> str: ...
+
+
+# ── I/O ports ───────────────────────────────────────────────────────
+
+class TaskStateWriter(Protocol):
+    """Port for persisting task runtime state (json files, runtime markers)."""
+
+    def write_json(self, path: Path, payload: Any, *, ensure_ascii: bool = False, indent: int = 2) -> None: ...
+
+    def delete_runtime_state(self, task_path: Path, log_path: Path, *, reason: str) -> bool: ...
+
+
+# ── Process ports ───────────────────────────────────────────────────
+
+class ProcessProbe(Protocol):
+    """Port for querying process liveness — used by completion checks."""
+
+    def is_alive(self, pid: int) -> bool: ...
