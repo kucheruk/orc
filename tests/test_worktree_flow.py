@@ -45,6 +45,41 @@ class WorktreeFlowTest(unittest.TestCase):
         branch = worktree_flow.detect_base_branch("/tmp/repo")
         self.assertEqual(branch, "master")
 
+    @patch("pathlib.Path.write_text")
+    @patch("pathlib.Path.exists", return_value=False)
+    @patch("orc_core.git.worktree_flow.run_git")
+    def test_create_task_worktree_does_not_reset_existing_branch(
+        self, git_mock, _exists_mock, _write_text_mock,
+    ) -> None:
+        git_mock.side_effect = [
+            (False, "", "branch already exists", 128),
+            (True, "", "", 0),
+        ]
+
+        session = worktree_flow.create_task_worktree(
+            base_workdir="/tmp/repo",
+            task_id="TASK-001",
+            log_path=Path("/tmp/orc.log"),
+            main_branch="master",
+        )
+
+        self.assertEqual(session.branch_name, "orc/TASK-001")
+        self.assertEqual(len(git_mock.call_args_list), 2)
+        self.assertEqual(
+            git_mock.call_args_list[0],
+            unittest.mock.call(
+                "/tmp/repo",
+                ["git", "worktree", "add", "-b", "orc/TASK-001", session.worktree_path, "master"],
+            ),
+        )
+        self.assertEqual(
+            git_mock.call_args_list[1],
+            unittest.mock.call(
+                "/tmp/repo",
+                ["git", "worktree", "add", session.worktree_path, "orc/TASK-001"],
+            ),
+        )
+
     @patch("orc_core.git.worktree_flow.run_git")
     def test_cherry_pick_detects_conflict_by_unmerged_files(self, git_mock) -> None:
         git_mock.side_effect = [

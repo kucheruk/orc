@@ -184,19 +184,14 @@ def create_task_worktree(
         ["git", "worktree", "add", "-b", branch_name, str(worktree_path), main_branch],
     )
     if not ok:
-        # Branch may already exist from a crashed run — try without -b
+        # Branch may already exist from a crashed run — reattach it as-is.
+        # Never reset an existing task branch to main: that destroys unique
+        # commits and is exactly how cards end up with an empty diff vs base.
         ok2, _, stderr2, _ = run_git(
             base_workdir,
             ["git", "worktree", "add", str(worktree_path), branch_name],
         )
-        if ok2:
-            # Reset to main to be in sync
-            ok_reset, _, stderr_r, _ = run_git(str(worktree_path), ["git", "reset", "--hard", main_branch])
-            if not ok_reset:
-                raise RuntimeError(
-                    f"worktree reset to {main_branch} failed for {task_id}: {stderr_r.strip()[:200]}"
-                )
-        else:
+        if not ok2:
             raise RuntimeError(f"failed to create worktree: {stderr.strip()} / {stderr2.strip()}")
     # Write card ID ownership marker to prevent _safe_name collisions
     try:
