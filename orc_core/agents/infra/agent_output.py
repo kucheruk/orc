@@ -79,22 +79,39 @@ def process_agent_result(
     board: "KanbanBoard",
     card: KanbanCard,
     role: str,
+    *,
+    execution_workdir: str = "",
 ) -> list[str]:
     """Re-read card from disk (agent modified it), validate and apply transitions.
+
+    When execution_workdir is set (agent ran in a worktree), reads the card
+    from the worktree first — the agent edits its local copy, not the main
+    repo. Falls back to main repo if worktree copy is missing.
 
     Returns list of validation errors (empty = success).
     """
     with board.locked_card(card.id):
         file_path = card.file_path
-        if file_path is None or not file_path.exists():
-            # Card may have been moved by another agent/teamlead while this agent was running.
-            # Search by ID across all stage directories.
-            found = board.find_card_file(card.id)
-            if found is None:
-                return [f"Card file not found (checked all stages): {card.id}"]
-            _logger.info("Card %s moved during execution: %s → %s", card.id, file_path, found)
-            file_path = found
-            card.file_path = found
+
+        # Prefer worktree copy — agent edits relative to its CWD
+        worktree_card_path = None
+        if execution_workdir:
+            worktree_card_path = Path(execution_workdir) / "tasks" / card.stage / f"{card.id}.md"
+            if not worktree_card_path.exists():
+                # Agent may have used absolute path to main repo instead
+                worktree_card_path = None
+
+        if worktree_card_path is None:
+            if file_path is None or not file_path.exists():
+                found = board.find_card_file(card.id)
+                if found is None:
+                    return [f"Card file not found (checked all stages): {card.id}"]
+                _logger.info("Card %s moved during execution: %s → %s", card.id, file_path, found)
+                file_path = found
+                card.file_path = found
+        else:
+            file_path = worktree_card_path
+            _logger.info("Reading card %s from worktree: %s", card.id, worktree_card_path)
 
         updated = board.repo.read_card(file_path)
         errors = _validate_agent_changes(card, updated, role)

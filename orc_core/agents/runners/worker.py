@@ -213,12 +213,14 @@ class KanbanWorkerRunner:
                     )
                     return
                 elapsed = time.time() - task_start
+                from functools import partial
+                result_processor = partial(process_agent_result, execution_workdir=wd) if assignment.needs_worktree else process_agent_result
                 errors = process_completed_task(
                     board=self._distributor.board, card=card, role=role,
                     elapsed=elapsed, outcomes=self._outcomes,
                     publisher=self._publisher, notifier=self._notifier,
                     log_path=self._log_path,
-                    agent_result_processor=process_agent_result,
+                    agent_result_processor=result_processor,
                 )
                 if errors:
                     self._outcomes.record_failed(card.id)

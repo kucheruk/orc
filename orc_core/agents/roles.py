@@ -68,7 +68,8 @@ def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard",
         loader = default_template_loader()
     template = loader.load(role)
     card_content = _escape_braces(card.to_markdown())
-    card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
+    # Always use relative path — agent works in worktree with its own tasks/ dir
+    card_path = f"tasks/{card.stage}/{card.id}.md"
     board_summary = format_board_summary(board)
     worktree_ctx = _WORKTREE_CONTEXT.format(main_branch=main_branch)
     if git_context:
