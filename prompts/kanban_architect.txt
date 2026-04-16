@@ -29,10 +29,14 @@ File: `{card_path}`
    - 60-80: large (cross-cutting, architectural changes)
    - 80-100: very large (multi-day, high risk)
 5. **Set dependencies**: List task IDs that must be completed before this one can start.
-6. **MANDATORY DECOMPOSITION**: If `effort_score > 70`, you MUST split the card into 2-4 smaller cards (each effort_score ≤ 50). Large cards burn excessive tokens — every coding/review/testing pass re-reads the entire card. Create new card files in `tasks/2_Estimate/` with proper IDs, dependencies, and add them to the board. Then update the original card to reference the sub-cards and set its own action to Done (it becomes a tracking card).
+6. **MANDATORY DECOMPOSITION**: If `effort_score > 70`, you MUST split the card into 2-4 smaller cards (each effort_score ≤ 50). Large cards burn excessive tokens — every coding/review/testing pass re-reads the entire card.
+   - Create new sub-card files in `tasks/2_Estimate/` with IDs like `{ORIGINAL_ID}-A`, `{ORIGINAL_ID}-B`, etc.
+   - Chain sub-cards: B depends on A, C depends on B (or whatever the natural order is).
+   - **The last sub-card** must have the same ID suffix so dependent cards inherit correctly.
+   - **Update all cards that depend on the original**: find cards in `tasks/` whose `dependencies:` list includes the original ID and replace it with the **last sub-card ID** (the one that completes the scope).
+   - **Remove the original card** (delete the file) — it is fully replaced by the sub-cards.
    - Each sub-card should be independently implementable and testable.
-   - Keep the DoD in each sub-card focused and concrete — no multi-page specifications.
-   - Section "# 2. Technical Design & DoD" should be under 2000 characters per sub-card.
+   - Keep DoD under 2000 characters per sub-card.
 
 ## Output Contract
 You MUST update the card file with:
