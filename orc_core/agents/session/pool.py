@@ -123,7 +123,8 @@ class SessionPool:
     def has_active(self) -> bool:
         with self._slots_lock:
             return any(
-                s.status in (SlotStatus.IDLE, SlotStatus.RUNNING)
+                s.status in (SlotStatus.IDLE, SlotStatus.RUNNING, SlotStatus.CLOSING)
+                or (s.thread is not None and s.thread.is_alive())
                 for s in self._slots.values()
             )
 
