@@ -12,7 +12,7 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Label
 
-from ...board.action_constants import Action
+from ...board.action_constants import Action, ClassOfService
 from ...board.kanban_snapshot import CardSnapshot
 
 _SPINNER = "⣾⣽⣻⢿⡿⣟⣯⣷"
@@ -64,7 +64,7 @@ class KanbanCardWidget(Widget):
             self.remove_class(cls)
         if card.action == Action.BLOCKED:
             self.add_class("card-blocked")
-        elif card.class_of_service == "expedite":
+        elif card.class_of_service == ClassOfService.EXPEDITE:
             self.add_class("card-expedite")
         elif card.assigned_agent:
             self.add_class("card-active")

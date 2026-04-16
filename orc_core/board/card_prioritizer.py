@@ -7,12 +7,12 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from .kanban_card import KanbanCard
-from .action_constants import COS_PRIORITY
+from .action_constants import COS_PRIORITY, ClassOfService
 
 
 def priority_key(card: KanbanCard) -> tuple[int, str, float]:
     cos_rank = COS_PRIORITY.get(card.class_of_service, 9)
-    deadline = card.deadline if card.class_of_service == "fixed-date" else "9999-12-31"
+    deadline = card.deadline if card.class_of_service == ClassOfService.FIXED_DATE else "9999-12-31"
     return (cos_rank, deadline, -card.roi)
 
 

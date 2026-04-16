@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """Notification formatting for kanban card lifecycle events."""
 
+from .action_constants import ClassOfService
 from .kanban_card import SECTION_NOTES, KanbanCard
 from .stage_constants import STAGE_DONE, STAGE_SHORT_NAMES
 
@@ -53,7 +54,7 @@ def format_completion_message(
 
     # Only notify on meaningful transitions
     stage_changed = old_stage != new_stage
-    became_expedite = card.class_of_service == "expedite" and old_cos != "expedite"
+    became_expedite = card.class_of_service == ClassOfService.EXPEDITE and old_cos != ClassOfService.EXPEDITE
     is_done = new_stage == STAGE_DONE
 
     if not stage_changed and not became_expedite:

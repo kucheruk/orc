@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable
 
-from ..board.action_constants import COS_PRIORITY
+from ..board.action_constants import COS_PRIORITY, ClassOfService
 from ..board.kanban_card import SECTION_FEEDBACK
 from ..board.board_summary import format_board_summary
 from ..board.stage_constants import STAGES, STAGE_DONE
@@ -180,7 +180,7 @@ def _sanitize_cell(text: str) -> str:
 def _card_priority_key(card) -> tuple[int, str, float]:
     """Sort key: CoS rank → deadline → -ROI (highest priority first)."""
     cos_rank = COS_PRIORITY.get(card.class_of_service, 9)
-    deadline = card.deadline if card.class_of_service == "fixed-date" else "9999-12-31"
+    deadline = card.deadline if card.class_of_service == ClassOfService.FIXED_DATE else "9999-12-31"
     return (cos_rank, deadline, -card.roi)
 
 
