@@ -48,6 +48,11 @@ _DEFAULT_TOKENS_PER_EFFORT = TOKENS_PER_EFFORT_POINT  # effort_score * this = de
 _MIN_TOKEN_BUDGET = MIN_TOKEN_BUDGET  # guard against effort=0 / missing estimate
 
 
+def _card_state_fingerprint(card) -> tuple[str, str, str]:
+    path = str(card.file_path) if getattr(card, "file_path", None) else ""
+    return (card.stage, card.action, path)
+
+
 def _update_card_token_budget(card, board, log_path: Path) -> None:
     """Initialize or refresh the token budget for a card.
 
@@ -269,6 +274,7 @@ class KanbanWorkerRunner:
                 log_event(self._log_path, "WARN", "assignment aborted: card state changed",
                           task_id=card.id, action=fresh_card.action if fresh_card else "deleted")
                 return
+            launch_state = _card_state_fingerprint(fresh_card)
             if assignment.needs_worktree:
                 synced_path = sync_card_to_worktree(fresh_card, wd)
                 if synced_path is not None:
@@ -288,6 +294,32 @@ class KanbanWorkerRunner:
                                                               commit_phase, 1800.0))
 
             if result and result.status == TaskExecutionStatus.COMPLETED:
+                latest_card = self._distributor.board.card_by_id(card.id)
+                if latest_card is None or _card_state_fingerprint(latest_card) != launch_state:
+                    current_state = (
+                        _card_state_fingerprint(latest_card) if latest_card is not None else ("", "deleted", "")
+                    )
+                    self._publisher.emit(
+                        "system",
+                        card.id,
+                        f"{card.id} completed with stale agent output; discarding result after "
+                        f"state changed from {launch_state[:2]} to {current_state[:2]}",
+                    )
+                    log_event(
+                        self._log_path,
+                        "WARN",
+                        "discarded stale agent result after card state changed during execution",
+                        task_id=card.id,
+                        launched_stage=launch_state[0],
+                        launched_action=launch_state[1],
+                        current_stage=current_state[0],
+                        current_action=current_state[1],
+                    )
+                    token_card = latest_card if latest_card is not None else card
+                    _accumulate_card_tokens(token_card, self._distributor.board, self._workdir, self._log_path)
+                    _update_card_token_budget(token_card, self._distributor.board, self._log_path)
+                    _check_and_block_budget(token_card, self._distributor.board, self._publisher, self._log_path)
+                    return
                 # Post-agent verification: autocommit any uncommitted code
                 # left by the agent before checking delivery.
                 if assignment.needs_worktree and role in _DELIVERY_ROLES:
