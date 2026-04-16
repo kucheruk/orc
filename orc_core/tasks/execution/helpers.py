@@ -15,6 +15,64 @@ from .request import TaskExecutionRequest
 from .stage import TaskStageSpec
 
 
+def _load_stats(stats_file: Path) -> dict:
+    try:
+        return json.loads(stats_file.read_text(encoding="utf-8")) if stats_file.exists() else {}
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+
+
+def _ensure_stats_defaults(stats: dict) -> None:
+    stats.setdefault("tokens_total", 0)
+    stats.setdefault("tokens_by_task", {})
+    stats.setdefault("durations_by_task", {})
+    stats.setdefault("recent_durations", [])
+    stats.setdefault("active_seconds_total", 0.0)
+
+
+def _record_attempt_tokens(
+    *,
+    monitor,
+    task_id: str,
+    workdir: str,
+    log_path: Path,
+    writer: TaskStateWriter,
+    paths: StatePathsPort,
+) -> None:
+    """Record token usage for a single agent attempt (success or failure).
+
+    Designed to be safe to call after every launch_and_wait — captures tokens
+    even when the attempt ends in restart/stall/TTL/model_unavailable so that
+    the teamlead and budget checks see real cost of looping cards, not just
+    the final successful run.
+
+    Marks the monitor via a sentinel attribute so a subsequent call for the
+    same monitor instance is a no-op (prevents double counting when finalize
+    ultimately invokes _update_completion_stats for the successful attempt).
+    """
+    if monitor is None or not task_id:
+        return
+    if getattr(monitor, "_orc_tokens_recorded", False):
+        return
+    task_tokens = monitor.metrics.tokens_total
+    if task_tokens is None:
+        return
+    stats_file = paths.stats(workdir)
+    stats = _load_stats(stats_file)
+    _ensure_stats_defaults(stats)
+    prev = int(stats["tokens_by_task"].get(task_id, 0))
+    stats["tokens_by_task"][task_id] = prev + int(task_tokens)
+    stats["tokens_total"] = int(stats["tokens_total"]) + int(task_tokens)
+    try:
+        writer.write_json(stats_file, stats, ensure_ascii=False, indent=2)
+        try:
+            monitor._orc_tokens_recorded = True
+        except AttributeError:
+            pass
+    except Exception as exc:
+        log_event(log_path, "WARN", "failed to record attempt tokens", error=str(exc))
+
+
 def _update_completion_stats(
     *,
     monitor,
@@ -25,28 +83,25 @@ def _update_completion_stats(
     writer: TaskStateWriter,
     paths: StatePathsPort,
 ) -> None:
-    """Record token usage and task duration in stats file (replaces stop hook stats logic)."""
+    """Record token usage and task duration for the FINAL completion of a task.
+
+    Idempotent for tokens — if _record_attempt_tokens already wrote them for
+    this monitor, we skip token update here (sentinel on the monitor).
+    """
     from ..state import read_task_active_seconds
 
     stats_file = paths.stats(workdir)
-    try:
-        stats = json.loads(stats_file.read_text(encoding="utf-8")) if stats_file.exists() else {}
-    except (OSError, json.JSONDecodeError, ValueError):
-        stats = {}
-    stats.setdefault("tokens_total", 0)
-    stats.setdefault("tokens_by_task", {})
-    stats.setdefault("durations_by_task", {})
-    stats.setdefault("recent_durations", [])
-    stats.setdefault("active_seconds_total", 0.0)
+    stats = _load_stats(stats_file)
+    _ensure_stats_defaults(stats)
 
-    # Tokens — accumulate across multiple executions for the same card
-    task_tokens = monitor.metrics.tokens_total
-    if task_tokens is not None and task_id:
-        prev = int(stats["tokens_by_task"].get(task_id, 0))
-        stats["tokens_by_task"][task_id] = prev + int(task_tokens)
-        stats["tokens_total"] = int(stats["tokens_total"]) + int(task_tokens)
+    _record_attempt_tokens(
+        monitor=monitor, task_id=task_id, workdir=workdir,
+        log_path=log_path, writer=writer, paths=paths,
+    )
+    # Reload after the token write so duration update does not clobber it.
+    stats = _load_stats(stats_file)
+    _ensure_stats_defaults(stats)
 
-    # Duration
     duration = read_task_active_seconds(task_path, writer=writer, expected_task_id=task_id)
     if duration > 0 and task_id and task_id not in stats["durations_by_task"]:
         duration_int = max(int(duration), 0)
@@ -57,6 +112,8 @@ def _update_completion_stats(
         recent.append(duration_int)
         stats["recent_durations"] = recent[-ETA_WINDOW_SIZE:]
         stats["active_seconds_total"] = float(stats.get("active_seconds_total", 0)) + float(duration_int)
+    else:
+        return
 
     try:
         writer.write_json(stats_file, stats, ensure_ascii=False, indent=2)

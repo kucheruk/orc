@@ -20,7 +20,7 @@ from ..backlog.source import MarkdownTaskSource
 from ..status import TaskCompletionStatus, TaskExecutionStatus
 from ..ports import GitDiffProbe
 from .finalize import complete_stage as _complete_stage, finalize_completed as _finalize_completed
-from .helpers import _find_first_stage_index, _write_prompt_file
+from .helpers import _find_first_stage_index, _record_attempt_tokens, _write_prompt_file
 from .launch import launch_and_wait
 from .request import LaunchConfig, TaskExecutionResult
 from .restart_policy import RestartPolicy
@@ -148,6 +148,17 @@ def run_stage_loop(engine: "TaskExecutionEngine", ctx: _ExecutionContext, resume
                         elapsed_before_start=elapsed_before_start_stage,
                         ignore_initial_backlog_done=enforce_stage_artifacts and stage_index > 0,
                         attempt_number=attempt_number,
+                    )
+                    # Persist tokens as soon as the attempt ends — even on
+                    # restart/stall/TTL — so looping cards don't hide their
+                    # real cost from the teamlead and budget checks.
+                    _record_attempt_tokens(
+                        monitor=active_monitor,
+                        task_id=task_id,
+                        workdir=request.base_workdir or request.workdir,
+                        log_path=log_path,
+                        writer=request.state_writer,
+                        paths=request.state_paths,
                     )
                 except FileNotFoundError:
                     _logger.error("agent not found")
