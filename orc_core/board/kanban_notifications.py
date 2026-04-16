@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Notification formatting for kanban card lifecycle events."""
 
-from .kanban_card import KanbanCard
+from .kanban_card import SECTION_NOTES, KanbanCard
 from .stage_constants import STAGE_DONE, STAGE_SHORT_NAMES
 
 
@@ -13,7 +13,7 @@ def extract_card_summary(card: KanbanCard) -> str:
     in_section3 = False
     section3_lines: list[str] = []
     for line in body.splitlines():
-        if line.startswith("# 3."):
+        if line.startswith(SECTION_NOTES[:5]):  # "# 3." — robust match
             in_section3 = True
             continue
         if in_section3 and line.startswith("# "):

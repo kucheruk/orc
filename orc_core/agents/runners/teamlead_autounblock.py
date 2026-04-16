@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ...board.kanban_card import SECTION_DESIGN, SECTION_FEEDBACK, SECTION_NOTES, SECTION_PRODUCT
 from ...board.stage_constants import STAGE_DONE
 from ...board.use_cases.create_card import create_inbox_card
 from ...log import log_event
@@ -30,14 +31,14 @@ def resolve_cycle_with_decomposition(ctx, diagnostic) -> bool:
     if decomposition is None:
         decomposition = create_inbox_card(ctx.distributor.board, title)
         decomposition.body = (
-            "# 1. Product Requirements\n\n"
+            f"{SECTION_PRODUCT}\n\n"
             f"Break dependency cycle `{from_id} -> {to_id}` with explicit decomposition.\n"
             "- Define independent increments for both cards.\n"
             "- Agree minimal interface/event contract between them.\n"
             "- Remove cyclic coupling and update dependencies.\n\n"
-            "# 2. Technical Design & DoD\n\n(Architect fills)\n\n"
-            "# 3. Implementation Notes\n\n(Coder fills)\n\n"
-            "# 4. Feedback & Checklist\n\n(Reviewer/Tester fills)\n"
+            f"{SECTION_DESIGN}\n\n(Architect fills)\n\n"
+            f"{SECTION_NOTES}\n\n(Coder fills)\n\n"
+            f"{SECTION_FEEDBACK}\n\n(Reviewer/Tester fills)\n"
         )
         ctx.distributor.board.save_card(decomposition)
     changed = False
@@ -131,9 +132,8 @@ def _find_existing_cycle_card(cards, title: str):
 
 
 def _append_feedback(card, text: str) -> None:
-    marker = "# 4. Feedback & Checklist"
     body = card.body or ""
-    if marker in body:
+    if SECTION_FEEDBACK in body:
         card.body = body.rstrip() + f"\n\n{text}\n"
     else:
         card.body = body.rstrip() + f"\n\n{marker}\n\n{text}\n"

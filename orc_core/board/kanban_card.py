@@ -200,12 +200,19 @@ def validate_card(card: KanbanCard) -> list[str]:
     return card.validate()
 
 
+# Card body section headers — SSOT for all section references
+SECTION_PRODUCT = "# 1. Product Requirements"
+SECTION_DESIGN = "# 2. Technical Design & DoD"
+SECTION_NOTES = "# 3. Implementation Notes"
+SECTION_FEEDBACK = "# 4. Feedback & Checklist"
+
+
 def new_card_body() -> str:
     return (
-        "# 1. Product Requirements\n\n\n"
-        "# 2. Technical Design & DoD\n\n\n"
-        "# 3. Implementation Notes\n\n\n"
-        "# 4. Feedback & Checklist\n"
+        f"{SECTION_PRODUCT}\n\n\n"
+        f"{SECTION_DESIGN}\n\n\n"
+        f"{SECTION_NOTES}\n\n\n"
+        f"{SECTION_FEEDBACK}\n"
     )
 
 

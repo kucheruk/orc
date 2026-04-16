@@ -62,6 +62,7 @@ class Incident:
 
 # ── Prompt builder ────────────────────────────────────────────────
 
+from ..board.kanban_card import SECTION_DESIGN, SECTION_FEEDBACK, SECTION_NOTES, SECTION_PRODUCT
 from ..board.kanban_role_registry import ROLE_CODER, ROLE_TEAMLEAD_TRIAGE
 
 _FRONT_RE = re.compile(r"\A---\n(.*?\n?)---\n?(.*)", re.DOTALL)
@@ -152,18 +153,18 @@ def parse_incident_decision_text(text: str, source: str = "<decision>") -> Triag
 def fallback_decision(incident: Incident) -> TriageDecision:
     """Generate a fallback decision when AI triage fails."""
     body = (
-        f"# 1. Product Requirements\n\n"
+        f"{SECTION_PRODUCT}\n\n"
         f"An error occurred while processing task {incident.source_task_id}.\n"
         f"Error type: {incident.error_type}\n"
         f"Error: {incident.error_message}\n\n"
         f"The fix must resolve this error so the task can proceed.\n\n"
-        f"# 2. Technical Design & DoD\n\n"
+        f"{SECTION_DESIGN}\n\n"
         f"- [ ] Investigate the error traceback below\n"
         f"- [ ] Fix the root cause\n"
         f"- [ ] Verify the fix by running tests\n\n"
         f"Traceback:\n```\n{incident.traceback[:1500]}\n```\n\n"
-        f"# 3. Implementation Notes\n\n\n"
-        f"# 4. Feedback & Checklist\n"
+        f"{SECTION_NOTES}\n\n\n"
+        f"{SECTION_FEEDBACK}\n"
     )
     return TriageDecision(
         classification="project",

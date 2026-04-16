@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 from ..board.action_constants import COS_PRIORITY
+from ..board.kanban_card import SECTION_FEEDBACK
 from ..board.board_summary import format_board_summary
 from ..board.stage_constants import STAGES, STAGE_DONE
 from ..board.kanban_role_registry import (
@@ -196,11 +197,7 @@ def _truncate_card_for_prompt(card_md: str) -> str:
     if len(card_md) <= _CARD_PROMPT_MAX_CHARS:
         return card_md
     # Try to find section 4 and truncate just that
-    marker = "# 4. Feedback"
-    idx = card_md.find(marker)
-    if idx == -1:
-        marker = "# 4."
-        idx = card_md.find(marker)
+    idx = card_md.find(SECTION_FEEDBACK)
     if idx != -1:
         head = card_md[:idx]
         tail = card_md[idx:]
@@ -233,7 +230,7 @@ def _mode_arbitration(card, agent_log_path, **_kw) -> tuple[str, str]:
         f"This card has bounced **{card.loop_count}** times between roles.\n"
         f"File: `{card_path}`\n"
         f"````\n{card_content}\n````\n\n"
-        f"Read feedback in section \"# 4. Feedback & Checklist\", analyze the conflict.\n"
+        f"Read feedback in section \"{SECTION_FEEDBACK}\", analyze the conflict.\n"
         f"Use `set_action` + `write_feedback` in the decision file to resolve — "
         f"do NOT edit the card file directly."
         f"{log_hint}"
