@@ -13,7 +13,6 @@ from ...board.kanban_role_registry import ROLE_INTEGRATOR
 from ...board.action_constants import Action
 from ...board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_INBOX, STAGE_ORDER, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
 from ...board.state_machine import FORWARD_MOVES, IDENTITY_DEFAULTS, LOOP_BACK_ACTIONS, VALID_TRANSITIONS
-from ...git.worktree_flow import _safe_name
 
 if TYPE_CHECKING:
     from ...board.kanban_board import KanbanBoard
@@ -44,8 +43,8 @@ def _is_branch_integrated(base_workdir: str, card_id: str, main_branch: str) -> 
     Three-dot diff (main...branch) does NOT work here because squash-merge
     doesn't make the branch an ancestor of main.
     """
-    from ...git.worktree_flow import run_git
-    branch_name = f"orc/{_safe_name(card_id)}"
+    from ...git.worktree_flow import run_git, task_branch_name
+    branch_name = task_branch_name(card_id)
     # Check if branch exists; if not, it was never created (non-code card) → OK
     ok, _, _, _ = run_git(base_workdir, ["git", "show-ref", "--verify", f"refs/heads/{branch_name}"])
     if not ok:

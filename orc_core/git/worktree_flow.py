@@ -17,6 +17,14 @@ def _safe_name(value: str, limit: int = 64) -> str:
     return cleaned[:limit]
 
 
+_BRANCH_PREFIX = "orc/"
+
+
+def task_branch_name(task_id: str) -> str:
+    """Canonical branch name for a task — single source of truth."""
+    return f"{_BRANCH_PREFIX}{_safe_name(task_id)}"
+
+
 
 _is_runtime_artifact_path = is_runtime_artifact
 _is_integration_safe_untracked = is_runtime_artifact
@@ -140,7 +148,7 @@ def create_task_worktree(
     main_branch: str = "main",
 ) -> WorktreeSession:
     safe_task = _safe_name(task_id)
-    branch_name = f"orc/{safe_task}"
+    branch_name = task_branch_name(task_id)
     worktree_root = worktrees_root(base_workdir)
     worktree_root.mkdir(parents=True, exist_ok=True)
     worktree_path = worktree_root / safe_task

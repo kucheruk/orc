@@ -68,7 +68,7 @@ def cleanup_done_worktrees(
 ) -> None:
     """Remove worktrees for cards that reached Done."""
     from ...git.git_dto import WorktreeSession
-    from ...git.worktree_flow import _safe_name, cleanup_task_worktree
+    from ...git.worktree_flow import _safe_name, cleanup_task_worktree, task_branch_name
     from ...infra.io.state_paths import worktrees_root
 
     wt_root = worktrees_root(workdir)
@@ -82,7 +82,7 @@ def cleanup_done_worktrees(
             session = WorktreeSession(
                 base_workdir=workdir,
                 worktree_path=str(wt_path),
-                branch_name=f"orc/{safe}",
+                branch_name=task_branch_name(card_id),
                 task_id=card_id,
             )
             try:

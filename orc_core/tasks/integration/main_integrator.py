@@ -34,8 +34,8 @@ def handle_main_integration(
         return None
 
     # Resolve task branch name
-    from ...git.worktree_flow import _safe_name
-    branch_name = f"orc/{_safe_name(current_task_id)}"
+    from ...git.worktree_flow import task_branch_name
+    branch_name = task_branch_name(current_task_id)
 
     with timeline_step(
         timeline_id=timeline_id,
