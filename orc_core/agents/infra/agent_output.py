@@ -111,7 +111,19 @@ def process_agent_result(
     with board.locked_card(card.id):
         file_path = card.file_path
 
-        # Prefer worktree copy — agent edits relative to its CWD
+        # Always resolve the CANONICAL base-repo path by stage/id. Teamlead
+        # may have moved the card while the agent was running; trusting the
+        # pre-run file_path would write to a stale location.
+        canonical_path = board.find_card_file(card.id)
+        if canonical_path is not None:
+            if file_path != canonical_path:
+                _logger.info("Card %s moved during execution: %s → %s", card.id, file_path, canonical_path)
+            file_path = canonical_path
+            card.file_path = canonical_path
+
+        # Prefer worktree copy for READING the agent's edits — agent edits
+        # relative to its CWD. Writes still go to the canonical path resolved
+        # above, not the worktree path.
         worktree_card_path = None
         if execution_workdir:
             # Card may be in any stage dir in the worktree (worktree branch
@@ -124,17 +136,12 @@ def process_agent_result(
                     worktree_card_path = candidate
                     break
 
-        if worktree_card_path is None:
-            if file_path is None or not file_path.exists():
-                found = board.find_card_file(card.id)
-                if found is None:
-                    return [f"Card file not found (checked all stages): {card.id}"]
-                _logger.info("Card %s moved during execution: %s → %s", card.id, file_path, found)
-                file_path = found
-                card.file_path = found
-        else:
-            file_path = worktree_card_path
+        read_path = worktree_card_path if worktree_card_path is not None else file_path
+        if read_path is None or not read_path.exists():
+            return [f"Card file not found (checked all stages): {card.id}"]
+        if worktree_card_path is not None:
             _logger.info("Reading card %s from worktree: %s", card.id, worktree_card_path)
+        file_path = read_path
 
         try:
             updated = board.repo.read_card(file_path)
