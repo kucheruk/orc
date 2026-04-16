@@ -245,6 +245,44 @@ class TestWorktreeFlag(unittest.TestCase):
             self.assertFalse(result.needs_worktree)
 
 
+class TestOrphanedBudgetReset(unittest.TestCase):
+    """Non-BLOCKED exhausted cards must have tokens_spent reset so pick_best sees them."""
+
+    def test_non_blocked_exhausted_card_gets_tokens_reset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            _add(td, KanbanCard(
+                id="OB-1", stage="5_Review", action="Reviewing",
+                effort_score=64,
+                tokens_spent=400_000, token_budget=320_000,
+            ))
+            board = KanbanBoard(td, repo=FsCardRepository())
+
+            find_next_work(board)
+
+            card = board.card_by_id("OB-1")
+            self.assertEqual(card.action, "Reviewing")
+            self.assertEqual(card.tokens_spent, 0)
+            self.assertFalse(card.is_budget_exhausted)
+
+    def test_blocked_exhausted_card_is_not_reset(self):
+        """Blocked cards stay exhausted until teamlead explicitly unblocks them."""
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            _add(td, KanbanCard(
+                id="OB-2", stage="5_Review", action="Blocked",
+                effort_score=64,
+                tokens_spent=400_000, token_budget=320_000,
+            ))
+            board = KanbanBoard(td, repo=FsCardRepository())
+
+            find_next_work(board)
+
+            card = board.card_by_id("OB-2")
+            self.assertEqual(card.tokens_spent, 400_000,
+                              "Blocked card must retain its exhaustion until teamlead acts.")
+
+
 class TestAutoArchiveDecomposedParents(unittest.TestCase):
     """find_next_work must retire parent cards whose sub-cards already exist.
 

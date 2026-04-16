@@ -46,7 +46,14 @@ def find_next_work(board: "KanbanBoard") -> Optional[WorkAssignment]:
     #     re-pulling the parent and burns tokens in a decomposition death loop.
     _auto_archive_decomposed_parents(board)
 
-    # 0b. Auto-promote: move Estimate→Todo cards whose deps are now met.
+    # 0b. Defensive budget reset: if a card is budget-exhausted but not
+    #     currently Blocked, something unblocked it (teamlead arbitration, a
+    #     manual move, ...) without refreshing tokens_spent. pick_best filters
+    #     exhausted cards, so the 'unblocked' card would be stuck invisible.
+    #     Treat non-BLOCKED + exhausted as a recovery signal and drain tokens.
+    _reset_orphaned_exhausted_budgets(board)
+
+    # 0c. Auto-promote: move Estimate→Todo cards whose deps are now met.
     #     Runs FIRST so promoted cards are immediately visible to the pull scan.
     _auto_promote_estimate(board)
 
@@ -155,6 +162,35 @@ def _auto_archive_decomposed_parents(board: "KanbanBoard") -> None:
         board.move_card(parent, STAGE_DONE, allow_backward=False,
                          reason="auto-archive: decomposed into sub-cards")
         board.save_card(parent)
+
+
+def _reset_orphaned_exhausted_budgets(board: "KanbanBoard") -> None:
+    """Drain tokens_spent on non-BLOCKED cards that are still budget-exhausted.
+
+    Invariant: if action != BLOCKED, the card is supposed to be eligible for
+    pick_best. A card can escape BLOCKED without its tokens_spent being reset
+    (e.g. teamlead arbitration written by an older ORC version, a manual
+    action edit in the card file, or a future role with a legitimate unblock
+    action). When that happens, `card_prioritizer.pick_best` silently drops
+    the card because `is_budget_exhausted` is True, and the board stalls.
+
+    Rather than extend the special-case logic across every unblock path,
+    enforce the invariant once per pull: any non-BLOCKED card whose budget
+    is exhausted gets tokens_spent=0.
+    """
+    for card in board.cards:
+        if card.action == Action.BLOCKED:
+            continue
+        if not card.is_budget_exhausted:
+            continue
+        _pull_logger.warning(
+            "Orphaned exhausted budget on %s (action=%s, tokens_spent=%d, "
+            "token_budget=%d) — resetting tokens_spent to 0 so pick_best "
+            "can see the card.",
+            card.id, card.action, card.tokens_spent, card.token_budget,
+        )
+        card.tokens_spent = 0
+        board.save_card(card)
 
 
 def _auto_promote_estimate(board: "KanbanBoard") -> None:
