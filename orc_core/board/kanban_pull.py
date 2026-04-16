@@ -106,12 +106,13 @@ def _auto_promote_estimate(board: "KanbanBoard") -> None:
         return
     for card in board.cards_with_action(STAGE_ESTIMATE, Action.CODING):
         if card.effort_score > DECOMPOSITION_EFFORT_THRESHOLD:
+            previous_effort = card.effort_score
+            _pull_logger.warning(
+                "Blocked %s from Todo: effort_score %d > %d, sent back to Architect for decomposition",
+                card.id, previous_effort, DECOMPOSITION_EFFORT_THRESHOLD)
             card.action = Action.ARCHITECT
             card.effort_score = 0
             board.save_card(card)
-            _pull_logger.warning(
-                "Blocked %s from Todo: effort_score %d > %d, sent back to Architect for decomposition",
-                card.id, card.effort_score, DECOMPOSITION_EFFORT_THRESHOLD)
             continue
         if not board.has_unmet_dependencies(card):
             board.move_card(card, STAGE_TODO, reason="pull: deps now met")
