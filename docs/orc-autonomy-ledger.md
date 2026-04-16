@@ -74,6 +74,30 @@ ORC operates as an autonomous delivery system with:
 - stale assignment/worktree orphan: observed 2026-04-15. **Fixed**: lockfile + orphan sweep.
 - token burn without merge progress: observed 2026-04-16. **Fixed**: code-changes gate prevents card-only cycling.
 
+### 2026-04-16T08:35:00Z - UX-001 branch reset lost code
+
+- Timestamp: 2026-04-16 08:35 local
+- Symptom: UX-001 in Review with zero code diff vs master; reviewer correctly blocked it.
+- Impact: completed design system work (79 files, 1721 insertions) was invisible on master.
+- Root cause: remediation step `git branch -f orc/UX-001 master` destroyed code commits. UX-001 had real code (commits 6d004c2, 11204ab) but was lumped with PLAT-004/EXTR-001 (which genuinely had no code).
+- Fix (manual): restored branch from reflog (`55d14b3`), resolved merge conflicts, fixed test compatibility with master infrastructure, integrated to master.
+- Verification: `dotnet build` passes, all 5 tests pass, UX-001 in Done with integrated code.
+- Regression test added: no — root cause was operator error during remediation, not ORC logic.
+- Residual risk: future remediations must check `git diff --stat master..branch -- . ':!tasks/'` before resetting.
+- **Status: RESOLVED**
+
+### 2026-04-16T08:33:00Z - TL agent generates false "model_unavailable" alert
+
+- Timestamp: 2026-04-16 08:33 local
+- Symptom: Telegram alert "model_unavailable outcomes are occupying Coding slots" — no actual model availability issue.
+- Impact: operator confusion; false alert suggesting infrastructure problem.
+- Root cause: TL agent hallucinated "model_unavailable" as diagnosis for stuck cards (UX-001/PLAT-004/EXTR-001 with no code progress).
+- Fix: TODO — constrain TL prompt to report observed data, not invent system-level diagnoses.
+- Verification: pending.
+- Regression test added: no — prompt issue.
+- Residual risk: medium — false alerts erode operator trust.
+- **Status: OPEN**
+
 ## Active Hypotheses
 
 - hypothesis: with `has_code_changes_ahead` gate, ORC will fail fast on card-only agent runs and retry with clearer escalation signal.
@@ -85,6 +109,8 @@ ORC operates as an autonomous delivery system with:
 - [x] add deterministic regression test for detached orchestrator detection/ownership handoff
 - [x] add deterministic no-progress guard for card-only commit cycles
 - [x] verify all `8_Done` cards map to integrated code on `master` (done: audit found 3 false, remediated)
+- [x] restore UX-001 code and integrate to master (done: reflog recovery + merge + test fix)
+- [ ] fix TL prompt to prevent hallucinated system diagnostics (model_unavailable false alarm)
 - [ ] monitor two additional control cycles for flow/integration signal
 - [ ] evaluate whether reviewer/tester roles also need code-change gates (currently only delivery roles checked)
 
