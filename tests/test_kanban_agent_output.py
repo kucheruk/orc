@@ -272,6 +272,68 @@ class TestIntegrationGate(unittest.TestCase):
             self.assertEqual(updated.action, "Done")
 
 
+class TestTeamleadUnblockResetsBudget(unittest.TestCase):
+    """Teamlead arbitration on a blocked card must restore pick_best eligibility."""
+
+    def test_teamlead_unblock_resets_tokens_spent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            # Card is budget-exhausted and blocked.
+            card = _add(td, KanbanCard(
+                id="TL-1", stage="5_Review", action="Blocked",
+                effort_score=64,
+                tokens_spent=400_000, token_budget=320_000,
+            ))
+            board = KanbanBoard(td, repo=FsCardRepository())
+            original = KanbanCard(
+                id="TL-1", stage="5_Review", action="Blocked",
+                effort_score=64,
+                tokens_spent=400_000, token_budget=320_000,
+                file_path=card.file_path,
+            )
+
+            # Teamlead arbitrates: unblock back to Reviewing.
+            card.action = "Reviewing"
+            write_card(card)
+
+            errors = process_agent_result(board, original, "teamlead")
+            self.assertEqual(errors, [])
+            updated = board.card_by_id("TL-1")
+            self.assertEqual(updated.action, "Reviewing")
+            # Budget must be drained so pick_best sees the card again.
+            self.assertFalse(
+                updated.is_budget_exhausted,
+                "Teamlead unblock must reset tokens_spent below token_budget.",
+            )
+            self.assertEqual(updated.tokens_spent, 0)
+
+    def test_teamlead_keeps_budget_if_not_exhausted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            # Card is blocked but budget NOT exhausted (e.g. dependency block).
+            card = _add(td, KanbanCard(
+                id="TL-2", stage="5_Review", action="Blocked",
+                effort_score=64,
+                tokens_spent=50_000, token_budget=320_000,
+            ))
+            board = KanbanBoard(td, repo=FsCardRepository())
+            original = KanbanCard(
+                id="TL-2", stage="5_Review", action="Blocked",
+                effort_score=64,
+                tokens_spent=50_000, token_budget=320_000,
+                file_path=card.file_path,
+            )
+
+            card.action = "Reviewing"
+            write_card(card)
+
+            errors = process_agent_result(board, original, "teamlead")
+            self.assertEqual(errors, [])
+            updated = board.card_by_id("TL-2")
+            # No reset needed — tokens_spent preserved.
+            self.assertEqual(updated.tokens_spent, 50_000)
+
+
 class TestKanbanTaskSource(unittest.TestCase):
 
     def test_list_tasks(self):

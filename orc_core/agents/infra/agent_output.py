@@ -203,6 +203,23 @@ def process_agent_result(
         updated.tokens_spent = card.tokens_spent
         updated.token_budget = card.token_budget
 
+        # Teamlead unblock must clear budget exhaustion — otherwise the card
+        # stays out of pick_best's candidate pool (card_prioritizer filters
+        # `is_budget_exhausted`). Arbitration IS a fresh start: teamlead has
+        # looked at the evidence and decided the card deserves another run.
+        if (
+            role == "teamlead"
+            and old_action == Action.BLOCKED
+            and new_action != Action.BLOCKED
+            and card.is_budget_exhausted
+        ):
+            _logger.info(
+                "Teamlead arbitration unblocked %s — resetting tokens_spent "
+                "so the card is eligible for pick_best again.",
+                card.id,
+            )
+            updated.tokens_spent = 0
+
         # Recompute ROI in case value/effort changed
         updated.refresh_roi()
         updated.touch()
