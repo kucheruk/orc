@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Optional
 
 from ..board.action_constants import Action
-from ..board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_REVIEW
+from ..board.stage_constants import STAGE_CODING, STAGE_DONE
+from ..board.state_machine import ROLE_PLACEMENT
 from ..log import log_event
 from ..tasks.dto import Task
 from ..board.use_cases.create_card import create_expedite_card
@@ -123,13 +124,7 @@ def handle_inject_fix(ctx, incident: Incident) -> Incident:
     base = incident.source_task_id or "unknown"
     fix_card_id = f"{FIX_CARD_PREFIX}{base}-{incident.id}"
 
-    _ROLE_PLACEMENT: dict[str, tuple[str, str]] = {
-        "coder":      (STAGE_CODING,   Action.CODING),
-        "architect":  (STAGE_ESTIMATE, Action.ARCHITECT),
-        "reviewer":   (STAGE_REVIEW,   Action.REVIEWING),
-        "integrator": (STAGE_HANDOFF,  Action.INTEGRATING),
-    }
-    stage, action = _ROLE_PLACEMENT.get(incident.target_role, (STAGE_CODING, Action.CODING))
+    stage, action = ROLE_PLACEMENT.get(incident.target_role, (STAGE_CODING, Action.CODING))
 
     create_expedite_card(
         board,

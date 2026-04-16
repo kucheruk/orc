@@ -124,7 +124,21 @@ def _build_loop_back_actions() -> frozenset[str]:
     return frozenset(t.to_action for t in TRANSITIONS if t.loop_back)
 
 
+def _build_role_placement() -> dict[str, tuple[str, str]]:
+    """Build {role: (stage, action)} — where a role's cards normally live.
+
+    Picks the first non-None from_stage per role as the canonical placement.
+    Used by incident system to inject fix cards at the right stage.
+    """
+    result: dict[str, tuple[str, str]] = {}
+    for t in TRANSITIONS:
+        if t.role not in result and t.from_stage is not None:
+            result[t.role] = (t.from_stage, t.from_action)
+    return result
+
+
 VALID_TRANSITIONS = _build_valid_transitions()
 FORWARD_MOVES = _build_forward_moves()
 IDENTITY_DEFAULTS = _build_identity_defaults()
 LOOP_BACK_ACTIONS = _build_loop_back_actions()
+ROLE_PLACEMENT = _build_role_placement()
