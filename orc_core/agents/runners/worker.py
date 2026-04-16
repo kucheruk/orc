@@ -11,10 +11,11 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
+from ...board.action_constants import Action
 from ...config import OrcConfig
 from ...tasks.completion.outcomes import TaskOutcomeTracker
 from ...git.integration_manager import IntegrationManager
-from ...git.git_helpers import git_run, has_code_changes_ahead, has_commits_ahead_of_branch
+from ...git.git_helpers import attempt_autocommit_fallback, git_run, has_code_changes_ahead, has_commits_ahead_of_branch
 from ...board.kanban_role_registry import ROLE_CODER, ROLE_INTEGRATOR, ROLE_REVIEWER, ROLE_TESTER
 from ...board.stage_constants import STAGE_DONE
 from ...tasks.status import TaskExecutionStatus
@@ -38,6 +39,74 @@ from ...git.worktree_flow import cleanup_task_worktree, create_task_worktree
 
 _logger = logging.getLogger(__name__)
 _DELIVERY_ROLES = frozenset({ROLE_CODER, ROLE_REVIEWER, ROLE_TESTER})
+
+
+_DEFAULT_TOKENS_PER_EFFORT = 5000  # effort_score * this = default budget
+
+
+def _update_card_token_budget(card, board, log_path: Path) -> None:
+    """Set initial token budget from effort_score if not yet set."""
+    if card.token_budget == 0 and card.effort_score > 0:
+        card.token_budget = card.effort_score * _DEFAULT_TOKENS_PER_EFFORT
+        board.save_card(card)
+        log_event(log_path, "INFO", "token budget initialized",
+                  task_id=card.id, budget=card.token_budget, effort=card.effort_score)
+
+
+def _accumulate_card_tokens(card, board, workdir: str, log_path: Path) -> None:
+    """Read per-task token usage from stats file and update card.tokens_spent."""
+    import json
+    from ...infra.io.state_paths import stats_path
+    stats_file = stats_path(workdir)
+    if not stats_file.exists():
+        return
+    try:
+        stats = json.loads(stats_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    tokens_by_task = stats.get("tokens_by_task", {})
+    task_tokens = tokens_by_task.get(card.id, 0)
+    if task_tokens and int(task_tokens) > card.tokens_spent:
+        card.tokens_spent = int(task_tokens)
+        board.save_card(card)
+
+
+def _check_and_block_budget(card, board, publisher, log_path: Path) -> bool:
+    """Block card if token budget is exhausted. Returns True if blocked."""
+    if not card.is_budget_exhausted:
+        return False
+    reason = f"token budget exhausted: {card.tokens_spent}/{card.token_budget}"
+    log_event(log_path, "WARN", "card blocked: token budget exhausted",
+              task_id=card.id, tokens_spent=card.tokens_spent, token_budget=card.token_budget)
+    publisher.emit("escalate", card.id, f"{card.id} BLOCKED: {reason}")
+    card.block(reason)
+    board.save_card(card)
+    return True
+
+
+def _verify_and_commit_uncommitted(
+    workdir: str, main_branch: str, log_path: Path, task_id: str, task_text: str,
+) -> None:
+    """Autocommit any uncommitted source code left by the agent.
+
+    This runs BEFORE the delivery check so that has_code_changes_ahead()
+    sees committed changes and the code is preserved in the branch.
+    """
+    ok, porcelain, _, _ = git_run(
+        workdir, log_path, ["git", "status", "--porcelain"], label="verify:uncommitted_check",
+    )
+    if not ok or not porcelain:
+        return
+    from ...git.git_helpers import parse_git_porcelain
+    tracked, untracked = parse_git_porcelain(porcelain)
+    code_dirty = [p for p in tracked + untracked
+                  if not p.startswith("tasks/") and not p.startswith(".orc/")
+                  and not p.startswith(".cursor/") and "__pycache__" not in p]
+    if not code_dirty:
+        return
+    log_event(log_path, "WARN", "post-agent verification: uncommitted code found, autocommitting",
+              task_id=task_id, count=len(code_dirty), sample=code_dirty[:5])
+    attempt_autocommit_fallback(workdir, log_path, task_id, task_text)
 
 
 def _gather_git_context(workdir: str, main_branch: str, log_path: Path) -> str:
@@ -77,8 +146,6 @@ def _gather_git_context(workdir: str, main_branch: str, log_path: Path) -> str:
 
 class KanbanWorkerRunner:
     """Runs worker agent loops: pick task, execute, handle results."""
-
-    _FAIL_BLOCK_THRESHOLD = 2  # consecutive failures before auto-blocking a card
 
     def __init__(
         self,
@@ -174,14 +241,37 @@ class KanbanWorkerRunner:
             else:
                 wd = self._workdir
             git_context = _gather_git_context(wd, self._main_branch, self._log_path) if assignment.needs_worktree else ""
-            prompt = build_prompt(role, card, self._distributor.board, main_branch=self._main_branch, git_context=git_context)
+            # Re-read card from board to detect concurrent modifications
+            # (e.g., teamlead blocked or moved the card while worktree was being created)
+            fresh_card = self._distributor.board.card_by_id(card.id)
+            if fresh_card is None or fresh_card.action == Action.BLOCKED:
+                _logger.warning("Card %s was modified before agent launch (action=%s), aborting assignment",
+                                card.id, fresh_card.action if fresh_card else "DELETED")
+                log_event(self._log_path, "WARN", "assignment aborted: card state changed",
+                          task_id=card.id, action=fresh_card.action if fresh_card else "deleted")
+                return
+            prompt = build_prompt(role, fresh_card, self._distributor.board, main_branch=self._main_branch, git_context=git_context)
             task = Task(task_id=card.id, text=card.title or card.id, done=False)
             slot.task = task
             self._publisher.emit("system", card.id, f"{card.id} launching {role} agent...")
             commit_phase = self._config.commit_phase and assignment.needs_worktree
             result = self._engine.execute(self._state_manager.make_request(task, prompt, wd, sid,
                                                               commit_phase, 1800.0))
+            # Token budget: initialize and track
+            _update_card_token_budget(card, self._distributor.board, self._log_path)
+            # Read tokens from stats file and update card
+            _accumulate_card_tokens(card, self._distributor.board, self._workdir, self._log_path)
+            # Block if budget exhausted
+            if _check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path):
+                return
+
             if result and result.status == TaskExecutionStatus.COMPLETED:
+                # Post-agent verification: autocommit any uncommitted code
+                # left by the agent before checking delivery.
+                if assignment.needs_worktree and role in _DELIVERY_ROLES:
+                    _verify_and_commit_uncommitted(
+                        wd, self._main_branch, self._log_path, card.id, card.title or card.id,
+                    )
                 if (
                     assignment.needs_worktree
                     and role in _DELIVERY_ROLES
@@ -214,7 +304,7 @@ class KanbanWorkerRunner:
                     return
                 elapsed = time.time() - task_start
                 from functools import partial
-                result_processor = partial(process_agent_result, execution_workdir=wd) if assignment.needs_worktree else process_agent_result
+                result_processor = partial(process_agent_result, execution_workdir=wd, main_branch=self._main_branch) if assignment.needs_worktree else partial(process_agent_result, main_branch=self._main_branch)
                 errors = process_completed_task(
                     board=self._distributor.board, card=card, role=role,
                     elapsed=elapsed, outcomes=self._outcomes,

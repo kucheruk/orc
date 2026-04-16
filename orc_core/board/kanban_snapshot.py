@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from .action_constants import Action
 from .stage_constants import STAGES, STAGE_DONE
 
 if TYPE_CHECKING:
@@ -127,7 +128,7 @@ def build_board_snapshot(
         total += count
         if stage_name == STAGE_DONE:
             done_count = count
-        blocked_count += sum(1 for c in cards_in_stage if c.action == "Blocked")
+        blocked_count += sum(1 for c in cards_in_stage if c.action == Action.BLOCKED)
         stages.append(StageSnapshot(
             name=stage_name,
             cards=tuple(card_snaps),

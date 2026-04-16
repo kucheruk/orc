@@ -766,9 +766,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertTrue(isinstance(launch_path, str) and launch_path.endswith(".log"))
         self.assertIn(".orc/run/raw-stream/", launch_path)
 
-    @patch("orc_core.tasks.integration.main_integrator.integrate_commit_into_main")
+    @patch("orc_core.tasks.integration.main_integrator.merge_task_branch_into_main")
     @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=False)
-    @patch("orc_core.tasks.integration.main_integrator.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
@@ -784,12 +783,12 @@ class TaskExecutionEngineTest(unittest.TestCase):
             result = engine.execute(request)
 
         self.assertEqual(result.status, "completed")
-        main_integrator.integrate_commit_into_main.assert_not_called()
+        main_integrator.merge_task_branch_into_main.assert_not_called()
 
     @patch("orc_core.tasks.integration.main_integrator.run_merge_expert_phase", return_value=True)
-    @patch("orc_core.tasks.integration.main_integrator.integrate_commit_into_main")
+    @patch("orc_core.tasks.integration.main_integrator.abort_merge")
+    @patch("orc_core.tasks.integration.main_integrator.merge_task_branch_into_main")
     @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.tasks.integration.main_integrator.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
@@ -800,7 +799,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         *_mocks,
     ) -> None:
         mock_preflight.return_value = _fake_preflight(ok=True, error="")
-        main_integrator.integrate_commit_into_main.side_effect = [
+        main_integrator.merge_task_branch_into_main.side_effect = [
             SimpleNamespace(ok=False, conflict=True, error="conflict"),
             SimpleNamespace(ok=True, conflict=False, error=""),
         ]
@@ -813,7 +812,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             result = engine.execute(request)
 
         self.assertEqual(result.status, "completed")
-        self.assertEqual(main_integrator.integrate_commit_into_main.call_count, 2)
+        self.assertEqual(main_integrator.merge_task_branch_into_main.call_count, 2)
         main_integrator.run_merge_expert_phase.assert_called_once()
 
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
@@ -836,9 +835,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
         )
         self.assertEqual(worker.launch_calls, 0)
 
-    @patch("orc_core.tasks.integration.main_integrator.integrate_commit_into_main")
+    @patch("orc_core.tasks.integration.main_integrator.merge_task_branch_into_main")
     @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.tasks.integration.main_integrator.get_head_commit", return_value="abc123")
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
@@ -849,7 +847,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         *_mocks,
     ) -> None:
         mock_preflight.return_value = _fake_preflight(ok=True, error="")
-        main_integrator.integrate_commit_into_main.return_value = SimpleNamespace(
+        main_integrator.merge_task_branch_into_main.return_value = SimpleNamespace(
             ok=False,
             conflict=False,
             error="checkout main failed: branch is locked",

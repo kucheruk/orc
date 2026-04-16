@@ -61,6 +61,9 @@ class TeamleadContext:
 
     def process_decision(self, dec_path: Path) -> None:
         if not dec_path.exists():
+            _logger.warning("Teamlead decision file not found: %s — agent may have written to wrong path", dec_path)
+            log_event(self.log_path, "WARN", "teamlead decision file not found",
+                      path=str(dec_path))
             return
         try:
             decision = parse_teamlead_decision(dec_path)

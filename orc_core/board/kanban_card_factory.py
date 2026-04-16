@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .action_constants import Action
 from .clock import Clock, SystemClock
 from .card_repository import CardRepository
 from .kanban_card import KanbanCard, new_card_body
@@ -34,7 +35,7 @@ class KanbanCardFactory:
 
     def create_inbox(self, card_id: str, title: str) -> KanbanCard:
         card = KanbanCard(
-            id=card_id, title=title, stage=STAGE_INBOX, action="Product",
+            id=card_id, title=title, stage=STAGE_INBOX, action=Action.PRODUCT,
             created_at=self._clock.now_iso(),
             body=new_card_body(),
         )
@@ -47,7 +48,7 @@ class KanbanCardFactory:
         body: str,
         *,
         stage: str = STAGE_CODING,
-        action: str = "Coding",
+        action: str = Action.CODING,
         cos_justification: str = "",
     ) -> KanbanCard:
         """Create an expedite card directly at the given stage, bypassing inbox."""

@@ -78,7 +78,8 @@ class CursorBackend:
         return _get_resume_id_from_agent_ls(workdir, log_path)
 
     def default_model(self) -> str:
-        return "gpt-5.3-codex"
+        from ..config import DEFAULT_MODEL
+        return DEFAULT_MODEL
 
     def list_models_cmd(self) -> list[str] | None:
         return ["agent", "--list-models"]

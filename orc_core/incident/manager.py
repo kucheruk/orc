@@ -39,7 +39,7 @@ from .ports import (
 _SLOT_CLOSED = "closed"
 _SLOT_RUNNING = "running"
 _SLOT_IDLE = "idle"
-_STAGGER_DELAY_SECONDS = 5.0
+from ..agents.session.types import STAGGER_DELAY_SECONDS as _STAGGER_DELAY_SECONDS
 
 if TYPE_CHECKING:
     import threading

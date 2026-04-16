@@ -17,6 +17,7 @@ from ...git.conflict_resolver import ConflictResolver
 from ...git.integration_manager import IntegrationManager
 from ...git.safe_files import SafeFilesGuard
 from ...git.subprocess_git import SubprocessGitRunner
+from ...git.worktree_flow import detect_base_branch
 from ...incident.manager import IncidentManager
 from ...backends.backend import Backend
 from ...infra.io.state_paths_adapter import FsStatePaths
@@ -64,7 +65,7 @@ def build_session_manager(
     here. KanbanSessionManager.__init__ accepts only fully-constructed deps,
     including its worker/teamlead runners.
     """
-    resolved_main_branch = (main_branch or "main").strip() or "main"
+    resolved_main_branch = (main_branch or "").strip() or detect_base_branch(workdir)
     merge_expert_model_resolved = (merge_expert_model or "").strip()
     worktree_lock = threading.Lock()
     process_lifecycle = SubprocessProcessLifecycle()

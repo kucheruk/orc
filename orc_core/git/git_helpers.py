@@ -107,10 +107,10 @@ def attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, task
     if rc not in (1,):
         return False
 
-    title = f"{task_id}: checkpoint"
-    body = "Commit phase fallback: committed remaining changes left after commit phase."
+    title = f"chore({task_id}): checkpoint commit"
+    body = "Autocommit fallback: committed remaining changes after agent completion."
     if task_text:
-        body = f"{body}\n\nTask: {task_text}"
+        body = f"{body}\n\nRefs: {task_id}"
     ok_commit, _, _, _ = git_run(
         workdir,
         log_path,

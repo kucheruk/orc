@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Conflict resolution strategies for cherry-pick integration."""
+"""Conflict resolution strategies for squash-merge integration."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .worktree_flow import run_git
 
 
 class ConflictResolver:
-    """Resolves cherry-pick conflicts via auto-resolve or merge expert."""
+    """Resolves merge conflicts via auto-resolve or merge expert."""
 
     def __init__(self, workdir: str) -> None:
         self.workdir = workdir
@@ -29,7 +29,7 @@ class ConflictResolver:
         merge_expert_fn: Optional[Callable[[], bool]],
         abort_fn: Callable[["IntegrationContext"], None],
     ) -> bool:
-        """Attempt to resolve a cherry-pick conflict.
+        """Attempt to resolve a merge conflict.
 
         Tries auto-resolve first, then falls back to merge expert.
         Returns True if conflict was resolved successfully.
@@ -98,13 +98,20 @@ class ConflictResolver:
         for fpath in conflict_files:
             run_git(self.workdir, ["git", "add", fpath])
 
+        # For squash merge, commit directly (no cherry-pick --continue)
         ok_commit, _, stderr, _ = run_git(
             self.workdir,
-            ["git", "-c", "core.editor=true", "cherry-pick", "--continue"],
+            ["git", "commit", "--no-edit"],
         )
+        if not ok_commit:
+            # Fallback: try cherry-pick --continue for backward compat
+            ok_commit, _, stderr, _ = run_git(
+                self.workdir,
+                ["git", "-c", "core.editor=true", "cherry-pick", "--continue"],
+            )
         if ok_commit:
             ctx.step("auto_resolve_ok", files=conflict_files)
-            ctx.save_report("completed", "cherry_pick_ok_after_auto_resolve")
+            ctx.save_report("completed", "merge_ok_after_auto_resolve")
             return True
 
         ctx.step("auto_resolve_failed", stderr=stderr[:ERROR_TRUNCATE])
@@ -145,16 +152,29 @@ class ConflictResolver:
         if not git_dir.is_absolute():
             git_dir = Path(self.workdir) / git_dir
 
-        cherry_pick_head = git_dir / "CHERRY_PICK_HEAD"
-        if cherry_pick_head.exists():
-            ctx.step_error("merge_expert_left_cherry_pick_in_progress")
-            abort_fn(ctx)
-            ctx.save_report("failed", "merge_expert_did_not_complete_cherry_pick")
-            return False
+        # Check for stale merge/cherry-pick state
+        for marker in ("CHERRY_PICK_HEAD", "MERGE_HEAD"):
+            marker_path = git_dir / marker
+            if marker_path.exists():
+                ctx.step_error(f"merge_expert_left_{marker.lower()}_in_progress")
+                abort_fn(ctx)
+                ctx.save_report("failed", f"merge_expert_did_not_complete_{marker.lower()}")
+                return False
+
+        # SQUASH_MSG without a commit means merge expert didn't commit
+        squash_msg = git_dir / "SQUASH_MSG"
+        if squash_msg.exists():
+            # Try to commit — merge expert may have resolved but not committed
+            ok_commit, _, _, _ = run_git(self.workdir, ["git", "commit", "--no-edit"])
+            if not ok_commit:
+                ctx.step_error("merge_expert_left_squash_uncommitted")
+                abort_fn(ctx)
+                ctx.save_report("failed", "merge_expert_did_not_commit_squash")
+                return False
 
         ok, stdout, _, _ = run_git(self.workdir, ["git", "log", "--oneline", "-1"])
-        ctx.step("cherry_pick_ok_after_merge_expert", head=stdout.strip()[:80])
-        ctx.save_report("completed", "cherry_pick_ok_after_merge_expert")
+        ctx.step("merge_ok_after_merge_expert", head=stdout.strip()[:80])
+        ctx.save_report("completed", "merge_ok_after_merge_expert")
         return True
 
     def _log_conflict_files(self, ctx: "IntegrationContext") -> None:

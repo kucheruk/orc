@@ -146,7 +146,19 @@ def create_task_worktree(
     worktree_path = worktree_root / safe_task
 
     if worktree_path.exists():
-        # Reuse as-is — agent will merge main if needed (can resolve conflicts)
+        # Verify the existing worktree belongs to the same card ID.
+        # _safe_name can collapse different IDs (e.g., "X-1!" and "X-1?" both → "X-1").
+        owner_file = worktree_path / ".orc-card-id"
+        if owner_file.exists():
+            owner_id = owner_file.read_text(encoding="utf-8").strip()
+            if owner_id and owner_id != task_id:
+                log_event(log_path, "ERROR", "worktree collision detected",
+                          task_id=task_id, owner_id=owner_id,
+                          safe_name=safe_task, worktree_path=str(worktree_path))
+                raise RuntimeError(
+                    f"Worktree collision: {worktree_path} belongs to '{owner_id}', "
+                    f"not '{task_id}' (both map to safe name '{safe_task}')"
+                )
         log_event(log_path, "INFO", "task worktree reused",
                   task_id=task_id, worktree_path=str(worktree_path))
         return WorktreeSession(
@@ -176,6 +188,11 @@ def create_task_worktree(
                 )
         else:
             raise RuntimeError(f"failed to create worktree: {stderr.strip()} / {stderr2.strip()}")
+    # Write card ID ownership marker to prevent _safe_name collisions
+    try:
+        (worktree_path / ".orc-card-id").write_text(task_id, encoding="utf-8")
+    except OSError:
+        pass
     log_event(
         log_path,
         "INFO",
@@ -377,3 +394,156 @@ def integrate_commit_into_main(
         )
         return IntegrationResult(ok=True, conflict=False, already_integrated=True)
     return IntegrationResult(ok=False, conflict=False, error=pick_error)
+
+
+def _is_branch_merged(workdir: str, branch: str, main_branch: str) -> bool:
+    """Check if all code changes from branch are already in main_branch.
+
+    Uses merge-base comparison: finds files changed on branch since fork,
+    then checks if main has identical content.  Three-dot diff does NOT work
+    after squash-merge (branch is not an ancestor of main).
+    """
+    # Find merge base
+    ok_mb, mb_out, _, _ = run_git(workdir, ["git", "merge-base", main_branch, branch])
+    if not ok_mb:
+        return False
+    merge_base = mb_out.strip()
+    # Files changed on branch since fork
+    ok_files, files_out, _, _ = run_git(
+        workdir, ["git", "diff", "--name-only", merge_base, branch, "--", ".", ":!tasks/"],
+    )
+    if not ok_files:
+        return False
+    branch_files = [f.strip() for f in files_out.splitlines() if f.strip()]
+    if not branch_files:
+        return True  # no code changes on branch
+    # Check if main has identical content for those files
+    diff_cmd = ["git", "diff", branch, main_branch, "--"] + branch_files
+    ok_diff, diff_out, _, _ = run_git(workdir, diff_cmd)
+    if not ok_diff:
+        return False
+    return not bool(diff_out.strip())
+
+
+def _squash_merge_branch(workdir: str, branch: str) -> tuple[bool, bool, str]:
+    """Run git merge --squash. Returns (ok, has_conflict, error)."""
+    ok, _, stderr, _ = run_git(workdir, ["git", "merge", "--squash", branch])
+    if ok:
+        return True, False, ""
+    lowered = (stderr or "").lower()
+    # Check for merge conflicts
+    ok_conflicts, conflict_files, _, _ = run_git(
+        workdir, ["git", "diff", "--name-only", "--diff-filter=U"],
+    )
+    if ok_conflicts and bool(conflict_files.strip()):
+        return False, True, stderr.strip()
+    if "conflict" in lowered:
+        return False, True, stderr.strip()
+    return False, False, stderr.strip()
+
+
+def merge_task_branch_into_main(
+    *,
+    base_workdir: str,
+    branch_name: str,
+    task_id: str,
+    task_title: str,
+    log_path: Path,
+    main_branch: str = "main",
+    skip_preflight: bool = False,
+) -> IntegrationResult:
+    """Squash-merge task branch into main.
+
+    Unlike cherry-pick, this captures ALL commits on the branch in a single
+    merge commit.  No work is lost regardless of how many commits the agent made.
+    """
+    if not skip_preflight:
+        preflight = preflight_main_integration(base_workdir=base_workdir, main_branch=main_branch)
+        if not preflight.ok:
+            return IntegrationResult(ok=False, conflict=False, error=preflight.error)
+        if preflight.safe_tracked or preflight.safe_untracked:
+            log_event(
+                log_path,
+                "WARN",
+                "ignoring runtime artifacts before integration",
+                task_id=task_id,
+                tracked_runtime=list(preflight.safe_tracked[:20]),
+                untracked_runtime=list(preflight.safe_untracked[:20]),
+            )
+
+    ok_checkout, _, stderr_checkout, _ = run_git(base_workdir, ["git", "checkout", main_branch])
+    if not ok_checkout:
+        return IntegrationResult(ok=False, conflict=False, error=f"checkout {main_branch} failed: {stderr_checkout.strip()}")
+
+    # Check if branch exists
+    ok_branch, _, _, _ = run_git(base_workdir, ["git", "show-ref", "--verify", f"refs/heads/{branch_name}"])
+    if not ok_branch:
+        return IntegrationResult(ok=False, conflict=False, error=f"task branch '{branch_name}' not found")
+
+    # Check if already fully merged
+    if _is_branch_merged(base_workdir, branch_name, main_branch):
+        log_event(
+            log_path,
+            "INFO",
+            "task branch already merged in main",
+            task_id=task_id,
+            branch=branch_name,
+            main_branch=main_branch,
+        )
+        return IntegrationResult(ok=True, conflict=False, already_integrated=True)
+
+    ok_merge, has_conflict, merge_error = _squash_merge_branch(base_workdir, branch_name)
+    if not ok_merge and not has_conflict:
+        return IntegrationResult(ok=False, conflict=False, error=merge_error)
+    if has_conflict:
+        log_event(
+            log_path,
+            "WARN",
+            "merge conflict while integrating task branch",
+            task_id=task_id,
+            branch=branch_name,
+            main_branch=main_branch,
+            error=merge_error[:500],
+        )
+        return IntegrationResult(ok=False, conflict=True, error=merge_error)
+
+    # Exclude tasks/ from the merge — worktree has its own card copies
+    # that diverge from main's board state, causing spurious conflicts.
+    import os
+    tasks_dir = os.path.join(base_workdir, "tasks")
+    if os.path.isdir(tasks_dir):
+        run_git(base_workdir, ["git", "checkout", "HEAD", "--", "tasks/"])
+        log_event(log_path, "INFO", "excluded tasks/ from squash merge",
+                  task_id=task_id, branch=branch_name)
+
+    # Squash merge stages changes but doesn't commit — commit now
+    safe_title = (task_title or task_id).replace('"', "'")[:200]
+    commit_msg = f"feat({task_id}): {safe_title}"
+    ok_commit, _, stderr_commit, _ = run_git(
+        base_workdir, ["git", "commit", "-m", commit_msg],
+    )
+    if not ok_commit:
+        # Nothing to commit = already integrated
+        if "nothing to commit" in (stderr_commit or "").lower():
+            log_event(log_path, "INFO", "squash merge produced empty commit; already integrated",
+                      task_id=task_id, branch=branch_name)
+            return IntegrationResult(ok=True, conflict=False, already_integrated=True)
+        return IntegrationResult(ok=False, conflict=False, error=f"commit after squash merge failed: {stderr_commit.strip()}")
+
+    log_event(
+        log_path,
+        "INFO",
+        "task branch integrated in main via squash merge",
+        task_id=task_id,
+        branch=branch_name,
+        main_branch=main_branch,
+    )
+    return IntegrationResult(ok=True, conflict=False)
+
+
+def abort_merge(workdir: str) -> bool:
+    """Abort an in-progress merge (squash or regular)."""
+    # git merge --squash doesn't set MERGE_HEAD, so --abort may not work.
+    # Use reset --merge which always works.
+    ok, _, _, _ = run_git(workdir, ["git", "reset", "--merge"])
+    return ok

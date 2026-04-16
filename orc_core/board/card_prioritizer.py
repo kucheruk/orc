@@ -27,6 +27,15 @@ def pick_best(
         candidates: Pre-filtered list of unassigned cards with matching action.
         check_deps: Optional predicate returning True if card has unmet dependencies.
     """
+    # Filter out budget-exhausted cards
+    exhausted = [c for c in candidates if c.is_budget_exhausted]
+    if exhausted:
+        import logging
+        logging.getLogger(__name__).info(
+            "pick_best: filtered %d budget-exhausted cards: %s",
+            len(exhausted), [c.id for c in exhausted],
+        )
+    candidates = [c for c in candidates if not c.is_budget_exhausted]
     if check_deps is not None:
         candidates = [c for c in candidates if not check_deps(c)]
     if not candidates:

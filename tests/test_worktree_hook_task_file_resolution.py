@@ -155,8 +155,9 @@ class WorktreeHookTaskFileResolutionTest(unittest.TestCase):
             self.assertFalse(task_path.exists())
             self.assertFalse(runtime_task_path.exists())
             stats_payload = json.loads((base_dir / "state" / "stats.json").read_text(encoding="utf-8"))
-            self.assertEqual(stats_payload.get("tokens_total"), 123)
-            self.assertEqual(stats_payload.get("tokens_by_task", {}).get("TASK-001"), 123)
+            # Hook no longer writes tokens — ORC process is the single source
+            # for token accounting (prevents double-counting).
+            self.assertEqual(stats_payload.get("tokens_total"), 0)
 
 
 if __name__ == "__main__":

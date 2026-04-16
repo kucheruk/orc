@@ -258,5 +258,128 @@ class WorktreeFlowTest(unittest.TestCase):
             worktree_flow.cleanup_task_worktree(session, Path("/tmp/orc.log"))
 
 
+class MergeTaskBranchTest(unittest.TestCase):
+    @patch("os.path.isdir", return_value=False)
+    @patch("orc_core.git.worktree_flow.log_event")
+    @patch("orc_core.git.worktree_flow.run_git")
+    def test_merge_succeeds_with_squash(self, git_mock, _log_mock, _isdir_mock) -> None:
+        git_mock.side_effect = [
+            (True, "", "", 0),   # tracked status clean
+            (True, "", "", 0),   # untracked list clean
+            (True, "", "", 0),   # show-ref main
+            (True, "", "", 0),   # checkout main
+            (True, "", "", 0),   # show-ref branch
+            (True, "abc123\n", "", 0),  # merge-base
+            (True, "src/app.py\n", "", 0),  # diff merge-base..branch (files changed)
+            (True, "some diff\n", "", 0),  # diff branch main (content differs)
+            (True, "", "", 0),   # merge --squash
+            (True, "", "", 0),   # commit
+        ]
+        result = worktree_flow.merge_task_branch_into_main(
+            base_workdir="/tmp/repo",
+            branch_name="orc/TASK-001",
+            task_id="TASK-001",
+            task_title="Fix auth bug",
+            log_path=Path("/tmp/orc.log"),
+        )
+        self.assertTrue(result.ok)
+        self.assertFalse(result.conflict)
+        # Verify squash merge was called
+        merge_call = git_mock.call_args_list[8]
+        self.assertEqual(merge_call.args[1], ["git", "merge", "--squash", "orc/TASK-001"])
+
+    @patch("orc_core.git.worktree_flow.run_git")
+    def test_merge_returns_already_integrated_when_no_diff(self, git_mock) -> None:
+        git_mock.side_effect = [
+            (True, "", "", 0),   # tracked status clean
+            (True, "", "", 0),   # untracked list clean
+            (True, "", "", 0),   # show-ref main
+            (True, "", "", 0),   # checkout main
+            (True, "", "", 0),   # show-ref branch
+            (True, "abc123\n", "", 0),  # merge-base
+            (True, "src/app.py\n", "", 0),  # diff merge-base..branch (files changed)
+            (True, "", "", 0),   # diff branch main (content identical = integrated)
+        ]
+        result = worktree_flow.merge_task_branch_into_main(
+            base_workdir="/tmp/repo",
+            branch_name="orc/TASK-001",
+            task_id="TASK-001",
+            task_title="Fix auth bug",
+            log_path=Path("/tmp/orc.log"),
+        )
+        self.assertTrue(result.ok)
+        self.assertTrue(result.already_integrated)
+
+    @patch("os.path.isdir", return_value=False)
+    @patch("orc_core.git.worktree_flow.log_event")
+    @patch("orc_core.git.worktree_flow.run_git")
+    def test_merge_detects_conflict(self, git_mock, _log_mock, _isdir_mock) -> None:
+        git_mock.side_effect = [
+            (True, "", "", 0),   # tracked status clean
+            (True, "", "", 0),   # untracked list clean
+            (True, "", "", 0),   # show-ref main
+            (True, "", "", 0),   # checkout main
+            (True, "", "", 0),   # show-ref branch
+            (True, "abc123\n", "", 0),  # merge-base
+            (True, "src/app.py\n", "", 0),  # diff merge-base..branch
+            (True, "some diff\n", "", 0),  # diff branch main (not integrated)
+            (False, "", "CONFLICT (content): Merge conflict in src/app.py", 1),  # merge --squash
+            (True, "src/app.py\n", "", 0),  # diff --name-only --diff-filter=U (unmerged)
+        ]
+        result = worktree_flow.merge_task_branch_into_main(
+            base_workdir="/tmp/repo",
+            branch_name="orc/TASK-001",
+            task_id="TASK-001",
+            task_title="Fix auth bug",
+            log_path=Path("/tmp/orc.log"),
+        )
+        self.assertFalse(result.ok)
+        self.assertTrue(result.conflict)
+
+    @patch("os.path.isdir", return_value=False)
+    @patch("orc_core.git.worktree_flow.log_event")
+    @patch("orc_core.git.worktree_flow.run_git")
+    def test_merge_fails_when_branch_not_found(self, git_mock, _log_mock, _isdir_mock) -> None:
+        git_mock.side_effect = [
+            (True, "", "", 0),   # tracked status clean
+            (True, "", "", 0),   # untracked list clean
+            (True, "", "", 0),   # show-ref main
+            (True, "", "", 0),   # checkout main
+            (False, "", "not found", 1),  # show-ref branch fails
+        ]
+        result = worktree_flow.merge_task_branch_into_main(
+            base_workdir="/tmp/repo",
+            branch_name="orc/TASK-001",
+            task_id="TASK-001",
+            task_title="Fix auth bug",
+            log_path=Path("/tmp/orc.log"),
+        )
+        self.assertFalse(result.ok)
+        self.assertIn("not found", result.error)
+
+    @patch("orc_core.git.worktree_flow.run_git")
+    def test_merge_fails_when_base_repo_dirty(self, git_mock) -> None:
+        git_mock.side_effect = [
+            (True, " M tracked.py\n", "", 0),  # tracked status dirty
+            (True, "", "", 0),                   # untracked list
+        ]
+        result = worktree_flow.merge_task_branch_into_main(
+            base_workdir="/tmp/repo",
+            branch_name="orc/TASK-001",
+            task_id="TASK-001",
+            task_title="Fix auth bug",
+            log_path=Path("/tmp/orc.log"),
+        )
+        self.assertFalse(result.ok)
+        self.assertIn("dirty", result.error)
+
+    @patch("orc_core.git.worktree_flow.run_git")
+    def test_abort_merge_uses_reset(self, git_mock) -> None:
+        git_mock.return_value = (True, "", "", 0)
+        ok = worktree_flow.abort_merge("/tmp/repo")
+        self.assertTrue(ok)
+        git_mock.assert_called_once_with("/tmp/repo", ["git", "reset", "--merge"])
+
+
 if __name__ == "__main__":
     unittest.main()

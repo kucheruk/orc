@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+from ...board.action_constants import Action
 from ...board.kanban_board import KanbanBoard
 from ...board.kanban_card import KanbanCard
 from ...board.kanban_card_factory import KanbanCardFactory
@@ -60,7 +61,7 @@ def create_expedite_card(
     *,
     card_id: str | None = None,
     stage: str = "3-coding",
-    action: str = "Coding",
+    action: str = Action.CODING,
     cos_justification: str = "",
     publisher: Optional[Any] = None,
     log_path: Optional[Path] = None,

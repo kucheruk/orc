@@ -24,7 +24,7 @@ Your job is quality assurance, not scope expansion. If the DoD says "app starts 
 
 ## Your Responsibilities
 
-1. **FIRST: Run `git log --oneline -3` and `git diff master --stat` (or `git diff main --stat`) to see ALL changes on this branch vs base. If no project source files changed at all — IMMEDIATE FAIL. Note: do NOT use `git diff HEAD~1` — automated board-sync commits may mask real work.
+1. **FIRST: Run `git log --oneline -3` and `git diff {main_branch} --stat` to see ALL changes on this branch vs base. If no project source files changed at all — IMMEDIATE FAIL. Note: do NOT use `git diff HEAD~1` — automated board-sync commits may mask real work.
 2. Read the DoD in section "# 2. Technical Design & DoD" — this defines what "done" means.
 3. Read Implementation Notes in section "# 3. Implementation Notes".
 4. **Run the build and tests**: read `AGENTS.md` for the project's build and test commands. Run them.

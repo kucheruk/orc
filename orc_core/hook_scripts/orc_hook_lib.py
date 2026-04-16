@@ -18,8 +18,7 @@ from orc_core.infra.io.state_paths import artifacts_dir as external_artifacts_di
 from orc_core.infra.io.state_paths import metrics_path as external_metrics_path
 from orc_core.infra.io.state_paths import stats_path as external_stats_path
 from orc_core.tasks.backlog.source import MarkdownTaskSource
-
-GIT_COMMAND_TIMEOUT_SECONDS = 20.0
+from orc_core.git.subprocess_git import GIT_COMMAND_TIMEOUT_SECONDS
 ETA_WINDOW_SIZE = 3
 
 
@@ -221,14 +220,12 @@ def read_task_tokens(repo_root: Path) -> Optional[int]:
 
 
 def update_tokens(stats: Dict[str, object], task_id: str, task_tokens: Optional[int]) -> Dict[str, object]:
-    if task_tokens is None:
-        return stats
-    tokens_by_task = stats.setdefault("tokens_by_task", {})
-    if task_id and str(task_id) in tokens_by_task:
-        return stats
-    if task_id:
-        tokens_by_task[str(task_id)] = int(task_tokens)
-    stats["tokens_total"] = int(stats.get("tokens_total") or 0) + int(task_tokens)
+    """No-op: token tracking is handled by ORC's _update_completion_stats.
+
+    Hook must NOT write tokens — ORC process is the single source of truth
+    for token accounting.  Writing here would double-count because both the
+    hook and ORC independently read the same metrics file.
+    """
     return stats
 
 

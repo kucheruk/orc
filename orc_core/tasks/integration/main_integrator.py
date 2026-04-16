@@ -11,7 +11,7 @@ from ...git.git_helpers import classify_main_integration_error, has_commits_ahea
 from ...log import log_event
 from ...observability import timeline_step
 from ...text_parse import SafeDict
-from ...git.worktree_flow import get_head_commit, integrate_commit_into_main
+from ...git.worktree_flow import abort_merge, merge_task_branch_into_main
 from ..stages.phases import run_merge_expert_phase
 from ..execution.request import TaskExecutionResult
 from ..execution.runtime import _ExecutionContext
@@ -33,13 +33,17 @@ def handle_main_integration(
     if not request.integrate_to_main:
         return None
 
+    # Resolve task branch name
+    from ...git.worktree_flow import _safe_name
+    branch_name = f"orc/{_safe_name(current_task_id)}"
+
     with timeline_step(
         timeline_id=timeline_id,
         task_id=current_task_id,
         step="main_integration",
         location="orc_core/task_execution.py:TaskExecutionEngine.execute",
         attempt=restart_count + 1,
-        data={"branch": request.main_branch},
+        data={"branch": request.main_branch, "task_branch": branch_name},
     ) as ts_integ:
         if not has_commits_ahead_of_branch(request.workdir, request.main_branch, engine.log_path):
             log_event(
@@ -57,31 +61,18 @@ def handle_main_integration(
             ts_integ.result = "skipped"
             ts_integ.reason = "no_commits_ahead"
             return TaskExecutionResult(status=TaskExecutionStatus.COMPLETED, committed=commit_completed)
-        try:
-            commit_sha = get_head_commit(request.workdir)
-        except (OSError, ValueError) as exc:
-            log_event(
-                engine.log_path,
-                "ERROR",
-                "cannot resolve task commit sha before main integration",
-                task_id=current_task_id,
-                error=str(exc),
-            )
-            _logger.error("❌ Не удалось определить commit задачи для переноса в main.")
-            ts_integ.result = "failed"
-            ts_integ.reason = "integration_commit_sha_failed"
-            ts_exec.result = "failed"
-            ts_exec.reason = "integration_commit_sha_failed"
-            return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="integration_commit_sha_failed")
 
-        integration = integrate_commit_into_main(
+        integration = merge_task_branch_into_main(
             base_workdir=request.base_workdir,
-            commit_sha=commit_sha,
+            branch_name=branch_name,
             task_id=current_task_id,
+            task_title=current_task_text,
             log_path=engine.log_path,
             main_branch=request.main_branch,
         )
         if not integration.ok and integration.conflict:
+            # Abort the failed merge before running merge expert
+            abort_merge(request.base_workdir)
             merge_prompt_vars = SafeDict(
                 task_text=current_task_text,
                 task_id=current_task_id,
@@ -104,10 +95,12 @@ def handle_main_integration(
                 ts_exec.result = "failed"
                 ts_exec.reason = "merge_expert_phase_failed"
                 return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="merge_expert_phase_failed")
-            integration = integrate_commit_into_main(
+            # Retry merge after expert resolution
+            integration = merge_task_branch_into_main(
                 base_workdir=request.base_workdir,
-                commit_sha=commit_sha,
+                branch_name=branch_name,
                 task_id=current_task_id,
+                task_title=current_task_text,
                 log_path=engine.log_path,
                 main_branch=request.main_branch,
             )
@@ -116,13 +109,13 @@ def handle_main_integration(
             log_event(
                 engine.log_path,
                 "ERROR",
-                "failed to integrate task commit into main",
+                "failed to integrate task branch into main",
                 task_id=current_task_id,
-                commit_sha=commit_sha,
+                branch=branch_name,
                 integration_failure_kind=failure_kind,
                 error=integration.error[:500],
             )
-            _logger.error(f"❌ Не удалось перенести commit в {request.main_branch}: {integration.error}")
+            _logger.error(f"❌ Не удалось смержить ветку {branch_name} в {request.main_branch}: {integration.error}")
             ts_integ.result = "failed"
             ts_integ.reason = f"main_integration_failed:{failure_kind}"
             ts_exec.result = "failed"

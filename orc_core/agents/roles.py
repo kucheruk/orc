@@ -85,6 +85,7 @@ def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard",
         loop_count=str(card.loop_count),
         worktree_context=worktree_ctx,
         feedback_loop=_FEEDBACK_LOOP_BLOCK,
+        main_branch=main_branch,
     ))
 
 
@@ -292,6 +293,7 @@ def build_teamlead_prompt(
     agent_log_path: str = "",
     token_stats: dict[str, int] | None = None,
     loader: TemplateLoader | None = None,
+    main_branch: str = "",
 ) -> str:
     """Build a teamlead prompt for any invocation mode.
 
@@ -320,6 +322,7 @@ def build_teamlead_prompt(
         card_action=card.action if card else "",
         loop_count=str(card.loop_count) if card else "0",
         decision_path=decision_path,
+        main_branch=main_branch,
     ))
 
 

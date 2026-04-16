@@ -9,8 +9,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...board.kanban_card import PROTECTED_FIELDS, KanbanCard, validate_card
+from ...board.kanban_role_registry import ROLE_INTEGRATOR
 from ...board.action_constants import Action
 from ...board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_INBOX, STAGE_ORDER, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
+from ...board.state_machine import FORWARD_MOVES, IDENTITY_DEFAULTS, LOOP_BACK_ACTIONS, VALID_TRANSITIONS
+from ...git.worktree_flow import _safe_name
 
 if TYPE_CHECKING:
     from ...board.kanban_board import KanbanBoard
@@ -27,53 +30,67 @@ _ROLE_READONLY_FIELDS: dict[str, frozenset[str]] = {
     "integrator": frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
 }
 
-# Valid action transitions per role
-_VALID_TRANSITIONS: dict[str, dict[str, set[str]]] = {
-    "product": {
-        "Product": {Action.ARCHITECT, Action.CODING},  # Architect (new) or Coding (approved for backlog)
-    },
-    "architect": {
-        "Architect": {Action.PRODUCT},         # Estimate → back to Product for prioritization
-    },
-    "coder": {
-        "Coding": {Action.REVIEWING, Action.TESTING},
-        "Arbitration": {Action.REVIEWING, Action.TESTING},  # post-arbitration coding pass
-    },
-    "reviewer": {
-        "Reviewing": {Action.CODING, Action.TESTING},
-    },
-    "tester": {
-        "Testing": {Action.CODING, Action.INTEGRATING},
-    },
-    "integrator": {
-        "Integrating": {Action.DONE, Action.REVIEWING, Action.TESTING},
-    },
-    "teamlead": {
-        "Arbitration": {Action.CODING, Action.REVIEWING, Action.TESTING, Action.BLOCKED, Action.PRODUCT, Action.ARCHITECT},
-        "Blocked": {Action.CODING, Action.REVIEWING, Action.TESTING, Action.PRODUCT, Action.ARCHITECT},
-    },
-}
+# Derived from state_machine.py — single source of truth
+_VALID_TRANSITIONS = VALID_TRANSITIONS
+_LOOP_BACK_ACTIONS = LOOP_BACK_ACTIONS
+_FORWARD_MOVES = FORWARD_MOVES
 
-# Which action transitions require incrementing loop_count
-_LOOP_BACK_ACTIONS: frozenset[str] = frozenset({Action.CODING})
 
-# Stage the card should move to when action changes (if any)
-_FORWARD_MOVES: dict[tuple[str, str], str] = {
-    # (current_stage, new_action) → new_stage
-    (STAGE_INBOX, Action.ARCHITECT): STAGE_ESTIMATE,
-    (STAGE_INBOX, Action.CODING): STAGE_TODO,           # product fast-tracks to backlog
-    (STAGE_ESTIMATE, Action.CODING): STAGE_TODO,
-    (STAGE_CODING, Action.REVIEWING): STAGE_REVIEW,
-    (STAGE_REVIEW, Action.TESTING): STAGE_TESTING,       # reviewer approves for testing
-    (STAGE_TESTING, Action.INTEGRATING): STAGE_HANDOFF,
-    (STAGE_HANDOFF, Action.DONE): STAGE_DONE,
-    # Reject / loop-back paths
-    (STAGE_REVIEW, Action.CODING): STAGE_CODING,        # reviewer rejects
-    (STAGE_TESTING, Action.CODING): STAGE_CODING,       # tester rejects
-    (STAGE_HANDOFF, Action.REVIEWING): STAGE_REVIEW,
-    (STAGE_HANDOFF, Action.TESTING): STAGE_TESTING,
-    (STAGE_HANDOFF, Action.CODING): STAGE_CODING,       # integrator rejects
-}
+def _is_branch_integrated(base_workdir: str, card_id: str, main_branch: str) -> bool:
+    """Check if task branch orc/{id} code is fully merged into main.
+
+    Uses merge-base comparison: finds files the branch changed relative to
+    the fork point, then checks if main has identical content for those files.
+    Three-dot diff (main...branch) does NOT work here because squash-merge
+    doesn't make the branch an ancestor of main.
+    """
+    from ...git.worktree_flow import run_git
+    branch_name = f"orc/{_safe_name(card_id)}"
+    # Check if branch exists; if not, it was never created (non-code card) → OK
+    ok, _, _, _ = run_git(base_workdir, ["git", "show-ref", "--verify", f"refs/heads/{branch_name}"])
+    if not ok:
+        _logger.info("Integration check: no branch %s for %s — treating as integrated (non-code card)",
+                      branch_name, card_id)
+        return True
+
+    # Step 1: find merge-base
+    ok_mb, mb_out, _, _ = run_git(
+        base_workdir, ["git", "merge-base", main_branch, branch_name],
+    )
+    if not ok_mb:
+        _logger.warning("Integration check: merge-base failed for %s — assuming not integrated", card_id)
+        return False
+    merge_base = mb_out.strip()
+
+    # Step 2: find code files changed on the branch since fork point
+    ok_files, files_out, _, _ = run_git(
+        base_workdir,
+        ["git", "diff", "--name-only", merge_base, branch_name, "--", ".", ":!tasks/"],
+    )
+    if not ok_files:
+        _logger.warning("Integration check: diff vs merge-base failed for %s", card_id)
+        return False
+    branch_files = [f.strip() for f in files_out.splitlines() if f.strip()]
+    if not branch_files:
+        _logger.info("Integration check: %s branch %s has no code changes — treating as integrated",
+                      card_id, branch_name)
+        return True
+
+    # Step 3: check if main has identical content for those files
+    diff_cmd = ["git", "diff", branch_name, main_branch, "--"] + branch_files
+    ok_diff, diff_out, _, _ = run_git(base_workdir, diff_cmd)
+    if not ok_diff:
+        _logger.warning("Integration check: content diff failed for %s", card_id)
+        return False
+
+    if diff_out.strip():
+        _logger.info("Integration check: %s has %d files not yet on %s: %s",
+                      card_id, len(branch_files), main_branch, branch_files[:5])
+        return False
+
+    _logger.info("Integration check: %s branch %s code verified identical on %s",
+                  card_id, branch_name, main_branch)
+    return True
 
 
 def process_agent_result(
@@ -82,6 +99,7 @@ def process_agent_result(
     role: str,
     *,
     execution_workdir: str = "",
+    main_branch: str = "",
 ) -> list[str]:
     """Re-read card from disk (agent modified it), validate and apply transitions.
 
@@ -119,10 +137,25 @@ def process_agent_result(
             file_path = worktree_card_path
             _logger.info("Reading card %s from worktree: %s", card.id, worktree_card_path)
 
-        updated = board.repo.read_card(file_path)
+        try:
+            updated = board.repo.read_card(file_path)
+        except Exception as exc:
+            _logger.error("Failed to parse agent output card %s from %s: %s", card.id, file_path, exc)
+            # Revert card file to original content so board doesn't read corrupt data
+            try:
+                board.repo.write_card_text(card.file_path, card.to_markdown())
+            except Exception:
+                pass
+            return [f"Failed to parse card file after agent edit: {exc}"]
+
         errors = _validate_agent_changes(card, updated, role)
         if errors:
             _logger.warning("Agent output validation errors for %s: %s", card.id, errors)
+            # Revert card file to original content
+            try:
+                board.repo.write_card_text(card.file_path, card.to_markdown())
+            except Exception:
+                pass
             return errors
 
         card_errors = validate_card(updated)
@@ -134,14 +167,8 @@ def process_agent_result(
 
         # Auto-default: if the agent didn't change the action, apply the most
         # common "done" transition for that role so work keeps flowing.
-        _IDENTITY_DEFAULTS: dict[str, dict[str, str]] = {
-            "coder": {Action.CODING: Action.REVIEWING, Action.ARBITRATION: Action.REVIEWING},
-            "reviewer": {Action.REVIEWING: Action.TESTING},
-            "tester": {Action.TESTING: Action.INTEGRATING},
-            "integrator": {Action.INTEGRATING: Action.DONE},
-        }
         if updated.action == card.action:
-            defaults = _IDENTITY_DEFAULTS.get(role, {})
+            defaults = IDENTITY_DEFAULTS.get(role, {})
             default_next = defaults.get(card.action)
             if default_next:
                 _logger.info(
@@ -158,11 +185,17 @@ def process_agent_result(
         if new_action in _LOOP_BACK_ACTIONS and old_action != Action.CODING:
             updated.loop_count = card.loop_count + 1
 
-        # Restore protected fields from original
+        # Restore protected fields from original.
+        # file_path MUST point to main repo (not worktree) so save_card
+        # writes to the canonical location.  The worktree copy was only
+        # used to READ the agent's changes.
         updated.stage = card.stage
+        updated.file_path = card.file_path
         updated.roi = card.roi
         updated.assigned_agent = card.assigned_agent
         updated.created_at = card.created_at
+        updated.tokens_spent = card.tokens_spent
+        updated.token_budget = card.token_budget
 
         # Recompute ROI in case value/effort changed
         updated.refresh_roi()
@@ -176,14 +209,51 @@ def process_agent_result(
         if new_stage in (STAGE_TODO, STAGE_CODING) and board.has_unmet_dependencies(updated):
             _logger.info("Cannot move %s to %s: unmet dependencies, staying in %s",
                           updated.id, new_stage, card.stage)
+        # Integration gate: Done only after code is verified on main.
+        # Integrator role is EXEMPT — its job is to trigger the merge, which
+        # happens AFTER process_agent_result in finalize_completed_worktree.
+        elif new_stage == STAGE_DONE:
+            if role == ROLE_INTEGRATOR:
+                _logger.info(
+                    "Integration gate: %s — integrator role exempt, moving to Done "
+                    "(merge will run in finalize).",
+                    updated.id,
+                )
+                board.move_card(updated, new_stage, allow_backward=False,
+                                reason=f"{role}: {old_action} -> {new_action}")
+                if updated.action != Action.DONE:
+                    updated.action = Action.DONE
+                    board.save_card(updated)
+            else:
+                base_workdir = str(board.tasks_dir.parent) if board.tasks_dir else ""
+                gate_branch = main_branch
+                if not gate_branch:
+                    from ...git.worktree_flow import detect_base_branch
+                    gate_branch = detect_base_branch(base_workdir) if base_workdir else "main"
+                    _logger.info("Integration gate: main_branch not passed, detected '%s'", gate_branch)
+                if not _is_branch_integrated(base_workdir, updated.id, gate_branch):
+                    _logger.warning(
+                        "Integration gate: blocking %s from Done — code not yet on %s. "
+                        "Keeping in %s with action=Integrating. (role=%s)",
+                        updated.id, gate_branch, card.stage, role,
+                    )
+                    updated.action = Action.INTEGRATING
+                    board.save_card(updated)
+                else:
+                    _logger.info(
+                        "Integration gate: %s passed — branch code verified on %s, "
+                        "moving to Done. (role=%s)",
+                        updated.id, gate_branch, role,
+                    )
+                    board.move_card(updated, new_stage, allow_backward=False,
+                                    reason=f"{role}: {old_action} -> {new_action}")
+                    if updated.action != Action.DONE:
+                        updated.action = Action.DONE
+                        board.save_card(updated)
         elif new_stage and board.has_wip_room(new_stage):
             is_backward = STAGE_ORDER.get(new_stage, 0) < STAGE_ORDER.get(card.stage, 0)
             board.move_card(updated, new_stage, allow_backward=is_backward,
                             reason=f"{role}: {old_action} -> {new_action}")
-            # Ensure action is Done when card reaches 8_Done
-            if new_stage == STAGE_DONE and updated.action != Action.DONE:
-                updated.action = Action.DONE
-                board.save_card(updated)
         elif new_stage and not board.has_wip_room(new_stage):
             _logger.info("Cannot move %s to %s: WIP limit reached, will retry later", card.id, new_stage)
 
@@ -236,5 +306,6 @@ def _sync_card(target: KanbanCard, source: KanbanCard) -> None:
         "deadline", "value_score", "effort_score", "roi",
         "dependencies", "loop_count", "assigned_agent",
         "created_at", "updated_at", "body", "stage", "file_path",
+        "tokens_spent", "token_budget",
     ):
         setattr(target, field, getattr(source, field))

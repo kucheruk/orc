@@ -48,10 +48,10 @@ def finalize_completed_worktree(
         log_event(log_path, "WARN", "integration failed, keeping worktree",
                   task_id=card.id, worktree=worktree.worktree_path)
         publisher.emit("escalate", card.id,
-                        f"{card.id} cherry-pick to {main_branch} failed; "
+                        f"{card.id} squash-merge to {main_branch} failed; "
                         f"card moved back to Handoff")
         card.action = Action.INTEGRATING
         board.move_card(card, STAGE_HANDOFF, allow_backward=True,
-                        reason="cherry-pick failed")
+                        reason="integration failed")
         board.save_card(card)
         return False

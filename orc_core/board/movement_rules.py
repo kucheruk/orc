@@ -1,26 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Movement rules for deferred card transitions — extensible registry."""
+"""Movement rules for deferred card transitions — derived from state_machine.py."""
 
 from __future__ import annotations
 
-from .stage_constants import STAGE_CODING, STAGE_DONE, STAGE_HANDOFF, STAGE_REVIEW, STAGE_TESTING
+from .state_machine import FORWARD_MOVES
 
-# (current_stage, action) → target_stage
-# Add new rules here without modifying KanbanBoard.
-DEFERRED_MOVE_RULES: dict[tuple[str, str], str] = {
-    (STAGE_TESTING, "Integrating"): STAGE_HANDOFF,
-    (STAGE_TESTING, "Reviewing"): STAGE_REVIEW,
-    (STAGE_HANDOFF, "Done"): STAGE_DONE,
-    (STAGE_CODING, "Reviewing"): STAGE_REVIEW,
-    (STAGE_REVIEW, "Testing"): STAGE_TESTING,
-    # Integrator reject paths
-    (STAGE_HANDOFF, "Reviewing"): STAGE_REVIEW,
-    (STAGE_HANDOFF, "Testing"): STAGE_TESTING,
-    # Tester/reviewer bounce-back
-    (STAGE_TESTING, "Coding"): STAGE_CODING,
-    (STAGE_REVIEW, "Coding"): STAGE_CODING,
-}
+# Deferred moves reuse the same table as forward moves.
+# Any (stage, action) → target_stage rule applies in both contexts:
+# immediately after agent output AND during deferred move recovery.
+DEFERRED_MOVE_RULES = FORWARD_MOVES
 
 
 def resolve_deferred_target(stage: str, action: str) -> str | None:

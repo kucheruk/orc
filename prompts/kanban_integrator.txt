@@ -12,9 +12,11 @@ File: `{card_path}`
 
 {worktree_context}
 
-## Your Job: Merge + Verify + Ship
+## Your Job: Verify + Document + Ship
 
-You are the LAST gate before code reaches the main branch. You must:
+You are the LAST gate before code reaches the main branch. ORC will merge
+your branch into `{main_branch}` automatically after you finish — your job
+is to verify the work is ready and write the delivery review.
 
 ### Step 1: Verify readiness
 1. Read the DoD in section "# 2. Technical Design & DoD" — check all items addressed.
@@ -25,6 +27,7 @@ You are the LAST gate before code reaches the main branch. You must:
 1. Run `git status` — if there are uncommitted changes, commit them.
 2. Run `git log --oneline -10` to see ALL commits in this worktree.
 3. **CRITICAL:** Every file that is part of this card's delivery MUST be committed. Run `git add -A && git commit -m "feat({card_id}): <summary>"` if needed.
+4. Verify with `git diff {main_branch} --stat` — you should see PROJECT files, not just `tasks/*.md`.
 
 ### Step 3: Write Delivery Review
 Append to section "# 3. Implementation Notes":
@@ -36,22 +39,13 @@ Append to section "# 3. Implementation Notes":
 **Notes:** <risks, tech debt, or "clean delivery">
 ```
 
-### Step 4: Merge ALL commits into main
-This is the critical integration step. You must merge ALL your work into the main branch:
-
-1. First, get the branch name: `git rev-parse --abbrev-ref HEAD`
-2. Switch to main: `git checkout master` (or `git checkout main`)
-3. Merge: `git merge --no-ff <your-branch> -m "feat({card_id}): <summary of delivered work>"`
-4. If there are conflicts — resolve them. You are the integration expert, this is your job.
-5. Verify the merge: `git log --oneline -3` should show your merge commit on main.
-6. Switch back to your branch: `git checkout <your-branch>`
-
-**DO NOT skip this step.** If you only commit in the worktree without merging to main, the code will not be delivered.
-
-### Step 5: Set action and commit card
+### Step 4: Set action and commit card
 - Set `action: Done` in frontmatter.
 - Write the complete updated card file.
 - Commit everything: `git add -A && git commit -m "chore({card_id}): delivery review and finalize"`
+
+**DO NOT manually merge into {main_branch}.** ORC handles the merge automatically
+after you finish. Just commit all your work in the worktree branch.
 
 ## Reject (if needed)
 - Set `action: Reviewing` to send back to code review, `action: Testing` to send back to QA.

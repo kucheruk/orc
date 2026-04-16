@@ -52,7 +52,7 @@ class IntegrationManagerLockTest(unittest.TestCase):
     def test_integrate_catches_exception(self, exec_mock) -> None:
         exec_mock.side_effect = RuntimeError("boom")
         mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))
-        with patch.object(mgr, "_abort_cherry_pick"):
+        with patch.object(mgr, "_abort_merge"):
             result = mgr.integrate(_make_slot().session_id, _make_task(), "/tmp/wt")
         self.assertFalse(result)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Manages cherry-pick integration of task commits into main branch."""
+"""Manages squash-merge integration of task branches into main branch."""
 
 import logging
 import threading
@@ -27,9 +27,9 @@ from .ports import ConflictResolverPort, GitRunner, SafeFilesGuardPort
 from .safe_files import SafeFilesGuard
 from .subprocess_git import SubprocessGitRunner
 from .worktree_flow import (
-    integrate_commit_into_main,
+    abort_merge,
+    merge_task_branch_into_main,
     preflight_main_integration,
-    resolve_integration_commit,
 )
 
 
@@ -74,7 +74,7 @@ class IntegrationContext:
 
 
 class IntegrationManager:
-    """Serializes cherry-pick integration of task commits into main."""
+    """Serializes squash-merge integration of task branches into main."""
 
     def __init__(self, *, workdir: str, main_branch: str, log_path: Path,
                  safe_tracked_paths: frozenset[str] = frozenset(),
@@ -110,14 +110,14 @@ class IntegrationManager:
         )
         notify(f"Waiting for integration lock ({task.task_id})...")
         with self._lock:
-            notify(f"Cherry-picking {task.task_id} into {self.main_branch}...")
+            notify(f"Squash-merging {task.task_id} into {self.main_branch}...")
             try:
-                return self._execute(ctx, execution_workdir, merge_expert_fn)
+                return self._execute(ctx, execution_workdir, task, merge_expert_fn)
             except Exception as exc:
                 ctx.step_error("unexpected_exception",
                                error=str(exc),
                                tb=traceback.format_exc()[:TRACEBACK_TRUNCATE])
-                self._abort_cherry_pick(ctx)
+                self._abort_merge(ctx)
                 ctx.save_report("failed", f"unexpected_exception:{type(exc).__name__}")
                 return False
 
@@ -130,6 +130,14 @@ class IntegrationManager:
                 git_dir = Path(self.workdir) / git_dir
         else:
             git_dir = Path(self.workdir) / ".git"
+        # SQUASH_MSG is left by git merge --squash; clean it via reset --merge
+        squash_msg = git_dir / "SQUASH_MSG"
+        if squash_msg.exists():
+            log_event(self.log_path, "WARN", "stale SQUASH_MSG detected, resetting",
+                      workdir=self.workdir)
+            abort_merge(self.workdir)
+            if squash_msg.exists():
+                squash_msg.unlink(missing_ok=True)
         for marker, abort_cmd in [
             ("CHERRY_PICK_HEAD", ["git", "cherry-pick", "--abort"]),
             ("MERGE_HEAD", ["git", "merge", "--abort"]),
@@ -154,19 +162,26 @@ class IntegrationManager:
         self,
         ctx: IntegrationContext,
         execution_workdir: str,
+        task: Task,
         merge_expert_fn: Optional[Callable],
     ) -> bool:
         if not self._has_commits(ctx, execution_workdir):
             return False
-        if not self._resolve_commit(ctx, execution_workdir):
+        # Resolve branch name from execution_workdir
+        ok, stdout, _, _ = self._git.run(execution_workdir, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        branch_name = stdout.strip() if ok else ""
+        if not branch_name or branch_name == "HEAD":
+            ctx.step_error("branch_resolve_failed", worktree=execution_workdir)
+            ctx.save_report("failed", "branch_resolve_failed")
             return False
+        ctx.report["branch"] = branch_name
         stashed = self._stash_dirty_state(ctx)
         try:
             if not self._preflight(ctx):
                 return False
             saved = self._stash_safe_files(ctx)
             try:
-                result = self._cherry_pick_with_retry(ctx, merge_expert_fn)
+                result = self._squash_merge_with_retry(ctx, branch_name, task, merge_expert_fn)
             finally:
                 self._restore_safe_files(ctx, saved)
             return result
@@ -251,37 +266,29 @@ class IntegrationManager:
             return False
         return True
 
-    def _resolve_commit(self, ctx: IntegrationContext, execution_workdir: str) -> bool:
-        try:
-            ctx.commit_sha = resolve_integration_commit(execution_workdir, self.main_branch)
-        except Exception as exc:
-            ctx.step_error("get_commit_sha_failed", error=str(exc))
-            ctx.save_report("failed", "get_commit_sha_failed")
-            return False
-        ctx.step("commit_sha_resolved", commit_sha=ctx.commit_sha)
-        ctx.report["commit_sha"] = ctx.commit_sha
-        return True
-
-    def _cherry_pick_with_retry(self, ctx: IntegrationContext, merge_expert_fn: Optional[Callable]) -> bool:
-        ctx.step("cherry_pick_attempt", attempt=1)
-        # Preflight already done in _execute → _preflight; skip redundant check
-        result = integrate_commit_into_main(
-            base_workdir=self.workdir, commit_sha=ctx.commit_sha,
-            task_id=ctx.task_id, log_path=self.log_path,
-            main_branch=self.main_branch, skip_preflight=True)
+    def _squash_merge_with_retry(
+        self, ctx: IntegrationContext, branch_name: str, task: Task,
+        merge_expert_fn: Optional[Callable],
+    ) -> bool:
+        ctx.step("squash_merge_attempt", attempt=1, branch=branch_name)
+        result = merge_task_branch_into_main(
+            base_workdir=self.workdir, branch_name=branch_name,
+            task_id=ctx.task_id, task_title=task.text or ctx.task_id,
+            log_path=self.log_path, main_branch=self.main_branch,
+            skip_preflight=True)
 
         if result.ok:
-            ctx.step("cherry_pick_ok", attempt=1, already=result.already_integrated)
-            ctx.save_report("completed", "cherry_pick_ok")
+            ctx.step("squash_merge_ok", attempt=1, already=result.already_integrated)
+            ctx.save_report("completed", "squash_merge_ok")
             return True
 
         if not result.conflict:
-            ctx.step_error("cherry_pick_failed_no_conflict", error=result.error[:ERROR_TRUNCATE])
-            self._abort_cherry_pick(ctx)
-            ctx.save_report("failed", f"cherry_pick_error:{result.error[:REASON_TRUNCATE]}")
+            ctx.step_error("squash_merge_failed_no_conflict", error=result.error[:ERROR_TRUNCATE])
+            self._abort_merge(ctx)
+            ctx.save_report("failed", f"squash_merge_error:{result.error[:REASON_TRUNCATE]}")
             return False
 
-        return self._conflict_resolver.resolve(ctx, result, merge_expert_fn, self._abort_cherry_pick)
+        return self._conflict_resolver.resolve(ctx, result, merge_expert_fn, self._abort_merge)
 
     def _git_dir(self) -> Path:
         """Resolve the actual .git directory (handles worktrees)."""
@@ -291,15 +298,17 @@ class IntegrationManager:
             return p if p.is_absolute() else Path(self.workdir) / p
         return Path(self.workdir) / ".git"
 
-    def _abort_cherry_pick(self, ctx: IntegrationContext) -> None:
+    def _abort_merge(self, ctx: IntegrationContext) -> None:
+        if abort_merge(self.workdir):
+            ctx.step("merge_aborted")
+            return
+        # Fallback: try cherry-pick abort in case of stale state
         ok, _, stderr, _ = self._git.run(self.workdir, ["git", "cherry-pick", "--abort"])
         if ok:
             ctx.step("cherry_pick_aborted")
             return
-        cherry_pick_head = self._git_dir() / "CHERRY_PICK_HEAD"
-        if cherry_pick_head.exists():
-            ctx.step_error("cherry_pick_abort_failed", stderr=stderr[:ERROR_TRUNCATE])
-            self._hard_reset_preserving_safe_files(ctx)
+        ctx.step_error("merge_abort_failed", stderr=stderr[:ERROR_TRUNCATE])
+        self._hard_reset_preserving_safe_files(ctx)
 
     def _hard_reset_preserving_safe_files(self, ctx: IntegrationContext) -> None:
         preserved = self._safe_files.hard_reset_preserving()

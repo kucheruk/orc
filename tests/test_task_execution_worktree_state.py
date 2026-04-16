@@ -188,8 +188,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 1)
 
     @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.tasks.integration.main_integrator.get_head_commit", return_value="abc123")
-    @patch("orc_core.tasks.integration.main_integrator.integrate_commit_into_main")
+    @patch("orc_core.tasks.integration.main_integrator.merge_task_branch_into_main")
     @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
@@ -199,7 +198,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         import orc_core.tasks.execution.finalize as task_execution_finalize
 
         mock_preflight.return_value = _fake_preflight(ok=True, error="")
-        main_integrator.integrate_commit_into_main.return_value = type(
+        main_integrator.merge_task_branch_into_main.return_value = type(
             "Integration",
             (),
             {"ok": False, "conflict": False, "error": "checkout main failed: test"},
@@ -227,8 +226,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertEqual(worker.launch_calls, 1)
 
     @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.tasks.integration.main_integrator.get_head_commit", return_value="abc123")
-    @patch("orc_core.tasks.integration.main_integrator.integrate_commit_into_main")
+    @patch("orc_core.tasks.integration.main_integrator.merge_task_branch_into_main")
     @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
@@ -238,7 +236,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         import orc_core.tasks.execution.finalize as task_execution_finalize
 
         mock_preflight.return_value = _fake_preflight(ok=True, error="")
-        main_integrator.integrate_commit_into_main.return_value = type(
+        main_integrator.merge_task_branch_into_main.return_value = type(
             "Integration",
             (),
             {"ok": True, "conflict": False, "already_integrated": False, "error": ""},

@@ -43,6 +43,9 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
             integrator=MagicMock(),
         )
 
+    @patch("orc_core.agents.runners.worker._check_and_block_budget", return_value=False)
+    @patch("orc_core.agents.runners.worker._accumulate_card_tokens")
+    @patch("orc_core.agents.runners.worker._update_card_token_budget")
     @patch("orc_core.agents.runners.worker.has_commits_ahead_of_branch", return_value=False)
     @patch("orc_core.agents.runners.worker.has_code_changes_ahead", return_value=False)
     @patch("orc_core.agents.runners.worker.build_prompt", return_value="prompt")
@@ -57,6 +60,7 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
         _build_prompt_mock,
         _code_changes_mock,
         _ahead_mock,
+        *_budget_mocks,
     ) -> None:
         create_worktree_mock.return_value = WorktreeSession(
             base_workdir="/tmp/base",

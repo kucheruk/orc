@@ -165,6 +165,103 @@ class TestCardValidation(unittest.TestCase):
             self.assertEqual(errors, [])
 
 
+class TestIntegrationGate(unittest.TestCase):
+
+    def test_integrator_exempt_from_gate(self):
+        """Integrator role is exempt from integration gate — merge runs later in finalize."""
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            card = _add(td, KanbanCard(id="IG-1", stage="7_Handoff", action="Integrating"))
+            board = KanbanBoard(td, repo=FsCardRepository())
+            card = board.card_by_id("IG-1")
+
+            card.action = "Done"
+            write_card(card)
+
+            original = KanbanCard(
+                id="IG-1", stage="7_Handoff", action="Integrating",
+                file_path=card.file_path,
+            )
+            # Integrator should pass even without checking branch — exempt from gate
+            errors = process_agent_result(board, original, "integrator")
+            self.assertEqual(errors, [])
+            updated = board.card_by_id("IG-1")
+            self.assertEqual(updated.stage, "8_Done")
+            self.assertEqual(updated.action, "Done")
+
+    def test_done_blocked_for_non_integrator_when_branch_not_merged(self):
+        """Non-integrator roles cannot reach Done if code not on main."""
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            card = _add(td, KanbanCard(id="IG-1b", stage="7_Handoff", action="Integrating"))
+            board = KanbanBoard(td, repo=FsCardRepository())
+            card = board.card_by_id("IG-1b")
+
+            card.action = "Done"
+            write_card(card)
+
+            original = KanbanCard(
+                id="IG-1b", stage="7_Handoff", action="Integrating",
+                file_path=card.file_path,
+            )
+            # Simulate non-integrator role with unmerged code
+            with patch("orc_core.agents.infra.agent_output._is_branch_integrated", return_value=False):
+                errors = process_agent_result(board, original, "tester")
+            self.assertEqual(errors, [])
+            updated = board.card_by_id("IG-1b")
+            # Card should stay in Handoff
+            self.assertEqual(updated.stage, "7_Handoff")
+            self.assertEqual(updated.action, "Integrating")
+
+    def test_done_allowed_when_branch_merged(self):
+        """Card moves to Done when branch code is confirmed on main."""
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            card = _add(td, KanbanCard(id="IG-2", stage="7_Handoff", action="Integrating"))
+            board = KanbanBoard(td, repo=FsCardRepository())
+            card = board.card_by_id("IG-2")
+
+            card.action = "Done"
+            write_card(card)
+
+            original = KanbanCard(
+                id="IG-2", stage="7_Handoff", action="Integrating",
+                file_path=card.file_path,
+            )
+            # Simulate branch merged
+            with patch("orc_core.agents.infra.agent_output._is_branch_integrated", return_value=True):
+                errors = process_agent_result(board, original, "integrator")
+            self.assertEqual(errors, [])
+            updated = board.card_by_id("IG-2")
+            self.assertEqual(updated.stage, "8_Done")
+            self.assertEqual(updated.action, "Done")
+
+    def test_done_allowed_when_no_branch_exists(self):
+        """Cards without a task branch (non-code tasks) can still reach Done."""
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            card = _add(td, KanbanCard(id="IG-3", stage="7_Handoff", action="Integrating"))
+            board = KanbanBoard(td, repo=FsCardRepository())
+            card = board.card_by_id("IG-3")
+
+            card.action = "Done"
+            write_card(card)
+
+            original = KanbanCard(
+                id="IG-3", stage="7_Handoff", action="Integrating",
+                file_path=card.file_path,
+            )
+            # _is_branch_integrated returns True when no branch exists
+            with patch("orc_core.agents.infra.agent_output._is_branch_integrated", return_value=True):
+                errors = process_agent_result(board, original, "integrator")
+            self.assertEqual(errors, [])
+            updated = board.card_by_id("IG-3")
+            self.assertEqual(updated.stage, "8_Done")
+
+
 class TestKanbanTaskSource(unittest.TestCase):
 
     def test_list_tasks(self):

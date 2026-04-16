@@ -39,10 +39,11 @@ def _update_completion_stats(
     stats.setdefault("recent_durations", [])
     stats.setdefault("active_seconds_total", 0.0)
 
-    # Tokens
+    # Tokens — accumulate across multiple executions for the same card
     task_tokens = monitor.metrics.tokens_total
-    if task_tokens is not None and task_id and task_id not in stats["tokens_by_task"]:
-        stats["tokens_by_task"][task_id] = int(task_tokens)
+    if task_tokens is not None and task_id:
+        prev = int(stats["tokens_by_task"].get(task_id, 0))
+        stats["tokens_by_task"][task_id] = prev + int(task_tokens)
         stats["tokens_total"] = int(stats["tokens_total"]) + int(task_tokens)
 
     # Duration

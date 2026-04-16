@@ -102,9 +102,8 @@ ORC operates as an autonomous delivery system with:
 
 ### I-17: 11 branches with unmerged code — cards Done but code not on master (2026-04-16 14:00)
 - Root cause: `finalize_completed_worktree` cherry-picks only 1 commit; multi-commit branches partially lost; integration often fails silently
-- Fix: manual squash-merge of all 8 branches. Integrator prompt now instructs agent to merge all commits to main itself.
-- Residual risk: agent-driven merge not yet proven in runtime
-- **OPEN** — monitoring
+- Fix: replaced cherry-pick with `git merge --squash` — captures ALL commits on branch in single merge commit. Added integration gate preventing Done without code on main.
+- **RESOLVED**
 
 ### I-18: Phantom dependencies block cards permanently (2026-04-16 14:00)
 - Root cause: `has_unmet_dependencies` treats non-existent card IDs as unmet
@@ -125,12 +124,22 @@ ORC operates as an autonomous delivery system with:
 | cards stuck in Arbitration | 2026-04-16 | Fixed | fallback to Coding + auto-default |
 | stale assignment after restart | 2026-04-15 | Fixed | release_stale_agents at startup |
 | agent feedback silently lost | 2026-04-16 | Fixed | worktree card read |
-| integration drops multi-commit work | 2026-04-16 | Mitigated | agent-driven merge (monitoring) |
+| integration drops multi-commit work | 2026-04-16 | **Fixed** | squash-merge replaces cherry-pick |
 
-## Hardening Plan (from subagent analysis)
+## Architectural Hardening (2026-04-16)
+
+### Completed (this session)
+- [x] **FIX-1**: Squash-merge replaces cherry-pick — captures ALL commits on branch, not just one
+- [x] **FIX-2**: Integration gate — card cannot move to Done until code verified on main (integrator exempt — merge runs in finalize)
+- [x] **FIX-3**: Post-agent verification — autocommits uncommitted code before delivery check
+- [x] **FIX-4**: Unified state machine — single TRANSITIONS table, consistency tests (10 tests)
+- [x] **FIX-5**: Token budget per card — tracks tokens_spent, blocks on exhaustion
+- [x] **BUGFIX**: Three-dot diff replaced with merge-base + two-dot diff (squash-merge doesn't make branch ancestor)
+- [x] **BUGFIX**: tasks/ excluded from squash merge (worktree card files diverge from main)
+- [x] **BUGFIX**: Token tracking accumulates across multiple executions per card
 
 ### P1 — Fix Soon
-- [ ] Unify _FORWARD_MOVES and DEFERRED_MOVE_RULES into single source
+- [x] Unify _FORWARD_MOVES and DEFERRED_MOVE_RULES into single source
 - [ ] Reduce stale-assignment timeout from 20min to 5min
 - [ ] Auto-resolve conflicts only for task files (not source code)
 - [ ] Stuck detection handles phantom deps
@@ -138,16 +147,17 @@ ORC operates as an autonomous delivery system with:
 
 ### P2 — Improve
 - [ ] Card lifecycle trace ID for log correlation
-- [ ] Token spend tracking per card
+- [x] Token spend tracking per card
 - [ ] Duplicate card ID detection in board hydration
 - [ ] Board validation dry-run mode
 - [ ] Cycle decomposition cards fast-track to Estimate
 
 ## Autonomy Readiness Checklist
 
-- [x] Done always equals integrated, working code *(gate + worktree read + fallback autocommit)*
-- [ ] Integration merges all commits reliably *(agent-driven, monitoring)*
+- [x] Done always equals integrated, working code *(integration gate + worktree read + fallback autocommit)*
+- [x] Integration merges all commits reliably *(squash-merge replaces cherry-pick)*
 - [x] Cycles/deadlocks resolved by ORC *(arbitration fallback + backward moves)*
 - [x] No unrecoverable branch/worktree information loss *(branches preserved)*
+- [x] Token budget prevents unbounded spend *(per-card tracking + auto-block)*
 - [ ] Monitoring and periodic reports stable *(Telegram blocked without VPN)*
 - [ ] At least 3 uninterrupted healthy control cycles *(not yet achieved)*

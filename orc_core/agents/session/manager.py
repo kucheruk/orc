@@ -28,7 +28,8 @@ from ..runners.teamlead import KanbanTeamleadRunner
 from ..runners.worker import KanbanWorkerRunner
 from ...board.kanban_role_registry import ROLE_TEAMLEAD
 from ...board.kanban_board_health import detect_circular_deps
-from ...board.stage_constants import STAGE_DONE
+from ...board.action_constants import Action
+from ...board.stage_constants import STAGE_DONE, STAGE_ESTIMATE
 from ...log import log_event
 from ...quit_signal import is_quit_after_task_requested, is_stop_requested
 from .pool import SessionPool
@@ -74,7 +75,7 @@ class KanbanSessionManager:
         self.tasks_dir = tasks_dir
         self.config = config
         self.log_path = log_path
-        self.main_branch = (main_branch or "main").strip() or "main"
+        self.main_branch = main_branch  # already resolved by composition root
         self.sleep_fn = sleep_fn
 
         self._distributor = distributor
@@ -258,7 +259,7 @@ class KanbanSessionManager:
         return sum(
             1
             for card in board.cards
-            if card.stage == "2_Estimate" and card.action == "Coding" and board.has_unmet_dependencies(card)
+            if card.stage == STAGE_ESTIMATE and card.action == Action.CODING and board.has_unmet_dependencies(card)
         )
 
     def _cycle_count(self) -> int:

@@ -39,6 +39,8 @@ class KanbanCard:
     created_at: str = ""
     updated_at: str = ""
     body: str = ""
+    tokens_spent: int = 0
+    token_budget: int = 0    # 0 = no limit; set from effort_score * multiplier
     # runtime — not serialized
     file_path: Path | None = field(default=None, repr=False)
 
@@ -70,6 +72,10 @@ class KanbanCard:
 
     def is_looping(self, threshold: int = 2) -> bool:
         return self.loop_count >= threshold
+
+    @property
+    def is_budget_exhausted(self) -> bool:
+        return self.token_budget > 0 and self.tokens_spent >= self.token_budget
 
     def can_move_to(self, target_stage: str, *, allow_backward: bool = False) -> bool:
         """Check if this card can transition to target_stage."""
@@ -141,6 +147,8 @@ class KanbanCard:
             "roi": self.roi,
             "dependencies": [str(d) for d in self.dependencies],
             "loop_count": self.loop_count,
+            "tokens_spent": self.tokens_spent,
+            "token_budget": self.token_budget,
             "assigned_agent": self.assigned_agent,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -150,13 +158,30 @@ class KanbanCard:
 # ── Parsing ─────────────────────────────────────────────────────
 
 
+def _normalize_action(raw: str) -> str:
+    """Normalize action string to match Action enum casing (e.g., 'coding' → 'Coding')."""
+    s = str(raw).strip()
+    if not s:
+        return Action.PRODUCT
+    # Try exact match first
+    try:
+        return Action(s)
+    except ValueError:
+        pass
+    # Try case-insensitive match
+    for member in Action:
+        if member.value.lower() == s.lower():
+            return member.value
+    return s  # return as-is, validation will catch it
+
+
 def parse_card(text: str, file_path: Path | None = None) -> KanbanCard:
     data, body = parse_frontmatter(text, str(file_path or "<string>"))
     card = KanbanCard(
         id=str(data.get("id", "")),
         title=str(data.get("title", "")),
         stage=str(data.get("stage", STAGE_INBOX)),
-        action=str(data.get("action", Action.PRODUCT)),
+        action=_normalize_action(data.get("action", Action.PRODUCT)),
         class_of_service=str(data.get("class_of_service", ClassOfService.STANDARD)),
         cos_justification=str(data.get("cos_justification", "")),
         deadline=str(data.get("deadline", "") or ""),
@@ -165,6 +190,8 @@ def parse_card(text: str, file_path: Path | None = None) -> KanbanCard:
         roi=float(data.get("roi", 0.0)),
         dependencies=_parse_list(data.get("dependencies")),
         loop_count=int(data.get("loop_count", 0)),
+        tokens_spent=int(data.get("tokens_spent", 0)),
+        token_budget=int(data.get("token_budget", 0)),
         assigned_agent=str(data.get("assigned_agent", "") or ""),
         created_at=str(data.get("created_at", "") or ""),
         updated_at=str(data.get("updated_at", "") or ""),
@@ -205,8 +232,13 @@ def _parse_list(val: Any) -> list[str]:
     if val is None:
         return []
     if isinstance(val, list):
-        return [str(v) for v in val]
-    return [str(val)]
+        return [str(v).strip() for v in val if str(v).strip()]
+    # Handle comma-separated string: "TASK-1, TASK-2" → ["TASK-1", "TASK-2"]
+    s = str(val)
+    if "," in s:
+        return [part.strip() for part in s.split(",") if part.strip()]
+    s = s.strip()
+    return [s] if s else []
 
 
 def _now_iso() -> str:
