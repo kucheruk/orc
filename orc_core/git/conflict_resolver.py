@@ -54,12 +54,22 @@ class ConflictResolver:
         ctx: "IntegrationContext",
         abort_fn: Callable[["IntegrationContext"], None],
     ) -> Optional[bool]:
-        """Auto-resolve trivial conflicts by keeping both sides (ours + theirs).
+        """Auto-resolve conflicts when ours/theirs are trivially reconcilable.
+
+        Only handles cases where the result is unambiguous:
+        - one side is empty (add-only from the other side);
+        - both sides are identical (same change).
+
+        For anything else (two divergent code changes to the same region),
+        returns None so the caller falls through to the merge-expert agent.
+        Never concatenates non-trivial code blocks — that tended to produce
+        duplicate definitions / broken syntax and cost an entire pipeline
+        round-trip to fix.
 
         Returns:
-            True  — all conflicts resolved, cherry-pick committed
-            False — attempted resolution but failed, cherry-pick aborted
-            None  — not applicable (complex conflicts), caller should try merge expert
+            True  — all conflicts resolved, commit succeeded
+            False — attempted resolution but failed, merge aborted
+            None  — not applicable, caller should try merge expert
         """
         ok, stdout, _, _ = run_git(self.workdir, ["git", "diff", "--name-only", "--diff-filter=U"])
         if not ok:
@@ -73,6 +83,20 @@ class ConflictResolver:
             re.DOTALL,
         )
 
+        def _reconcile(match: "re.Match[str]") -> Optional[str]:
+            ours, theirs = match.group(1), match.group(2)
+            ours_stripped = ours.strip()
+            theirs_stripped = theirs.strip()
+            if not ours_stripped and not theirs_stripped:
+                return ""
+            if not ours_stripped:
+                return theirs
+            if not theirs_stripped:
+                return ours
+            if ours_stripped == theirs_stripped:
+                return ours
+            return None
+
         for fpath in conflict_files:
             full = Path(self.workdir) / fpath
             if not full.exists():
@@ -84,9 +108,17 @@ class ConflictResolver:
                 return None
             if "<<<<<<< " not in text:
                 continue
-            resolved = CONFLICT_RE.sub(r"\1\2", text)
-            if "<<<<<<< " in resolved:
-                ctx.step("auto_resolve_skip", file=fpath, reason="complex_conflict")
+            divergent = False
+            def _sub(match: "re.Match[str]") -> str:
+                nonlocal divergent
+                resolution = _reconcile(match)
+                if resolution is None:
+                    divergent = True
+                    return match.group(0)
+                return resolution
+            resolved = CONFLICT_RE.sub(_sub, text)
+            if divergent or "<<<<<<< " in resolved:
+                ctx.step("auto_resolve_skip", file=fpath, reason="divergent_conflict")
                 return None
             try:
                 full.write_text(resolved, encoding="utf-8")
@@ -96,7 +128,7 @@ class ConflictResolver:
                 return False
 
         for fpath in conflict_files:
-            run_git(self.workdir, ["git", "add", fpath])
+            run_git(self.workdir, ["git", "add", "--", fpath])
 
         # For squash merge, commit directly (no cherry-pick --continue)
         ok_commit, _, stderr, _ = run_git(
