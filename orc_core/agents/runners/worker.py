@@ -273,13 +273,6 @@ class KanbanWorkerRunner:
             commit_phase = self._config.commit_phase and assignment.needs_worktree
             result = self._engine.execute(self._state_manager.make_request(task, prompt, wd, sid,
                                                               commit_phase, 1800.0))
-            # Token budget: initialize and track
-            _update_card_token_budget(card, self._distributor.board, self._log_path)
-            # Read tokens from stats file and update card
-            _accumulate_card_tokens(card, self._distributor.board, self._workdir, self._log_path)
-            # Block if budget exhausted
-            if _check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path):
-                return
 
             if result and result.status == TaskExecutionStatus.COMPLETED:
                 # Post-agent verification: autocommit any uncommitted code
@@ -312,6 +305,11 @@ class KanbanWorkerRunner:
                         card_only_commits=has_any,
                     )
                     handle_task_failure(card, reason, self._outcomes, self._publisher, role)
+                    # Token accounting before escalation — agent burned tokens even
+                    # without delivering code, we need that visible to budget checks.
+                    _accumulate_card_tokens(card, self._distributor.board, self._workdir, self._log_path)
+                    _update_card_token_budget(card, self._distributor.board, self._log_path)
+                    _check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path)
                     escalate_if_threshold_reached(
                         card, reason,
                         self._distributor.board, self._outcomes,
@@ -328,11 +326,24 @@ class KanbanWorkerRunner:
                     log_path=self._log_path,
                     agent_result_processor=result_processor,
                 )
+                # Token work AFTER process_completed_task so we don't overwrite
+                # the agent's just-applied card edits with a stale `card` snapshot
+                # taken before the agent ran.
+                _accumulate_card_tokens(card, self._distributor.board, self._workdir, self._log_path)
+                _update_card_token_budget(card, self._distributor.board, self._log_path)
+                if _check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path):
+                    return
                 if errors:
                     self._outcomes.record_failed(card.id)
                 else:
                     assignment_succeeded = True
             else:
+                # Failure path — agent did not modify the card body, so it's safe
+                # to sync tokens/budget on the (unchanged) `card` snapshot now.
+                _accumulate_card_tokens(card, self._distributor.board, self._workdir, self._log_path)
+                _update_card_token_budget(card, self._distributor.board, self._log_path)
+                if _check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path):
+                    return
                 reason = result.reason if result else "no result"
                 handle_task_failure(card, reason, self._outcomes, self._publisher, role)
                 escalate_if_threshold_reached(
