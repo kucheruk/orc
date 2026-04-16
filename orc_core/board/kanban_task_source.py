@@ -6,9 +6,13 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+import logging
+
 from .kanban_board import KanbanBoard
 from .stage_constants import STAGE_DONE
 from ..tasks.dto import Task
+
+_logger = logging.getLogger(__name__)
 
 
 class KanbanTaskSource:
@@ -53,9 +57,19 @@ class KanbanTaskSource:
         return card is not None and card.stage == STAGE_DONE
 
     def mark_task_done(self, task_id: str) -> bool:
+        # Legacy protocol hook from the markdown-backlog era. On the kanban
+        # board the ONLY legitimate path to STAGE_DONE is the integrator
+        # flow (finalize_completed_worktree after a successful squash merge).
+        # Refuse to bypass that — otherwise a card can reach 8_Done without
+        # its source code landing on the main branch.
         card = self._board.card_by_id(task_id)
         if card is None:
             return False
-        if card.stage != STAGE_DONE:
-            self._board.move_card(card, STAGE_DONE, reason="task completed")
-        return True
+        if card.stage == STAGE_DONE:
+            return True
+        _logger.warning(
+            "Refusing to move %s to STAGE_DONE via legacy mark_task_done; "
+            "kanban cards must go through the integrator path.",
+            task_id,
+        )
+        return False

@@ -41,8 +41,13 @@ def find_next_work(board: "KanbanBoard") -> Optional[WorkAssignment]:
 
     Returns None if no work is available (all columns empty or WIP-blocked).
     """
-    # 0. Auto-promote: move Estimate→Todo cards whose deps are now met.
-    #    Runs FIRST so promoted cards are immediately visible to the pull scan.
+    # 0a. Auto-archive: retire parent cards that were already decomposed into
+    #     `{id}-A`, `{id}-B`, ... sub-cards. Otherwise the architect keeps
+    #     re-pulling the parent and burns tokens in a decomposition death loop.
+    _auto_archive_decomposed_parents(board)
+
+    # 0b. Auto-promote: move Estimate→Todo cards whose deps are now met.
+    #     Runs FIRST so promoted cards are immediately visible to the pull scan.
     _auto_promote_estimate(board)
 
     # 1. Handoff → Integrating (worktree=True so integrator sees coder's commits)
@@ -93,6 +98,63 @@ def find_next_work(board: "KanbanBoard") -> Optional[WorkAssignment]:
         return result
 
     return None
+
+
+def _auto_archive_decomposed_parents(board: "KanbanBoard") -> None:
+    """Retire Estimate cards that already have `{id}-X` sub-cards.
+
+    The architect prompt instructs the agent to split oversized or
+    multi-topic cards into sub-cards `{id}-A`, `{id}-B`, ...  Historically the
+    parent card file was expected to be deleted by the agent, but ORC's output
+    validator rejects missing-file writes and reverts the edit, so the parent
+    survives in STAGE_ESTIMATE with `action=Blocked` or `action=Product` and
+    `effort_score=0`. The architect then re-pulls it on the next cycle and
+    burns another 100K+ tokens re-splitting the same card.
+
+    This sweep breaks the loop: if any card whose id starts with `{parent}-`
+    exists in any stage, the parent is moved to STAGE_DONE with `action=Done`
+    (and never re-enters the pull scan). The move does not touch source code,
+    so it does not need the integrator path — the parent card carries no
+    worktree, its scope is fully replaced by the sub-cards.
+    """
+    from .stage_constants import STAGE_DONE
+
+    all_ids = [c.id for c in board.cards]
+    id_set = set(all_ids)
+    # Index which parents have at least one sub-card on the board.
+    decomposed_parents: set[str] = set()
+    for cid in all_ids:
+        # A sub-card id looks like "{parent}-{suffix}" where suffix is a
+        # single uppercase letter (A, B, C, ...). Only accept that shape to
+        # avoid false positives on ids that legitimately contain dashes.
+        if "-" not in cid:
+            continue
+        parent, _, suffix = cid.rpartition("-")
+        if not parent or len(suffix) != 1 or not suffix.isalpha() or not suffix.isupper():
+            continue
+        if parent in id_set:
+            decomposed_parents.add(parent)
+
+    if not decomposed_parents:
+        return
+
+    for parent_id in decomposed_parents:
+        parent = board.card_by_id(parent_id)
+        if parent is None or parent.stage == STAGE_DONE:
+            continue
+        # Only archive parents that still live in Estimate/Inbox — if an agent
+        # already picked the parent into coding, let that flow complete.
+        if parent.stage not in (STAGE_ESTIMATE, STAGE_INBOX):
+            continue
+        _pull_logger.warning(
+            "Archiving decomposed parent %s (sub-cards already exist); "
+            "avoids architect death-loop on re-pull.",
+            parent_id,
+        )
+        parent.action = Action.DONE
+        board.move_card(parent, STAGE_DONE, allow_backward=False,
+                         reason="auto-archive: decomposed into sub-cards")
+        board.save_card(parent)
 
 
 def _auto_promote_estimate(board: "KanbanBoard") -> None:

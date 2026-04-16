@@ -368,8 +368,10 @@ class KanbanWorkerRunner:
                 self._outcomes.reset_fail_count(card.id)
         finally:
             if worktree:
-                # Integrate worktree commits into main before cleanup
-                if card.stage == STAGE_DONE:
+                # Integrate worktree commits into main before cleanup.
+                # Check action, not stage: the integrator sets action=Done but
+                # the card stays in STAGE_HANDOFF until finalize succeeds.
+                if card.action == Action.DONE:
                     finalize_completed_worktree(
                         card=card, worktree=worktree, slot=slot,
                         board=self._distributor.board, integrator=self._integrator,

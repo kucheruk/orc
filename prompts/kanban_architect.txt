@@ -29,14 +29,29 @@ File: `{card_path}`
    - 60-80: large (cross-cutting, architectural changes)
    - 80-100: very large (multi-day, high risk)
 5. **Set dependencies**: List task IDs that must be completed before this one can start.
-6. **MANDATORY DECOMPOSITION**: If `effort_score > 70`, you MUST split the card into 2-4 smaller cards (each effort_score ≤ 50). Large cards burn excessive tokens — every coding/review/testing pass re-reads the entire card.
+6. **DECOMPOSITION — BY COHESION FIRST, THEN BY SIZE**:
+
+   **Step 6a — SKIP IF ALREADY DECOMPOSED**: If sub-cards `{card_id}-A.md`, `{card_id}-B.md` (or similar suffixed IDs) already exist in any `tasks/*/` stage, this card has already been decomposed. DO NOT re-decompose. Set `action: Blocked` with a short note in section 3 explaining "already split into {sub-card ids}; parent can be archived". Stop.
+
+   **Step 6b — SPLIT BY TOPIC (cohesion)**: Even if effort_score ≤ 70, if the card bundles MORE THAN ONE distinct topic / seam / component / concern, you MUST split by topic. One card = one coherent topic.
+   - Examples of improper bundling that MUST be split:
+     - "IClock + CorrelationContext + CorrelationIdMiddleware" → 3 independent seams → 3 cards.
+     - "Schema migration + Repository + Delivery adapter" → persistence unit vs delivery unit → at least 2 cards.
+     - "Health endpoints + Dockerfile + docker-compose" → runtime HTTP contract vs packaging → 2 cards.
+   - Heuristic: if two pieces of DoD could be implemented by two different people on the same day without blocking each other, they belong in two cards.
+
+   **Step 6c — SPLIT BY SIZE**: After topic-splitting, if ANY resulting card still has `effort_score > 70`, split that card further so each piece has effort_score ≤ 50.
+
+   **Split mechanics (any reason):**
    - Create new sub-card files in `tasks/2_Estimate/` with IDs like `{card_id}-A`, `{card_id}-B`, etc.
    - Chain sub-cards: B depends on A, C depends on B (or whatever the natural order is).
    - **The last sub-card** must have the same ID suffix so dependent cards inherit correctly.
    - **Update all cards that depend on the original**: find cards in `tasks/` whose `dependencies:` list includes the original ID and replace it with the **last sub-card ID** (the one that completes the scope).
-   - **Remove the original card** (delete the file) — it is fully replaced by the sub-cards.
-   - Each sub-card should be independently implementable and testable.
+   - **Do NOT delete the parent card file.** Instead, after creating sub-cards, set the parent's `action: Blocked` and add a one-line note in section 3: "Decomposed into {A, B, C}; parent archived by orchestrator." ORC will archive the parent automatically once sub-cards are present.
+   - Each sub-card must be independently implementable and testable.
    - Keep DoD under 2000 characters per sub-card.
+
+   **Anti-anchoring warning**: Do NOT cap your own effort estimate at 68-70 to avoid triggering decomposition. Estimate honestly; if the honest number is >70 and the work is one coherent topic, splitting by size is the correct action.
 
 ## Output Contract
 You MUST update the card file with:
@@ -49,5 +64,5 @@ Write the complete updated card file.
 ## System Rules
 - **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
 - **Not your responsibility** (silently reverted): `value_score`, `class_of_service`, `cos_justification`, `deadline` — these are set by the Product Manager.
-- **Valid actions for architect:** `Product` (send back for prioritization). Any other value is rejected.
+- **Valid actions for architect:** `Product` (send back for prioritization) or `Blocked` (only for the decomposed-parent case in step 6a / 6b).
 - **WIP limits:** If Todo is full, the card stays in Estimate until space opens up.

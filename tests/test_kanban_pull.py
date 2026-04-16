@@ -245,5 +245,73 @@ class TestWorktreeFlag(unittest.TestCase):
             self.assertFalse(result.needs_worktree)
 
 
+class TestAutoArchiveDecomposedParents(unittest.TestCase):
+    """find_next_work must retire parent cards whose sub-cards already exist.
+
+    Otherwise the architect keeps re-pulling the parent and burns tokens in
+    a decomposition death-loop.
+    """
+
+    def test_parent_with_sub_cards_gets_archived(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            # Parent sits in Estimate with action=Architect, pulled for estimation.
+            _add(td, KanbanCard(id="FILE-001", stage="2_Estimate", action="Architect"))
+            # Architect already decomposed it into three sub-cards.
+            _add(td, KanbanCard(id="FILE-001-A", stage="2_Estimate", action="Product",
+                                 effort_score=30))
+            _add(td, KanbanCard(id="FILE-001-B", stage="2_Estimate", action="Product",
+                                 effort_score=30))
+            _add(td, KanbanCard(id="FILE-001-C", stage="2_Estimate", action="Product",
+                                 effort_score=30))
+            board = KanbanBoard(td, repo=FsCardRepository())
+
+            find_next_work(board)
+
+            parent = board.card_by_id("FILE-001")
+            self.assertEqual(parent.stage, "8_Done",
+                             "Decomposed parent must be auto-archived to STAGE_DONE.")
+            # Sub-cards remain untouched.
+            self.assertEqual(board.card_by_id("FILE-001-A").stage, "2_Estimate")
+            self.assertEqual(board.card_by_id("FILE-001-B").stage, "2_Estimate")
+            self.assertEqual(board.card_by_id("FILE-001-C").stage, "2_Estimate")
+
+    def test_parent_without_sub_cards_is_not_touched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            _add(td, KanbanCard(id="PLAIN-001", stage="2_Estimate", action="Architect"))
+            board = KanbanBoard(td, repo=FsCardRepository())
+
+            find_next_work(board)
+
+            self.assertEqual(board.card_by_id("PLAIN-001").stage, "2_Estimate")
+
+    def test_compound_id_without_subcards_is_not_falsely_matched(self):
+        """`NOTIF-005` must not be mistaken for a sub-card of `NOTIF`."""
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            # 3-letter suffix — not the A/B/C shape auto-archive expects.
+            _add(td, KanbanCard(id="X-001", stage="2_Estimate", action="Architect"))
+            _add(td, KanbanCard(id="X-001-REDO", stage="2_Estimate", action="Product"))
+            board = KanbanBoard(td, repo=FsCardRepository())
+
+            find_next_work(board)
+
+            # X-001 should NOT be archived; X-001-REDO is not a sub-card (suffix is multi-letter).
+            self.assertEqual(board.card_by_id("X-001").stage, "2_Estimate")
+
+    def test_does_not_re_archive_already_done_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            _add(td, KanbanCard(id="OLD-001", stage="8_Done", action="Done"))
+            _add(td, KanbanCard(id="OLD-001-A", stage="2_Estimate", action="Product"))
+            board = KanbanBoard(td, repo=FsCardRepository())
+
+            # Should be a no-op — no exception, parent stays in Done.
+            find_next_work(board)
+
+            self.assertEqual(board.card_by_id("OLD-001").stage, "8_Done")
+
+
 if __name__ == "__main__":
     unittest.main()

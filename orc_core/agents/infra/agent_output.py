@@ -215,21 +215,19 @@ def process_agent_result(
         if new_stage in (STAGE_TODO, STAGE_CODING) and board.has_unmet_dependencies(updated):
             _logger.info("Cannot move %s to %s: unmet dependencies, staying in %s",
                           updated.id, new_stage, card.stage)
-        # Integration gate: Done only after code is verified on main.
-        # Integrator role is EXEMPT — its job is to trigger the merge, which
-        # happens AFTER process_agent_result in finalize_completed_worktree.
-        elif new_stage == STAGE_DONE:
+        # Integration gate: action=Done is only the integrator's signal; the
+        # actual move to STAGE_DONE happens in finalize_completed_worktree
+        # after a successful squash merge. Non-integrator roles are NOT
+        # allowed to set action=Done — revert them to Integrating.
+        elif new_action == Action.DONE:
             if role == ROLE_INTEGRATOR:
                 _logger.info(
-                    "Integration gate: %s — integrator role exempt, moving to Done "
-                    "(merge will run in finalize).",
-                    updated.id,
+                    "Integrator set action=Done on %s; card stays in %s until "
+                    "finalize completes the squash merge.",
+                    updated.id, card.stage,
                 )
-                board.move_card(updated, new_stage, allow_backward=False,
-                                reason=f"{role}: {old_action} -> {new_action}")
-                if updated.action != Action.DONE:
-                    updated.action = Action.DONE
-                    board.save_card(updated)
+                # Card stays in STAGE_HANDOFF with action=Done. Worker will
+                # detect action==DONE and call finalize_completed_worktree.
             else:
                 base_workdir = str(board.tasks_dir.parent) if board.tasks_dir else ""
                 gate_branch = main_branch
@@ -239,23 +237,22 @@ def process_agent_result(
                     _logger.info("Integration gate: main_branch not passed, detected '%s'", gate_branch)
                 if not _is_branch_integrated(base_workdir, updated.id, gate_branch):
                     _logger.warning(
-                        "Integration gate: blocking %s from Done — code not yet on %s. "
-                        "Keeping in %s with action=Integrating. (role=%s)",
-                        updated.id, gate_branch, card.stage, role,
+                        "Integration gate: %s role tried to set action=Done on %s "
+                        "without verified merge; reverting to Integrating so the "
+                        "integrator can re-run.",
+                        role, updated.id,
                     )
                     updated.action = Action.INTEGRATING
                     board.save_card(updated)
                 else:
                     _logger.info(
-                        "Integration gate: %s passed — branch code verified on %s, "
-                        "moving to Done. (role=%s)",
-                        updated.id, gate_branch, role,
+                        "Integration gate: %s role set action=Done on %s and "
+                        "branch is verified on %s; allowing action=Done, "
+                        "finalize will archive the card.",
+                        role, updated.id, gate_branch,
                     )
-                    board.move_card(updated, new_stage, allow_backward=False,
-                                    reason=f"{role}: {old_action} -> {new_action}")
-                    if updated.action != Action.DONE:
-                        updated.action = Action.DONE
-                        board.save_card(updated)
+                    # Leave action=Done so finalize picks it up. No stage move
+                    # here — that's finalize_completed_worktree's job.
         elif new_stage and board.has_wip_room(new_stage):
             is_backward = STAGE_ORDER.get(new_stage, 0) < STAGE_ORDER.get(card.stage, 0)
             board.move_card(updated, new_stage, allow_backward=is_backward,

@@ -51,6 +51,9 @@ TRANSITIONS: tuple[Transition, ...] = (
     # ── Architect role ─────────────────────────────────────────
     Transition(STAGE_ESTIMATE, Action.ARCHITECT, Action.PRODUCT, None, "architect", False, False),
     Transition(STAGE_ESTIMATE, Action.ARCHITECT, Action.CODING, STAGE_TODO, "architect", False, False),
+    # Architect marks a parent card as already-decomposed so the auto-archive
+    # sweep in kanban_pull can retire it. Stage stays in ESTIMATE until archived.
+    Transition(STAGE_ESTIMATE, Action.ARCHITECT, Action.BLOCKED, None, "architect", False, False),
 
     # ── Coder role ─────────────────────────────────────────────
     Transition(STAGE_CODING, Action.CODING, Action.REVIEWING, STAGE_REVIEW, "coder", True, False),
@@ -68,7 +71,11 @@ TRANSITIONS: tuple[Transition, ...] = (
     Transition(STAGE_TESTING, Action.TESTING, Action.REVIEWING, STAGE_REVIEW, "tester", False, False),
 
     # ── Integrator role ────────────────────────────────────────
-    Transition(STAGE_HANDOFF, Action.INTEGRATING, Action.DONE, STAGE_DONE, "integrator", True, False),
+    # Action=DONE keeps the card in STAGE_HANDOFF. The worker calls
+    # finalize_completed_worktree, which squash-merges into main and only
+    # then moves the card to STAGE_DONE. This invariant prevents a card from
+    # reaching 8_Done before its source code lands on the main branch.
+    Transition(STAGE_HANDOFF, Action.INTEGRATING, Action.DONE, None, "integrator", True, False),
     Transition(STAGE_HANDOFF, Action.INTEGRATING, Action.REVIEWING, STAGE_REVIEW, "integrator", False, False),
     Transition(STAGE_HANDOFF, Action.INTEGRATING, Action.TESTING, STAGE_TESTING, "integrator", False, False),
     Transition(STAGE_HANDOFF, Action.INTEGRATING, Action.CODING, STAGE_CODING, "integrator", False, True),

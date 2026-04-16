@@ -102,11 +102,13 @@ class TestHappyPath(unittest.TestCase):
             card = board.card_by_id("HP-1")
             self.assertEqual(card.stage, "7_Handoff")
 
-            # Step 7: Integrator → sets action=Done
+            # Step 7: Integrator → sets action=Done. Card stays in Handoff;
+            # finalize_completed_worktree is responsible for the final move
+            # to STAGE_DONE after the squash merge lands.
             errors = _simulate_agent(board, card, "integrator", action="Done")
             self.assertEqual(errors, [])
             card = board.card_by_id("HP-1")
-            self.assertEqual(card.stage, "8_Done")
+            self.assertEqual(card.stage, "7_Handoff")
             self.assertEqual(card.action, "Done")
 
 
@@ -196,7 +198,9 @@ class TestAutoDefault(unittest.TestCase):
             errors = _simulate_agent(board, board.card_by_id("AD-4"), "integrator")
             self.assertEqual(errors, [])
             card = board.card_by_id("AD-4")
-            self.assertEqual(card.stage, "8_Done")
+            # Auto-default produces action=Done, but the card stays in Handoff
+            # until finalize_completed_worktree squash-merges to main.
+            self.assertEqual(card.stage, "7_Handoff")
             self.assertEqual(card.action, "Done")
 
 

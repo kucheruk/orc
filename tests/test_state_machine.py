@@ -84,13 +84,25 @@ class StateMachineConsistencyTest(unittest.TestCase):
                           f"This will cause stuck cards when agent doesn't change action.")
 
     def test_handoff_done_transition_exists(self) -> None:
-        """The critical Handoff→Done transition must exist."""
-        self.assertIn(
+        """Handoff+Done must be a declared transition, but must NOT auto-move.
+
+        Card stays in STAGE_HANDOFF when the integrator sets action=Done.
+        The actual move to STAGE_DONE happens in finalize_completed_worktree
+        after a successful squash merge — this prevents a card from reaching
+        8_Done before its code lands on the main branch.
+        """
+        # Transition declared — integrator is allowed to set action=Done.
+        integrator_transitions = VALID_TRANSITIONS.get("integrator", {})
+        self.assertIn(Action.DONE, integrator_transitions.get(Action.INTEGRATING, set()),
+                      "Integrator must be able to set action=Done from Integrating.")
+        # But the transition MUST NOT appear in FORWARD_MOVES — otherwise
+        # state machine would auto-move the card to STAGE_DONE before the
+        # squash merge runs. finalize_completed_worktree owns that move.
+        self.assertNotIn(
             (STAGE_HANDOFF, Action.DONE),
             FORWARD_MOVES,
-            "Missing critical transition: Handoff + Done → 8_Done",
+            "Handoff+Done must NOT auto-move to STAGE_DONE; finalize owns that step.",
         )
-        self.assertEqual(FORWARD_MOVES[(STAGE_HANDOFF, Action.DONE)], STAGE_DONE)
 
     def test_reject_paths_exist_for_review_and_testing(self) -> None:
         """Reviewer and tester must be able to send cards back to Coding."""
@@ -106,13 +118,18 @@ class StateMachineConsistencyTest(unittest.TestCase):
         )
 
     def test_full_pipeline_path_exists(self) -> None:
-        """Verify the complete forward path: Inbox→Estimate→Todo→Coding→Review→Testing→Handoff→Done."""
+        """Verify forward path through state_machine up to Handoff.
+
+        The last hop (Handoff→Done) is deliberately NOT in FORWARD_MOVES:
+        the card stays in STAGE_HANDOFF when the integrator sets action=Done,
+        and finalize_completed_worktree moves it to STAGE_DONE only after the
+        squash merge succeeds. See test_handoff_done_transition_exists.
+        """
         expected_path = [
             ((STAGE_INBOX, Action.ARCHITECT), STAGE_ESTIMATE),
             ((STAGE_CODING, Action.REVIEWING), STAGE_REVIEW),
             ((STAGE_REVIEW, Action.TESTING), STAGE_TESTING),
             ((STAGE_TESTING, Action.INTEGRATING), STAGE_HANDOFF),
-            ((STAGE_HANDOFF, Action.DONE), STAGE_DONE),
         ]
         for key, expected_target in expected_path:
             self.assertEqual(

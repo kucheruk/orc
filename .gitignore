@@ -2,4 +2,4 @@
 !.orc/telegram.json.example
 __pycache__/
 .cursor/
-.worktrees/
+.worktrees/.claude/
