@@ -31,6 +31,11 @@ def sync_commit_message() -> str:
     return "chore: sync board state and project files"
 
 
+def board_commit_message() -> str:
+    """Commit message for card movements on the kanban board."""
+    return "chore(board): update card positions"
+
+
 def run_git(
     workdir: str,
     args: list[str],

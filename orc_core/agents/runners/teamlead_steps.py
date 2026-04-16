@@ -305,13 +305,18 @@ class AutoCommitStep:
             if not ok or not stdout.strip():
                 return
             changed_paths = [line[3:].strip() for line in stdout.splitlines() if len(line) >= 4]
-            if any(path.startswith("tasks/") for path in changed_paths):
-                log_event(ctx.log_path, "WARN", "auto-commit skipped: board/task changes detected",
-                          changed=changed_paths[:20])
-                return
-            run_git(wd, ["git", "add", "-A"])
-            from ...git.git_helpers import sync_commit_message
-            run_git(wd, ["git", "commit", "-m", sync_commit_message()])
-            log_event(ctx.log_path, "INFO", "auto-committed workspace state")
+            task_paths = [p for p in changed_paths if p.startswith("tasks/")]
+            other_paths = [p for p in changed_paths if not p.startswith("tasks/")]
+            from ...git.git_helpers import sync_commit_message, board_commit_message
+            if task_paths:
+                for tp in task_paths:
+                    run_git(wd, ["git", "add", tp])
+                run_git(wd, ["git", "commit", "-m", board_commit_message()])
+                log_event(ctx.log_path, "INFO", "auto-committed board state",
+                          task_paths=task_paths[:20])
+            if other_paths:
+                run_git(wd, ["git", "add", "-A"])
+                run_git(wd, ["git", "commit", "-m", sync_commit_message()])
+                log_event(ctx.log_path, "INFO", "auto-committed workspace state")
         except Exception as exc:
             log_event(ctx.log_path, "WARN", "auto-commit failed", error=str(exc))
