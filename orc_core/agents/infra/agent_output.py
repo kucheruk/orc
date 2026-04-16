@@ -65,9 +65,12 @@ _FORWARD_MOVES: dict[tuple[str, str], str] = {
     (STAGE_REVIEW, Action.TESTING): STAGE_TESTING,       # reviewer approves for testing
     (STAGE_TESTING, Action.INTEGRATING): STAGE_HANDOFF,
     (STAGE_HANDOFF, Action.DONE): STAGE_DONE,
-    # Integrator reject paths
+    # Reject / loop-back paths
+    (STAGE_REVIEW, Action.CODING): STAGE_CODING,        # reviewer rejects
+    (STAGE_TESTING, Action.CODING): STAGE_CODING,       # tester rejects
     (STAGE_HANDOFF, Action.REVIEWING): STAGE_REVIEW,
     (STAGE_HANDOFF, Action.TESTING): STAGE_TESTING,
+    (STAGE_HANDOFF, Action.CODING): STAGE_CODING,       # integrator rejects
 }
 
 

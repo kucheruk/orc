@@ -126,8 +126,8 @@ class TestLoopBack(unittest.TestCase):
             card = board.card_by_id("LB-1")
             self.assertEqual(card.loop_count, 1)
             self.assertEqual(card.action, "Coding")
-            # Card stays in 5_Review (no backward move)
-            self.assertEqual(card.stage, "5_Review")
+            # Card moves back to 4_Coding on rejection
+            self.assertEqual(card.stage, "4_Coding")
 
     def test_loop_back_then_approve(self):
         with tempfile.TemporaryDirectory() as tmp:

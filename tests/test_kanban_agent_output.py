@@ -116,8 +116,8 @@ class TestReviewerLoopCount(unittest.TestCase):
             self.assertEqual(errors, [])
             updated = board.card_by_id("R-1")
             self.assertEqual(updated.loop_count, 1)
-            # Card stays in 5_Review (no left movement)
-            self.assertEqual(updated.stage, "5_Review")
+            # Card moves back to 4_Coding on rejection
+            self.assertEqual(updated.stage, "4_Coding")
 
 
 class TestProtectedFields(unittest.TestCase):
