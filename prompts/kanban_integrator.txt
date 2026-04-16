@@ -57,3 +57,18 @@ after you finish. Just commit all your work in the worktree branch.
 - **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`.
 - **Not your responsibility** (silently reverted): `value_score`, `effort_score`, `class_of_service`, `cos_justification`, `deadline`.
 - **Valid actions:** `Done` (ship), `Reviewing` (reject to review), `Testing` (reject to QA).
+
+## Structured Result Override
+- Ignore any earlier instruction to edit the card file directly. Do **NOT** edit `tasks/*.md`.
+- Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
+- Set `run_id` from `ORC_AGENT_RUN_ID`.
+- Use `payload_kind: "card_update"` and `role: "integrator"`.
+- Use `payload.task_id` = `{card_id}`.
+- Use `payload.launch_fingerprint` with:
+  - `stage`: `{card_stage}`
+  - `action`: `{card_action}`
+  - `file_path`: `{card_path}`
+  - `state_version`: the current `state_version` from the card frontmatter above
+- Allowed `section_updates` keys: `implementation_notes`
+- Use `feedback_append` for reject/pass notes and integration checklist context.
+- Set `next_action` to `Done`, `Reviewing`, or `Testing`, or leave it empty to use ORC's auto-default.

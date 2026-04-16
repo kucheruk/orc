@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from orc_core.agents.infra.agent_output import _FORWARD_MOVES
+from orc_core.board.state_machine import FORWARD_MOVES
 
 from ..registry import ActionContext, register_action
 from ..validation import ensure_action, require
@@ -24,7 +24,7 @@ class SetActionHandler:
         if card.assigned_agent:
             ctx.board.release_agent(card)
         ctx.board.save_card(card, old_action=old, role="teamlead")
-        new_stage = _FORWARD_MOVES.get((card.stage, action_str))
+        new_stage = FORWARD_MOVES.get((card.stage, action_str))
         if new_stage and ctx.board.has_wip_room(new_stage):
             ctx.board.move_card(card, new_stage, reason=f"teamlead: {old} → {action_str}")
             ctx.publisher.emit("teamlead", card_id,

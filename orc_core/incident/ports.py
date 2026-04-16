@@ -11,7 +11,7 @@ these shapes.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Protocol
+from typing import TYPE_CHECKING, Mapping, Optional, Protocol
 
 if TYPE_CHECKING:
     from ..tasks.dto import Task
@@ -57,6 +57,7 @@ class IncidentStateManager(Protocol):
         session_id: str,
         commit_phase: bool,
         ttl: float,
+        agent_env: Mapping[str, str] | None = None,
     ) -> "TaskExecutionRequest": ...
 
 

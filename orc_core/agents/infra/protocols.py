@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from typing import Mapping
 from typing import TYPE_CHECKING, Optional, Protocol
 
 from pathlib import Path
@@ -36,6 +37,7 @@ class RunnerStateManager(Protocol):
         session_id: str,
         commit_phase: bool,
         ttl: float,
+        agent_env: Mapping[str, str] | None = None,
     ) -> TaskExecutionRequest: ...
 
 

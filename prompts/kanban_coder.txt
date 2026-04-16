@@ -79,3 +79,18 @@ Do NOT modify: `id`, `stage`, `roi`, `assigned_agent`, `created_at`, `value_scor
 - **Valid actions for coder:** `Reviewing`, `Testing`. Any other value is rejected.
 - **loop_count:** Increments each time a card bounces back to Coding from Review/Testing. At loop_count >= 2, the teamlead intervenes for arbitration. At >= 4, the card is force-blocked.
 - **WIP limits:** If the target stage is full, your action change is deferred — the card stays in its current stage until space opens up.
+
+## Structured Result Override
+- Ignore any earlier instruction to edit the card file directly. Do **NOT** edit `tasks/*.md`.
+- Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
+- Set `run_id` from `ORC_AGENT_RUN_ID`.
+- Use `payload_kind: "card_update"` and `role: "coder"`.
+- Use `payload.task_id` = `{card_id}`.
+- Use `payload.launch_fingerprint` with:
+  - `stage`: `{card_stage}`
+  - `action`: `{card_action}`
+  - `file_path`: `{card_path}`
+  - `state_version`: the current `state_version` from the card frontmatter above
+- Allowed `section_updates` keys: `implementation_notes`
+- Do **not** put `feedback_checklist` inside `section_updates`; use `feedback_append` for coder responses/checklist notes.
+- Set `next_action` to `Reviewing` or `Testing`, or leave it empty to use ORC's auto-default.

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Optional
 from ...log import log_event
 from ...observability import debug_log, timeline_step
 from ...text_parse import SafeDict
+from ...agents.results.io import RESULT_FILE_ENV, RESULT_RUN_ID_ENV
 from ..backlog.detector import check_backlog_done as _check_backlog_done
 from ..completion.handlers import COMPLETION_HANDLERS
 from ..integration.hooks import update_task_restart_count
@@ -127,6 +128,8 @@ def run_stage_loop(engine: "TaskExecutionEngine", ctx: _ExecutionContext, resume
                         stage_id=stage_id,
                         attempt=attempt_number,
                     )
+                    ctx.last_agent_result_file = attempt_agent_env.get(RESULT_FILE_ENV, "")
+                    ctx.last_agent_run_id = attempt_agent_env.get(RESULT_RUN_ID_ENV, "")
                     launch_cfg = LaunchConfig(
                         workdir=request.workdir,
                         prompt_path=prompt_path,

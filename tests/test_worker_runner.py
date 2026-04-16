@@ -26,7 +26,11 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
         state_manager = MagicMock()
         state_manager.make_request.return_value = MagicMock()
         engine = MagicMock()
-        engine.execute.return_value = TaskExecutionResult(status=TaskExecutionStatus.COMPLETED)
+        engine.execute.return_value = TaskExecutionResult(
+            status=TaskExecutionStatus.COMPLETED,
+            agent_result_file="/tmp/result.json",
+            agent_run_id="TASK-1:4_Coding:attempt-1",
+        )
         return KanbanWorkerRunner(
             workdir="/tmp/base",
             log_path=Path("/tmp/orc.log"),
@@ -44,16 +48,16 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
             integrator=MagicMock(),
         )
 
-    @patch("orc_core.agents.runners.worker._check_and_block_budget", return_value=False)
-    @patch("orc_core.agents.runners.worker._accumulate_card_tokens")
-    @patch("orc_core.agents.runners.worker._update_card_token_budget")
-    @patch("orc_core.agents.runners.worker.has_commits_ahead_of_branch", return_value=False)
-    @patch("orc_core.agents.runners.worker.has_code_changes_ahead", return_value=False)
+    @patch("orc_core.agents.runners.worker_assignment.check_and_block_budget", return_value=False)
+    @patch("orc_core.agents.runners.worker_assignment.update_card_token_budget")
+    @patch("orc_core.agents.runners.worker_assignment.accumulate_card_tokens")
+    @patch("orc_core.agents.runners.worker_assignment.has_commits_ahead_of_branch", return_value=False)
+    @patch("orc_core.agents.runners.worker_assignment.has_code_changes_ahead", return_value=False)
     @patch("orc_core.agents.runners.worker.build_prompt", return_value="prompt")
-    @patch("orc_core.agents.runners.worker.create_task_worktree")
-    @patch("orc_core.agents.runners.worker.process_completed_task")
-    @patch("orc_core.agents.runners.worker.handle_task_failure")
-    def test_delivery_role_without_commits_does_not_process_agent_result(
+    @patch("orc_core.agents.runners.worker_assignment.create_task_worktree")
+    @patch("orc_core.agents.runners.worker_assignment.process_completed_task")
+    @patch("orc_core.agents.runners.worker_assignment.handle_task_failure")
+    def test_delivery_role_without_commits_does_not_process_result(
         self,
         handle_failure_mock,
         process_completed_mock,
@@ -77,6 +81,7 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
         card.title = "Task title"
         card.stage = "4_Coding"
         card.action = "Coding"
+        card.state_version = 3
         card.file_path = Path("/tmp/base/tasks/4_Coding/TASK-1.md")
         runner._distributor.board.card_by_id.side_effect = [card, card]
         assignment = WorkAssignment(card=card, role="coder", needs_worktree=True)
@@ -87,17 +92,15 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
         process_completed_mock.assert_not_called()
         runner._outcomes.reset_fail_count.assert_not_called()
 
-    @patch("orc_core.agents.runners.worker._check_and_block_budget", return_value=False)
-    @patch("orc_core.agents.runners.worker._accumulate_card_tokens")
-    @patch("orc_core.agents.runners.worker._update_card_token_budget")
-    @patch("orc_core.agents.runners.worker.has_code_changes_ahead")
+    @patch("orc_core.agents.runners.worker_assignment.check_and_block_budget", return_value=False)
+    @patch("orc_core.agents.runners.worker_assignment.update_card_token_budget")
+    @patch("orc_core.agents.runners.worker_assignment.accumulate_card_tokens")
+    @patch("orc_core.agents.runners.worker_assignment.has_code_changes_ahead")
     @patch("orc_core.agents.runners.worker.build_prompt", return_value="prompt")
-    @patch("orc_core.agents.runners.worker.create_task_worktree")
-    @patch("orc_core.agents.runners.worker.process_completed_task")
-    @patch("orc_core.agents.runners.worker.handle_task_failure")
-    def test_stale_agent_result_is_discarded_after_card_state_changes(
+    @patch("orc_core.agents.runners.worker_assignment.create_task_worktree")
+    @patch("orc_core.agents.runners.worker_assignment.process_completed_task")
+    def test_stale_result_is_discarded_after_card_state_changes(
         self,
-        handle_failure_mock,
         process_completed_mock,
         create_worktree_mock,
         _build_prompt_mock,
@@ -118,6 +121,7 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
             title="Task title",
             stage="4_Coding",
             action="Coding",
+            state_version=2,
             file_path=Path("/tmp/base/tasks/4_Coding/TASK-1.md"),
         )
         changed_card = SimpleNamespace(
@@ -125,15 +129,15 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
             title="Task title",
             stage="5_Review",
             action="Arbitration",
+            state_version=3,
             file_path=Path("/tmp/base/tasks/5_Review/TASK-1.md"),
         )
-        runner._distributor.board.card_by_id.side_effect = [fresh_card, changed_card]
+        runner._distributor.board.card_by_id.side_effect = [fresh_card, changed_card, changed_card]
         assignment = WorkAssignment(card=fresh_card, role="coder", needs_worktree=True)
 
         runner.execute_assignment(slot, assignment)
 
         process_completed_mock.assert_not_called()
-        handle_failure_mock.assert_not_called()
         code_changes_mock.assert_not_called()
 
 

@@ -9,7 +9,7 @@ root before the session manager exists.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Mapping
 
 if TYPE_CHECKING:
     from ..session.types import SessionSlot
@@ -58,7 +58,16 @@ class StateManagerAdapter:
     def mark_dirty(self) -> None:
         self._outcomes.mark_dirty()
 
-    def make_request(self, task, prompt: str, workdir: str, session_id: str, commit_phase: bool, ttl: float):
+    def make_request(
+        self,
+        task,
+        prompt: str,
+        workdir: str,
+        session_id: str,
+        commit_phase: bool,
+        ttl: float,
+        agent_env: Mapping[str, str] | None = None,
+    ):
         return self._factory.make(
             task=task,
             prompt=prompt,
@@ -66,6 +75,7 @@ class StateManagerAdapter:
             session_id=session_id,
             commit_phase=commit_phase,
             task_ttl=ttl,
+            agent_env=agent_env,
         )
 
 

@@ -66,3 +66,19 @@ Write the complete updated card file.
 - **Not your responsibility** (silently reverted): `value_score`, `class_of_service`, `cos_justification`, `deadline` — these are set by the Product Manager.
 - **Valid actions for architect:** `Product` (send back for prioritization) or `Blocked` (only for the decomposed-parent case in step 6a / 6b).
 - **WIP limits:** If Todo is full, the card stays in Estimate until space opens up.
+
+## Structured Result Override
+- Ignore any earlier instruction to edit the card file directly. Do **NOT** edit `tasks/*.md`.
+- Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
+- Set `run_id` from `ORC_AGENT_RUN_ID`.
+- Use `payload_kind: "card_update"` and `role: "architect"`.
+- Use `payload.task_id` = `{card_id}`.
+- Use `payload.launch_fingerprint` with:
+  - `stage`: `{card_stage}`
+  - `action`: `{card_action}`
+  - `file_path`: `{card_path}`
+  - `state_version`: the current `state_version` from the card frontmatter above
+- Allowed `field_updates` keys: `effort_score`, `dependencies`
+- Allowed `section_updates` keys: `technical_design`
+- Use `feedback_append` only for optional checklist/context notes.
+- Set `next_action` to `Product` or `Blocked`. Leave it empty only if you intentionally want ORC to keep the current action.

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Mapping, Optional
 
 from ...config import OrcConfig
 from ...backends.backend import Backend
@@ -46,6 +46,7 @@ def build_kanban_request(
     process_lifecycle: ProcessLifecyclePort,
     state_writer: TaskStateWriter,
     state_paths: StatePathsPort,
+    agent_env: Mapping[str, str] | None = None,
     snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
 ) -> TaskExecutionRequest:
     task_path = parallel_task_path(base_workdir, session_id)
@@ -53,6 +54,14 @@ def build_kanban_request(
     done, in_progress, total = progress
     model = config.model or backend.default_model()
     commit_model = config.commit_model or model
+
+    merged_agent_env = {
+        "ORC_SESSION_ID": session_id,
+        "ORC_BASE_WORKSPACE": base_workdir,
+        "ORC_TASK_FILE": str(task_path),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        **dict(agent_env or {}),
+    }
 
     return TaskExecutionRequest(
         task=task,
@@ -95,10 +104,9 @@ def build_kanban_request(
         progress_done=done,
         progress_total=total,
         progress_in_progress=in_progress,
-        agent_env={"ORC_SESSION_ID": session_id, "ORC_BASE_WORKSPACE": base_workdir, "ORC_TASK_FILE": str(task_path), "PYTHONDONTWRITEBYTECODE": "1"},
+        agent_env=merged_agent_env,
         snapshot_publisher=snapshot_publisher,
         process_lifecycle=process_lifecycle,
         state_writer=state_writer,
         state_paths=state_paths,
     )
-

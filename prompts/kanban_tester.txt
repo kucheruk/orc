@@ -85,3 +85,17 @@ Write the complete updated card file.
 - **Valid actions for tester:** `Coding` (fail — send back for fixes), `Integrating` (pass QA). Any other value is rejected.
 - **loop_count:** Increments each time a card bounces back to Coding. At loop_count >= 2, the teamlead intervenes. At >= 4, force-block. Consider whether the failure is truly a DoD gap.
 - **WIP limits:** If the Handoff stage is full, your `Integrating` action is deferred — the card stays in Testing until space opens up.
+
+## Structured Result Override
+- Ignore any earlier instruction to edit the card file directly. Do **NOT** edit `tasks/*.md`.
+- Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
+- Set `run_id` from `ORC_AGENT_RUN_ID`.
+- Use `payload_kind: "card_update"` and `role: "tester"`.
+- Use `payload.task_id` = `{card_id}`.
+- Use `payload.launch_fingerprint` with:
+  - `stage`: `{card_stage}`
+  - `action`: `{card_action}`
+  - `file_path`: `{card_path}`
+  - `state_version`: the current `state_version` from the card frontmatter above
+- Put all QA notes in `feedback_append`.
+- Set `next_action` to `Coding`, `Reviewing`, or `Integrating`, or leave it empty to use ORC's auto-default.

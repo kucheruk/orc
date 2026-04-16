@@ -54,6 +54,8 @@ class TaskExecutionResult:
     reason: str = ""
     delay_seconds: float = 0.0
     committed: bool = False
+    agent_result_file: str = ""
+    agent_run_id: str = ""
 
 
 @dataclass(frozen=True)

@@ -25,6 +25,8 @@ class _ExecutionContext:
     effective_agent_env: dict = field(default_factory=dict)
     worktree_path_value: str = ""
     restart_count: int = 0
+    last_agent_result_file: str = ""
+    last_agent_run_id: str = ""
     stage_specs: list = field(default_factory=list)
     artifact_bundle: object = None
     enforce_stage_artifacts: bool = False

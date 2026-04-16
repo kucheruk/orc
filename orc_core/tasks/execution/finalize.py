@@ -135,7 +135,12 @@ def finalize_completed(
         request.state_writer.delete_runtime_state(request.task_path, engine.log_path, reason="task_completed")
     except OSError:
         pass
-    return TaskExecutionResult(status=TaskExecutionStatus.COMPLETED, committed=commit_completed)
+    return TaskExecutionResult(
+        status=TaskExecutionStatus.COMPLETED,
+        committed=commit_completed,
+        agent_result_file=ctx.last_agent_result_file,
+        agent_run_id=ctx.last_agent_run_id,
+    )
 
 
 def complete_stage(

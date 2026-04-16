@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Mapping
 from typing import TYPE_CHECKING
 
 from ...board.kanban_distributor import KanbanDistributor
@@ -51,7 +52,16 @@ class KanbanRequestFactory:
         self._state_writer = state_writer
         self._state_paths = state_paths
 
-    def make(self, task, prompt: str, workdir: str, session_id: str, commit_phase: bool, task_ttl: float):
+    def make(
+        self,
+        task,
+        prompt: str,
+        workdir: str,
+        session_id: str,
+        commit_phase: bool,
+        task_ttl: float,
+        agent_env: Mapping[str, str] | None = None,
+    ):
         def _pub(snapshot: MonitorSnapshot) -> None:
             self._pool.publish_snapshot(session_id, snapshot)
         return build_kanban_request(
@@ -73,5 +83,6 @@ class KanbanRequestFactory:
             process_lifecycle=self._process_lifecycle,
             state_writer=self._state_writer,
             state_paths=self._state_paths,
+            agent_env=agent_env,
             snapshot_publisher=_pub,
         )
