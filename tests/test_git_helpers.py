@@ -143,9 +143,26 @@ class HasCodeChangesAheadTest(unittest.TestCase):
     def test_excludes_tasks_dir_via_pathspec(self, git_mock) -> None:
         git_mock.return_value = (True, "", "", 0)
         git_helpers.has_code_changes_ahead("/tmp", "main", Path("/tmp/orc.log"))
-        args = git_mock.call_args[0]  # positional args to git_run
-        cmd = args[2]  # the command list
+        # First call is the committed diff check — must exclude tasks/
+        first_call_args = git_mock.call_args_list[0][0]
+        cmd = first_call_args[2]
         self.assertIn(":!tasks/", cmd)
+
+    @patch("orc_core.git.git_helpers.git_run")
+    def test_detects_uncommitted_code_changes(self, git_mock) -> None:
+        git_mock.side_effect = [
+            (True, "", "", 0),  # no committed changes
+            (True, " M src/Foo.cs\n?? src/Bar.cs\n", "", 0),  # uncommitted code
+        ]
+        self.assertTrue(git_helpers.has_code_changes_ahead("/tmp", "main", Path("/tmp/orc.log")))
+
+    @patch("orc_core.git.git_helpers.git_run")
+    def test_ignores_uncommitted_task_only_changes(self, git_mock) -> None:
+        git_mock.side_effect = [
+            (True, "", "", 0),  # no committed changes
+            (True, " M tasks/4_Coding/FOO.md\n", "", 0),  # only task files
+        ]
+        self.assertFalse(git_helpers.has_code_changes_ahead("/tmp", "main", Path("/tmp/orc.log")))
 
 
 class AutocommitFallbackTest(unittest.TestCase):

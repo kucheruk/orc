@@ -140,11 +140,14 @@ def has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> bo
 def has_code_changes_ahead(workdir: str, branch: str, log_path: Path) -> bool:
     """Check whether the worktree branch has source-code changes vs *branch*.
 
-    Returns True only when ``git diff`` shows changed files **outside**
-    the ``tasks/`` directory (kanban card files).  This prevents the
-    delivery gate from passing on card-only commits that carry no real
-    code.
+    Returns True when either:
+    - committed changes exist outside ``tasks/`` (vs branch), OR
+    - uncommitted/untracked source files exist outside ``tasks/``.
+
+    This prevents the delivery gate from passing on card-only commits
+    and also catches agents that write code but fail to commit.
     """
+    # 1. Check committed changes
     ok, stdout, stderr, _ = git_run(
         workdir,
         log_path,
@@ -157,9 +160,23 @@ def has_code_changes_ahead(workdir: str, branch: str, log_path: Path) -> bool:
         return False
     changed = [line for line in (stdout or "").splitlines() if line.strip()]
     if changed:
-        log_event(log_path, "INFO", "code changes detected",
+        log_event(log_path, "INFO", "code changes detected (committed)",
                   branch=branch, count=len(changed), sample=changed[:5])
-    return len(changed) > 0
+        return True
+
+    # 2. Check uncommitted/untracked changes outside tasks/
+    ok2, porcelain, _, _ = git_run(
+        workdir, log_path, ["git", "status", "--porcelain"], label="integration:uncommitted_check",
+    )
+    if ok2 and porcelain:
+        tracked, untracked = parse_git_porcelain(porcelain)
+        code_dirty = [p for p in tracked + untracked if not p.startswith("tasks/")]
+        if code_dirty:
+            log_event(log_path, "INFO", "code changes detected (uncommitted)",
+                      branch=branch, count=len(code_dirty), sample=code_dirty[:5])
+            return True
+
+    return False
 
 
 _ERROR_PATTERNS: list[tuple[str, IntegrationErrorKind]] = [
