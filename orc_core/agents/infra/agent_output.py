@@ -97,10 +97,15 @@ def process_agent_result(
         # Prefer worktree copy — agent edits relative to its CWD
         worktree_card_path = None
         if execution_workdir:
-            worktree_card_path = Path(execution_workdir) / "tasks" / card.stage / f"{card.id}.md"
-            if not worktree_card_path.exists():
-                # Agent may have used absolute path to main repo instead
-                worktree_card_path = None
+            # Card may be in any stage dir in the worktree (worktree branch
+            # was created when card was in an earlier stage)
+            wt_tasks = Path(execution_workdir) / "tasks"
+            card_filename = f"{card.id}.md"
+            for stage_dir in sorted(wt_tasks.iterdir()) if wt_tasks.exists() else []:
+                candidate = stage_dir / card_filename
+                if candidate.is_file():
+                    worktree_card_path = candidate
+                    break
 
         if worktree_card_path is None:
             if file_path is None or not file_path.exists():
