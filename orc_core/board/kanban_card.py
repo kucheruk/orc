@@ -4,8 +4,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as _dc_fields
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,9 @@ from ..text_parse import parse_frontmatter
 PROTECTED_FIELDS: frozenset[str] = frozenset({
     "id", "stage", "roi", "assigned_agent", "created_at",
 })
+
+# Fields excluded from YAML frontmatter (runtime-only)
+_RUNTIME_FIELDS: frozenset[str] = frozenset({"body", "file_path"})
 
 
 @dataclass
@@ -134,25 +138,18 @@ class KanbanCard:
         return f"---\n{fm}---\n\n{self.body}"
 
     def frontmatter_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "stage": str(self.stage),
-            "action": str(self.action),
-            "class_of_service": str(self.class_of_service),
-            "cos_justification": self.cos_justification,
-            "deadline": self.deadline,
-            "value_score": self.value_score,
-            "effort_score": self.effort_score,
-            "roi": self.roi,
-            "dependencies": [str(d) for d in self.dependencies],
-            "loop_count": self.loop_count,
-            "tokens_spent": self.tokens_spent,
-            "token_budget": self.token_budget,
-            "assigned_agent": self.assigned_agent,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-        }
+        """Build YAML-serializable dict from dataclass fields (SSOT)."""
+        result: dict[str, Any] = {}
+        for f in _dc_fields(self):
+            if f.name in _RUNTIME_FIELDS:
+                continue
+            val = getattr(self, f.name)
+            if isinstance(val, list):
+                val = [str(v) for v in val]
+            elif isinstance(val, Enum):
+                val = val.value  # StrEnum → plain str for yaml.safe_load compat
+            result[f.name] = val
+        return result
 
 
 # ── Parsing ─────────────────────────────────────────────────────
@@ -177,28 +174,25 @@ def _normalize_action(raw: str) -> str:
 
 def parse_card(text: str, file_path: Path | None = None) -> KanbanCard:
     data, body = parse_frontmatter(text, str(file_path or "<string>"))
-    card = KanbanCard(
-        id=str(data.get("id", "")),
-        title=str(data.get("title", "")),
-        stage=str(data.get("stage", STAGE_INBOX)),
-        action=_normalize_action(data.get("action", Action.PRODUCT)),
-        class_of_service=str(data.get("class_of_service", ClassOfService.STANDARD)),
-        cos_justification=str(data.get("cos_justification", "")),
-        deadline=str(data.get("deadline", "") or ""),
-        value_score=int(data.get("value_score", 0)),
-        effort_score=int(data.get("effort_score", 0)),
-        roi=float(data.get("roi", 0.0)),
-        dependencies=_parse_list(data.get("dependencies")),
-        loop_count=int(data.get("loop_count", 0)),
-        tokens_spent=int(data.get("tokens_spent", 0)),
-        token_budget=int(data.get("token_budget", 0)),
-        assigned_agent=str(data.get("assigned_agent", "") or ""),
-        created_at=str(data.get("created_at", "") or ""),
-        updated_at=str(data.get("updated_at", "") or ""),
-        body=body,
-        file_path=file_path,
-    )
-    return card
+    defaults = KanbanCard(id="")
+    kwargs: dict[str, Any] = {"body": body, "file_path": file_path}
+    for f in _dc_fields(defaults):
+        if f.name in _RUNTIME_FIELDS:
+            continue
+        default_val = getattr(defaults, f.name)
+        raw = data.get(f.name, default_val)
+        # Per-field coercion
+        if f.name == "action":
+            kwargs[f.name] = _normalize_action(raw)
+        elif f.name == "dependencies":
+            kwargs[f.name] = _parse_list(raw)
+        elif isinstance(default_val, int):
+            kwargs[f.name] = int(raw or 0)
+        elif isinstance(default_val, float):
+            kwargs[f.name] = float(raw or 0.0)
+        else:
+            kwargs[f.name] = str(raw or "")
+    return KanbanCard(**kwargs)
 
 
 def validate_card(card: KanbanCard) -> list[str]:
