@@ -57,6 +57,7 @@ class KanbanCard:
         self.roi = self.compute_roi()
 
     def touch(self) -> None:
+        self.refresh_roi()
         self.updated_at = _now_iso()
 
     # ── Domain operations ────────────────────────────────────────

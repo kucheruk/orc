@@ -27,8 +27,7 @@ class BoardCardPersistence:
 
     def save(self, card: KanbanCard, *, old_action: str = "", role: str = "") -> None:
         with self._lock:
-            card.touch()
-            card.refresh_roi()
+            card.touch()  # touch() includes refresh_roi()
             if card.file_path:
                 self._repo.write_card_text(card.file_path, card.to_markdown())
         if old_action and old_action != card.action:
