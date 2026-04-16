@@ -19,6 +19,7 @@ from ..stages.artifacts import build_stage_artifact_bundle
 from ..backlog.source import MarkdownTaskSource
 from ..status import TaskCompletionStatus, TaskExecutionStatus
 from ..ports import GitDiffProbe
+from .attempt_env import build_attempt_agent_env
 from .finalize import complete_stage as _complete_stage, finalize_completed as _finalize_completed
 from .helpers import _find_first_stage_index, _record_attempt_tokens, _write_prompt_file
 from .launch import launch_and_wait
@@ -119,6 +120,13 @@ def run_stage_loop(engine: "TaskExecutionEngine", ctx: _ExecutionContext, resume
                     stage_total=len(stage_specs),
                 )
                 try:
+                    attempt_agent_env = build_attempt_agent_env(
+                        effective_agent_env,
+                        run_root=request.run_root,
+                        task_id=task_id,
+                        stage_id=stage_id,
+                        attempt=attempt_number,
+                    )
                     launch_cfg = LaunchConfig(
                         workdir=request.workdir,
                         prompt_path=prompt_path,
@@ -131,7 +139,7 @@ def run_stage_loop(engine: "TaskExecutionEngine", ctx: _ExecutionContext, resume
                         progress_total=request.progress_total,
                         progress_in_progress=request.progress_in_progress,
                         agent_output_log_path=effective_agent_output_log_path,
-                        agent_env=effective_agent_env,
+                        agent_env=attempt_agent_env,
                         snapshot_publisher=request.snapshot_publisher,
                         resume_id=stage_resume_id,
                         resume_latest=False,
