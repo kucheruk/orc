@@ -135,6 +135,10 @@ class TestPickBest(unittest.TestCase):
     def test_skip_unmet_dependencies(self):
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, _ = _make_board(tmp)
+            # D-0 exists but is NOT in Done — real unmet dep
+            _add_card(tasks_dir, KanbanCard(
+                id="D-0", stage="4_Coding", action="Coding",
+            ))
             _add_card(tasks_dir, KanbanCard(
                 id="D-1", stage="3_Todo", action="Coding",
                 dependencies=["D-0"],
@@ -142,6 +146,18 @@ class TestPickBest(unittest.TestCase):
             board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             best = board.pick_best("3_Todo", "Coding")
             self.assertIsNone(best)
+
+    def test_phantom_dependency_treated_as_met(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, _ = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(
+                id="P-1", stage="3_Todo", action="Coding",
+                dependencies=["NONEXISTENT"],
+            ))
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
+            best = board.pick_best("3_Todo", "Coding")
+            self.assertIsNotNone(best)
+            self.assertEqual(best.id, "P-1")
 
 
 class TestMoveCard(unittest.TestCase):

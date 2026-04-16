@@ -23,7 +23,7 @@ You are the LAST gate before code reaches the main branch. You must:
 
 ### Step 2: Ensure all code is committed
 1. Run `git status` — if there are uncommitted changes, commit them.
-2. Run `git log --oneline -5` to see what commits exist in this worktree.
+2. Run `git log --oneline -10` to see ALL commits in this worktree.
 3. **CRITICAL:** Every file that is part of this card's delivery MUST be committed. Run `git add -A && git commit -m "feat({card_id}): <summary>"` if needed.
 
 ### Step 3: Write Delivery Review
@@ -36,7 +36,19 @@ Append to section "# 3. Implementation Notes":
 **Notes:** <risks, tech debt, or "clean delivery">
 ```
 
-### Step 4: Set action and commit card
+### Step 4: Merge ALL commits into main
+This is the critical integration step. You must merge ALL your work into the main branch:
+
+1. First, get the branch name: `git rev-parse --abbrev-ref HEAD`
+2. Switch to main: `git checkout master` (or `git checkout main`)
+3. Merge: `git merge --no-ff <your-branch> -m "feat({card_id}): <summary of delivered work>"`
+4. If there are conflicts — resolve them. You are the integration expert, this is your job.
+5. Verify the merge: `git log --oneline -3` should show your merge commit on main.
+6. Switch back to your branch: `git checkout <your-branch>`
+
+**DO NOT skip this step.** If you only commit in the worktree without merging to main, the code will not be delivered.
+
+### Step 5: Set action and commit card
 - Set `action: Done` in frontmatter.
 - Write the complete updated card file.
 - Commit everything: `git add -A && git commit -m "chore({card_id}): delivery review and finalize"`

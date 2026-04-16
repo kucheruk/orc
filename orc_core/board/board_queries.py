@@ -4,8 +4,11 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Callable
+
+_logger = logging.getLogger(__name__)
 
 from .action_constants import Action
 from .kanban_card import KanbanCard
@@ -51,8 +54,17 @@ class BoardQueries:
         if not card.dependencies:
             return False
         with self._lock:
+            all_ids = {c.id for c in self._cards_view()}
             done_ids = {c.id for c in self._cards_view() if c.is_done}
-        return any(dep not in done_ids for dep in card.dependencies)
+        for dep in card.dependencies:
+            if dep not in all_ids:
+                # Phantom dependency — card ID doesn't exist on board.
+                # Treat as met to prevent permanent blocking.
+                _logger.warning("Phantom dependency %s on card %s — treating as met", dep, card.id)
+                continue
+            if dep not in done_ids:
+                return True
+        return False
 
     def summary(self) -> dict[str, dict[str, int]]:
         result: dict[str, dict[str, int]] = {}

@@ -114,6 +114,7 @@ def escalate_if_threshold_reached(
         notifier.send_telegram(
             f"\U0001f6ab {card.id} заблокирована после {count} подряд ошибок: {error_desc}",
         )
-    except (OSError, ConnectionError, TimeoutError, ValueError):
-        pass
+    except (OSError, ConnectionError, TimeoutError, ValueError) as exc:
+        log_event(log_path, "ERROR", "failed to block card after repeated failures",
+                  task_id=card.id, fail_count=count, error=str(exc))
     return True
