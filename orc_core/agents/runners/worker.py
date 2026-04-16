@@ -14,7 +14,7 @@ from typing import Optional
 from ...config import OrcConfig
 from ...tasks.completion.outcomes import TaskOutcomeTracker
 from ...git.integration_manager import IntegrationManager
-from ...git.git_helpers import has_code_changes_ahead, has_commits_ahead_of_branch
+from ...git.git_helpers import git_run, has_code_changes_ahead, has_commits_ahead_of_branch
 from ...board.kanban_role_registry import ROLE_CODER, ROLE_INTEGRATOR, ROLE_REVIEWER, ROLE_TESTER
 from ...board.stage_constants import STAGE_DONE
 from ...tasks.status import TaskExecutionStatus
@@ -38,6 +38,41 @@ from ...git.worktree_flow import cleanup_task_worktree, create_task_worktree
 
 _logger = logging.getLogger(__name__)
 _DELIVERY_ROLES = frozenset({ROLE_CODER, ROLE_REVIEWER, ROLE_TESTER})
+
+
+def _gather_git_context(workdir: str, main_branch: str, log_path: Path) -> str:
+    """Gather git log and diff stat from worktree to inject into agent prompt."""
+    parts: list[str] = []
+    ok_log, log_out, _, _ = git_run(
+        workdir, log_path,
+        ["git", "log", "--oneline", f"{main_branch}..HEAD", "--", ".", ":!tasks/"],
+        label="git_context:log",
+    )
+    if ok_log and log_out.strip():
+        parts.append(f"### Commits on this branch (vs {main_branch})\n```\n{log_out.strip()}\n```")
+
+    ok_stat, stat_out, _, _ = git_run(
+        workdir, log_path,
+        ["git", "diff", "--stat", main_branch, "--", ".", ":!tasks/"],
+        label="git_context:diff_stat",
+    )
+    if ok_stat and stat_out.strip():
+        parts.append(f"### Changed files (vs {main_branch})\n```\n{stat_out.strip()}\n```")
+
+    ok_status, status_out, _, _ = git_run(
+        workdir, log_path,
+        ["git", "status", "--short"],
+        label="git_context:status",
+    )
+    if ok_status and status_out.strip():
+        # Filter out tasks/ lines
+        non_task = [l for l in status_out.strip().splitlines() if "tasks/" not in l]
+        if non_task:
+            parts.append(f"### Uncommitted changes\n```\n" + "\n".join(non_task) + "\n```")
+
+    if not parts:
+        return ""
+    return "## Branch State (pre-gathered by orchestrator)\n\n" + "\n\n".join(parts)
 
 
 class KanbanWorkerRunner:
@@ -123,7 +158,6 @@ class KanbanWorkerRunner:
         self._publisher.log_assign(card.id, role, sid)
         log_event(self._log_path, "INFO", "executing",
                   session_id=sid, task_id=card.id, role=role, stage=card.stage)
-        prompt = build_prompt(role, card, self._distributor.board, main_branch=self._main_branch)
         task_start = time.time()
         worktree: Optional[WorktreeSession] = None
         assignment_succeeded = False
@@ -139,6 +173,8 @@ class KanbanWorkerRunner:
                     self._publisher.emit("system", card.id, f"{card.id} worktree ready")
             else:
                 wd = self._workdir
+            git_context = _gather_git_context(wd, self._main_branch, self._log_path) if assignment.needs_worktree else ""
+            prompt = build_prompt(role, card, self._distributor.board, main_branch=self._main_branch, git_context=git_context)
             task = Task(task_id=card.id, text=card.title or card.id, done=False)
             slot.task = task
             self._publisher.emit("system", card.id, f"{card.id} launching {role} agent...")

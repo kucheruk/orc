@@ -61,7 +61,8 @@ def _escape_braces(text: str) -> str:
 
 def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard",
                  *, main_branch: str = "main",
-                 loader: TemplateLoader | None = None) -> str:
+                 loader: TemplateLoader | None = None,
+                 git_context: str = "") -> str:
     """Build a complete prompt for the given role, card, and board state."""
     if loader is None:
         loader = default_template_loader()
@@ -70,6 +71,8 @@ def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard",
     card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
     board_summary = format_board_summary(board)
     worktree_ctx = _WORKTREE_CONTEXT.format(main_branch=main_branch)
+    if git_context:
+        worktree_ctx += "\n\n" + _escape_braces(git_context)
 
     return template.format_map(_SafeDict(
         board_summary=board_summary,
