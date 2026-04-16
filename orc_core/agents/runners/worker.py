@@ -37,7 +37,7 @@ from ...git.git_dto import WorktreeSession
 from ...git.worktree_flow import cleanup_task_worktree, create_task_worktree
 
 _logger = logging.getLogger(__name__)
-_DELIVERY_ROLES = frozenset({ROLE_CODER, ROLE_REVIEWER, ROLE_TESTER, ROLE_INTEGRATOR})
+_DELIVERY_ROLES = frozenset({ROLE_CODER, ROLE_REVIEWER, ROLE_TESTER})
 
 
 class KanbanWorkerRunner:
