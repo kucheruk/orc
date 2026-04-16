@@ -45,6 +45,7 @@ class BoardHydration:
                 continue
             self._read_index(stage_dir, stage, wip)
             self._read_cards(stage_dir, stage, cards, errors)
+        cards = self._dedup_cards(cards)
         for card in cards:
             card.refresh_roi()
         mtimes = self._repo.scan_stage_mtimes(self._tasks_dir)
@@ -57,6 +58,22 @@ class BoardHydration:
                 wip.set_limit_from_index(stage, data.get("wip_limit"))
         except Exception as exc:
             _logger.warning("Failed to read index in %s: %s", stage_dir, exc)
+
+    def _dedup_cards(self, cards: list[KanbanCard]) -> list[KanbanCard]:
+        """When the same card_id exists in multiple stages, keep the newest copy and delete the stale file."""
+        seen: dict[str, KanbanCard] = {}
+        for card in cards:
+            prev = seen.get(card.id)
+            if prev is None:
+                seen[card.id] = card
+                continue
+            keep, drop = (card, prev) if card.updated_at >= prev.updated_at else (prev, card)
+            _logger.warning("Duplicate card %s in %s and %s — keeping %s, removing %s",
+                            card.id, card.stage, prev.stage, keep.stage, drop.stage)
+            if drop.file_path and drop.file_path.exists():
+                drop.file_path.unlink()
+            seen[card.id] = keep
+        return list(seen.values())
 
     def _read_cards(self, stage_dir: Path, stage: str,
                     cards: list[KanbanCard], errors: list[tuple[str, str]]) -> None:
