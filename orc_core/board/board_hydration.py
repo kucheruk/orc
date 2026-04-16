@@ -61,13 +61,16 @@ class BoardHydration:
 
     def _dedup_cards(self, cards: list[KanbanCard]) -> list[KanbanCard]:
         """When the same card_id exists in multiple stages, keep the newest copy and delete the stale file."""
+        stage_order = {s: i for i, s in enumerate(STAGES)}
         seen: dict[str, KanbanCard] = {}
         for card in cards:
             prev = seen.get(card.id)
             if prev is None:
                 seen[card.id] = card
                 continue
-            keep, drop = (card, prev) if card.updated_at >= prev.updated_at else (prev, card)
+            card_key = (card.updated_at, stage_order.get(card.stage, 0))
+            prev_key = (prev.updated_at, stage_order.get(prev.stage, 0))
+            keep, drop = (card, prev) if card_key >= prev_key else (prev, card)
             _logger.warning("Duplicate card %s in %s and %s — keeping %s, removing %s",
                             card.id, card.stage, prev.stage, keep.stage, drop.stage)
             if drop.file_path and drop.file_path.exists():
