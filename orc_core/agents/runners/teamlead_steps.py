@@ -304,19 +304,29 @@ class AutoCommitStep:
             ok, stdout, _, _ = run_git(wd, ["git", "status", "--porcelain"])
             if not ok or not stdout.strip():
                 return
+            from ...git.git_helpers import (
+                is_runtime_artifact, sync_commit_message, board_commit_message,
+            )
             changed_paths = [line[3:].strip() for line in stdout.splitlines() if len(line) >= 4]
             task_paths = [p for p in changed_paths if p.startswith("tasks/")]
-            other_paths = [p for p in changed_paths if not p.startswith("tasks/")]
-            from ...git.git_helpers import sync_commit_message, board_commit_message
+            other_paths = [
+                p for p in changed_paths
+                if not p.startswith("tasks/") and not is_runtime_artifact(p)
+            ]
             if task_paths:
                 for tp in task_paths:
-                    run_git(wd, ["git", "add", tp])
+                    run_git(wd, ["git", "add", "--", tp])
                 run_git(wd, ["git", "commit", "-m", board_commit_message()])
                 log_event(ctx.log_path, "INFO", "auto-committed board state",
                           task_paths=task_paths[:20])
             if other_paths:
-                run_git(wd, ["git", "add", "-A"])
+                # Stage paths explicitly — `git add -A` would also sweep up
+                # runtime artifacts (.orc/, .cursor/, __pycache__) and any
+                # accidentally-untracked secrets.
+                for op in other_paths:
+                    run_git(wd, ["git", "add", "--", op])
                 run_git(wd, ["git", "commit", "-m", sync_commit_message()])
-                log_event(ctx.log_path, "INFO", "auto-committed workspace state")
+                log_event(ctx.log_path, "INFO", "auto-committed workspace state",
+                          paths=other_paths[:20])
         except Exception as exc:
             log_event(ctx.log_path, "WARN", "auto-commit failed", error=str(exc))
