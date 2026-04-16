@@ -62,7 +62,7 @@ class Incident:
 
 # ── Prompt builder ────────────────────────────────────────────────
 
-from ..board.kanban_role_registry import ROLE_TEAMLEAD_TRIAGE
+from ..board.kanban_role_registry import ROLE_CODER, ROLE_TEAMLEAD_TRIAGE
 
 _FRONT_RE = re.compile(r"\A---\n(.*?\n?)---\n?(.*)", re.DOTALL)
 
@@ -135,7 +135,7 @@ def parse_incident_decision_text(text: str, source: str = "<decision>") -> Triag
     if classification not in ("project", "orc"):
         raise ValueError(f"Invalid classification: {classification!r} (expected 'project' or 'orc')")
 
-    target_role = str(data.get("target_role", "coder")).strip().lower()
+    target_role = str(data.get("target_role", ROLE_CODER)).strip().lower()
     fix_title = str(data.get("fix_title", "")).strip()
 
     if not fix_title:
@@ -167,7 +167,7 @@ def fallback_decision(incident: Incident) -> TriageDecision:
     )
     return TriageDecision(
         classification="project",
-        target_role="coder",
+        target_role=ROLE_CODER,
         fix_title=f"Fix error in {incident.source_task_id}: {incident.error_message[:80]}",
         body=body,
     )

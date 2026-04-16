@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...board.kanban_card import PROTECTED_FIELDS, KanbanCard, validate_card
-from ...board.kanban_role_registry import ROLE_INTEGRATOR
+from ...board.kanban_role_registry import ROLE_ARCHITECT, ROLE_CODER, ROLE_INTEGRATOR, ROLE_REVIEWER, ROLE_TESTER
 from ...board.action_constants import Action
 from ...board.stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_INBOX, STAGE_ORDER, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
 from ...board.state_machine import FORWARD_MOVES, IDENTITY_DEFAULTS, LOOP_BACK_ACTIONS, VALID_TRANSITIONS
@@ -22,11 +22,11 @@ _logger = logging.getLogger(__name__)
 # Fields that specific roles must NOT modify (role-based restrictions).
 # These are not globally protected but belong to another role's responsibility.
 _ROLE_READONLY_FIELDS: dict[str, frozenset[str]] = {
-    "architect": frozenset({"value_score", "class_of_service", "cos_justification", "deadline"}),
-    "coder": frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
-    "reviewer": frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
-    "tester": frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
-    "integrator": frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
+    ROLE_ARCHITECT: frozenset({"value_score", "class_of_service", "cos_justification", "deadline"}),
+    ROLE_CODER: frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
+    ROLE_REVIEWER: frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
+    ROLE_TESTER: frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
+    ROLE_INTEGRATOR: frozenset({"value_score", "effort_score", "class_of_service", "cos_justification", "deadline"}),
 }
 
 # Derived from state_machine.py — single source of truth
