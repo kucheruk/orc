@@ -27,6 +27,8 @@ from .state_persistence import (
 from ..runners.teamlead import KanbanTeamleadRunner
 from ..runners.worker import KanbanWorkerRunner
 from ...board.kanban_role_registry import ROLE_TEAMLEAD
+from ...board.kanban_board_health import detect_circular_deps
+from ...board.stage_constants import STAGE_DONE
 from ...log import log_event
 from ...quit_signal import is_quit_after_task_requested, is_stop_requested
 from .pool import SessionPool
@@ -85,6 +87,8 @@ class KanbanSessionManager:
         self._directives = directives
         self._notifications = notifications
         self._pool = pool
+        self._last_heartbeat_at = 0.0
+        self._last_heartbeat_log_offset = self.log_path.stat().st_size if self.log_path.exists() else 0
 
         self._board_events = board_events
         self._request_factory = request_factory
@@ -131,6 +135,7 @@ class KanbanSessionManager:
                 publisher=self.publisher,
                 publish_board=self._publish_board_state,
                 run_worker=self._run_worker,
+                on_tick=self._maybe_send_heartbeat,
                 sleep_fn=self.sleep_fn,
             )
         except KeyboardInterrupt:
@@ -214,6 +219,81 @@ class KanbanSessionManager:
         total_assigned = sum(1 for c in board.cards if c.assigned_agent)
         return f"inbox={len(inbox)} (free={free_inbox}), assigned_total={total_assigned}"
 
+    def _maybe_send_heartbeat(self) -> None:
+        interval = max(float(getattr(self.config, "report_interval", 180.0) or 180.0), 30.0)
+        now = time.time()
+        if now - self._last_heartbeat_at < interval:
+            return
+        self._last_heartbeat_at = now
+
+        done, in_progress, total = self._distributor.get_progress()
+        stage_summary = self._distributor.board.summary()
+        stage_counts = ", ".join(
+            f"{stage}={meta.get('count', 0)}"
+            for stage, meta in stage_summary.items()
+        )
+        blocked_by_deps = self._blocked_by_deps_count()
+        cycles = self._cycle_count()
+        ready_frontier = self._ready_frontier_cards(limit=4)
+        auto_unblock_events = self._count_recent_auto_unblock_events()
+        running = self._pool.running_info() or "none"
+        elapsed = max(int(now - self._started_at), 0)
+        mins, secs = divmod(elapsed, 60)
+        hours, mins = divmod(mins, 60)
+        elapsed_str = f"{hours}h{mins:02d}m{secs:02d}s" if hours else f"{mins}m{secs:02d}s"
+        message = (
+            "ORC heartbeat\n"
+            f"Workspace: {self.workdir}\n"
+            f"Board: {done}/{total} done, in_progress={in_progress}\n"
+            f"Stages: {stage_counts}\n"
+            f"Flow: blocked_by_deps={blocked_by_deps}, cycles={cycles}, auto_unblock_events={auto_unblock_events}\n"
+            f"Ready frontier: {ready_frontier}\n"
+            f"Workers: {running}\n"
+            f"Uptime: {elapsed_str}"
+        )
+        self._send_telegram(message)
+
+    def _blocked_by_deps_count(self) -> int:
+        board = self._distributor.board
+        return sum(
+            1
+            for card in board.cards
+            if card.stage == "2_Estimate" and card.action == "Coding" and board.has_unmet_dependencies(card)
+        )
+
+    def _cycle_count(self) -> int:
+        board = self._distributor.board
+        active = [c for c in board.cards if c.stage != STAGE_DONE]
+        done_ids = {c.id for c in board.cards if c.stage == STAGE_DONE}
+        diag = detect_circular_deps(active, done_ids)
+        return 1 if diag else 0
+
+    def _ready_frontier_cards(self, *, limit: int = 4) -> str:
+        board = self._distributor.board
+        ready = []
+        for card in board.cards:
+            if card.stage == STAGE_DONE or card.assigned_agent:
+                continue
+            if board.has_unmet_dependencies(card):
+                continue
+            ready.append(card.id)
+        return ", ".join(ready[:limit]) if ready else "none"
+
+    def _count_recent_auto_unblock_events(self) -> int:
+        if not self.log_path.exists():
+            return 0
+        count = 0
+        with self.log_path.open("r", encoding="utf-8", errors="ignore") as handle:
+            try:
+                handle.seek(self._last_heartbeat_log_offset)
+            except OSError:
+                handle.seek(0)
+            for line in handle:
+                if "teamlead auto-unblock" in line:
+                    count += 1
+            self._last_heartbeat_log_offset = handle.tell()
+        return count
+
 
 
 # ── Standalone orchestration functions ──────────────────────────
@@ -226,6 +306,7 @@ def _manager_loop(
     publisher: KanbanPublisher,
     publish_board: Callable[[], None],
     run_worker: Callable,
+    on_tick: Callable[[], None],
     sleep_fn: Callable[[float], None],
 ) -> int:
     """Main event loop: reap finished sessions, check exit conditions, restart idle workers."""
@@ -234,6 +315,7 @@ def _manager_loop(
     while True:
         pool.reap_finished()
         publish_board()
+        on_tick()
         if is_stop_requested():
             return EXIT_INTERRUPT
         if is_quit_after_task_requested():

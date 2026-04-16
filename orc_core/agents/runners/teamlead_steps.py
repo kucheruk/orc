@@ -23,6 +23,7 @@ from ..infra.protocols import (
 )
 from ..roles import build_teamlead_prompt
 from .arbitration_outcomes import ARBITRATION_OUTCOMES
+from .teamlead_autounblock import release_stale_assignments, resolve_cycle_with_decomposition
 from .teamlead_actions import execute_teamlead_actions, parse_teamlead_decision
 from .teamlead_stats import find_latest_agent_log, load_token_stats
 
@@ -103,11 +104,22 @@ class TeamleadStep(Protocol):
 class ArbitrationStep:
     """Handle looping/blocked cards via arbitration-mode teamlead agent."""
     name = "arbitration"
+    _REPEAT_COOLDOWN_SECONDS = 45.0
+
+    def __init__(self) -> None:
+        self._last_attempt: dict[str, tuple[tuple[str, str, str, int], float]] = {}
 
     def run(self, ctx: TeamleadContext, slot: SessionSlot, sid: str) -> None:
         card = ctx.distributor.pick_teamlead_task(sid)
         if card is None:
             return
+        now = time.time()
+        state_fp = (card.id, card.stage, card.action, card.loop_count)
+        prev_attempt = self._last_attempt.get(card.id)
+        if prev_attempt and prev_attempt[0] == state_fp and (now - prev_attempt[1]) < self._REPEAT_COOLDOWN_SECONDS:
+            ctx.distributor.release_card(card.id)
+            return
+        self._last_attempt[card.id] = (state_fp, now)
         prev_arb = ctx.outcomes.get_arbitrated_loop(card.id)
         if card.loop_count <= prev_arb:
             ctx.distributor.release_card(card.id)
@@ -199,6 +211,10 @@ class HealthCheckStep:
             log_event(ctx.log_path, "INFO", "health check: dep-only starvation, skipping AI",
                       session_id=sid)
             return False
+        if diagnostic.has_cycle and resolve_cycle_with_decomposition(ctx, diagnostic):
+            self._last_diagnostic = diagnostic.summary
+            self._consecutive += 1
+            return True
         if should_skip_repeated_diagnostic(diagnostic, self._last_diagnostic, self._consecutive):
             self._consecutive += 1
             log_event(ctx.log_path, "INFO",
@@ -224,6 +240,27 @@ class HealthCheckStep:
         return True
 
 
+class AutoUnblockStep:
+    """Periodic deterministic unblock actions that do not require LLM arbitration."""
+    name = "auto_unblock"
+    _INTERVAL = 60.0
+
+    def __init__(self) -> None:
+        self._last_run: float = 0.0
+        self._suspect_counts: dict[str, int] = {}
+
+    def run(self, ctx: TeamleadContext, slot: SessionSlot, sid: str) -> None:
+        now = time.time()
+        if now - self._last_run < self._INTERVAL:
+            return
+        self._last_run = now
+        released = release_stale_assignments(ctx, self._suspect_counts)
+        if released:
+            ctx.publisher.emit("teamlead", "", f"Auto-unblock released stale assignments: {released}")
+            log_event(ctx.log_path, "WARN", "teamlead auto-unblock released stale assignments",
+                      session_id=sid, released=released)
+
+
 class AutoCommitStep:
     """Periodically git-add+commit to keep the base repo clean."""
     name = "auto_commit"
@@ -240,8 +277,20 @@ class AutoCommitStep:
         self._last_commit = now
         try:
             wd = ctx.workdir
+            ok_cherry, out_cherry, _, _ = run_git(wd, ["git", "rev-parse", "--git-path", "CHERRY_PICK_HEAD"])
+            if ok_cherry:
+                cherry_pick_head = (out_cherry or "").strip()
+                if cherry_pick_head and Path(cherry_pick_head).exists():
+                    log_event(ctx.log_path, "WARN", "auto-commit skipped: cherry-pick in progress",
+                              path=cherry_pick_head)
+                    return
             ok, stdout, _, _ = run_git(wd, ["git", "status", "--porcelain"])
             if not ok or not stdout.strip():
+                return
+            changed_paths = [line[3:].strip() for line in stdout.splitlines() if len(line) >= 4]
+            if any(path.startswith("tasks/") for path in changed_paths):
+                log_event(ctx.log_path, "WARN", "auto-commit skipped: board/task changes detected",
+                          changed=changed_paths[:20])
                 return
             run_git(wd, ["git", "add", "-A"])
             run_git(wd, ["git", "commit", "-m", "chore: sync board state and project files"])

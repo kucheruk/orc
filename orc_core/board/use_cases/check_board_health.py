@@ -11,10 +11,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
+from ..kanban_board_health import CircularDependencyDiagnostic, detect_circular_deps
+from ..stage_constants import STAGE_DONE
+
 
 class BoardInspector(Protocol):
     """Port for board health inspection."""
     def detect_wip_deadlock(self) -> str: ...
+    @property
+    def cards(self) -> list: ...
 
 
 class WorkDistributor(Protocol):
@@ -28,6 +33,8 @@ class HealthDiagnostic:
     """Result of a board health check."""
     deadlock: str = ""
     starvation: str = ""
+    cycle_nodes: tuple[str, ...] = ()
+    cycle_edges: tuple[tuple[str, str], ...] = ()
 
     @property
     def has_issues(self) -> bool:
@@ -53,6 +60,10 @@ class HealthDiagnostic:
             for line in self.starvation.split(";") if line.strip()
         )
 
+    @property
+    def has_cycle(self) -> bool:
+        return bool(self.cycle_nodes and self.cycle_edges)
+
 
 def diagnose_board_health(
     board: BoardInspector,
@@ -63,6 +74,13 @@ def diagnose_board_health(
     Returns HealthDiagnostic if issues found, None if board is healthy.
     """
     deadlock = board.detect_wip_deadlock()
+    circular: CircularDependencyDiagnostic | None = None
+    try:
+        active_cards = [c for c in board.cards if getattr(c, "stage", "") != STAGE_DONE]
+        done_ids = {c.id for c in board.cards if getattr(c, "stage", "") == STAGE_DONE}
+        circular = detect_circular_deps(active_cards, done_ids)
+    except Exception:
+        circular = None
     starvation = ""
     if not deadlock:
         if distributor.has_remaining_work():
@@ -70,10 +88,15 @@ def diagnose_board_health(
             if diag and "board empty" not in diag:
                 starvation = diag
 
-    if not deadlock and not starvation:
+    if not deadlock and not starvation and not circular:
         return None
 
-    diagnostic = HealthDiagnostic(deadlock=deadlock, starvation=starvation)
+    diagnostic = HealthDiagnostic(
+        deadlock=deadlock or (circular.summary if circular else ""),
+        starvation=starvation,
+        cycle_nodes=circular.cycle_nodes if circular else (),
+        cycle_edges=circular.cycle_edges if circular else (),
+    )
 
     # Dependency-only starvation doesn't need AI intervention
     if diagnostic.is_dependency_only_starvation:

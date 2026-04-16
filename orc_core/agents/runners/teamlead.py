@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from ...incident.manager import IncidentManager
+from ...tasks.ports import StatePathsPort
 from ...tasks.completion.outcomes import TaskOutcomeTracker
 from ..infra.protocols import (
     DirectiveSource, EventPublisher, RunnerLifecycle, RunnerNotifier,
@@ -21,7 +22,7 @@ from ...quit_signal import is_quit_after_task_requested
 from ..session.types import SessionSlot, SlotStatus
 from ...incident.domain import Incident
 from .teamlead_steps import (
-    ArbitrationStep, AutoCommitStep, DirectiveStep, HealthCheckStep, TeamleadContext,
+    ArbitrationStep, AutoCommitStep, AutoUnblockStep, DirectiveStep, HealthCheckStep, TeamleadContext,
 )
 
 _logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class KanbanTeamleadRunner:
         lifecycle: RunnerLifecycle,
         notifier: RunnerNotifier,
         state_manager: RunnerStateManager,
+        state_paths: StatePathsPort,
         directives: DirectiveSource,
     ) -> None:
         self._ctx = TeamleadContext(
@@ -56,6 +58,7 @@ class KanbanTeamleadRunner:
             notifier=notifier,
             state_manager=state_manager,
             outcomes=outcomes,
+            state_paths=state_paths,
         )
         self._incident_mgr = incident_mgr
         self._slots_lock = slots_lock
@@ -64,7 +67,10 @@ class KanbanTeamleadRunner:
         self._arbitration = ArbitrationStep()
         self._directive_step = DirectiveStep()
         self._health = HealthCheckStep()
+        self._auto_unblock = AutoUnblockStep()
         self._auto_commit = AutoCommitStep()
+        self._last_flow_fingerprint: Optional[tuple] = None
+        self._idle_cycles = 0
 
     def run(self, slot: SessionSlot) -> None:
         sid = slot.session_id
@@ -108,13 +114,14 @@ class KanbanTeamleadRunner:
                     if self._health.run(self._ctx, slot, sid):
                         continue
 
+                self._auto_unblock.run(self._ctx, slot, sid)
                 self._arbitration.run(self._ctx, slot, sid)
                 self._auto_commit.run(self._ctx)
 
                 if not self._ctx.distributor.has_remaining_work():
                     self._ctx.publisher.emit("system", "", f"{sid} teamlead: no remaining work")
                     break
-                self._ctx.lifecycle.sleep(5.0)
+                self._ctx.lifecycle.sleep(self._next_sleep_seconds())
                 if is_quit_after_task_requested():
                     self._ctx.publisher.emit("system", "", f"{sid} teamlead exiting (quit-after-task)")
                     break
@@ -128,3 +135,20 @@ class KanbanTeamleadRunner:
         finally:
             with self._slots_lock:
                 slot.status = SlotStatus.CLOSED
+
+    def _next_sleep_seconds(self) -> float:
+        """Increase sleep when board state is unchanged for repeated cycles."""
+        board = self._ctx.distributor.board
+        fingerprint = tuple(
+            (card.id, card.stage, card.action, card.assigned_agent, card.loop_count)
+            for card in sorted(board.cards, key=lambda c: c.id)
+        )
+        if fingerprint == self._last_flow_fingerprint:
+            self._idle_cycles = min(self._idle_cycles + 1, 4)
+        else:
+            self._idle_cycles = 0
+            self._last_flow_fingerprint = fingerprint
+
+        # 5s -> 8s -> 13s -> 21s -> 30s max
+        schedule = (5.0, 8.0, 13.0, 21.0, 30.0)
+        return schedule[self._idle_cycles]

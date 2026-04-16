@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from .action_constants import Action
-from .stage_constants import STAGE_CODING, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_INBOX, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
+from .card_prioritizer import priority_key
+from .stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_INBOX, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
 
 _pull_logger = logging.getLogger(__name__)
 
@@ -77,16 +78,16 @@ def find_next_work(board: "KanbanBoard") -> Optional[WorkAssignment]:
             return WorkAssignment(card=card, role=ROLE_CODER, needs_worktree=True)
 
     # 6. Estimate (deps not enforced — architect/product only evaluates)
-    result = _try_stage(board, STAGE_ESTIMATE, Action.ARCHITECT, ROLE_ARCHITECT, worktree=False, check_deps=False)
+    result = _try_stage_frontier(board, STAGE_ESTIMATE, Action.ARCHITECT, ROLE_ARCHITECT, worktree=False)
     if result:
         return result
     if board.has_wip_room(STAGE_TODO):
-        result = _try_stage(board, STAGE_ESTIMATE, Action.PRODUCT, ROLE_PRODUCT, worktree=False, check_deps=False)
+        result = _try_stage_frontier(board, STAGE_ESTIMATE, Action.PRODUCT, ROLE_PRODUCT, worktree=False)
         if result:
             return result
 
     # 7. Inbox (deps not enforced — product only evaluates)
-    result = _try_stage(board, STAGE_INBOX, Action.PRODUCT, ROLE_PRODUCT, worktree=False, check_deps=False)
+    result = _try_stage_frontier(board, STAGE_INBOX, Action.PRODUCT, ROLE_PRODUCT, worktree=False)
     if result:
         return result
 
@@ -155,3 +156,32 @@ def _try_stage_with_forward_wip(
         needs_wt = role in (ROLE_CODER, ROLE_TESTER, ROLE_REVIEWER)
         return WorkAssignment(card=card, role=role, needs_worktree=needs_wt)
     return None
+
+
+def _try_stage_frontier(
+    board: "KanbanBoard",
+    stage: str,
+    action: str,
+    role: str,
+    *,
+    worktree: bool,
+) -> Optional[WorkAssignment]:
+    card = _pick_frontier_candidate(board, stage, action)
+    if card:
+        return WorkAssignment(card=card, role=role, needs_worktree=worktree)
+    return None
+
+
+def _pick_frontier_candidate(board: "KanbanBoard", stage: str, action: str):
+    candidates = board.cards_with_action(stage, action)
+    if not candidates:
+        return None
+    non_done = [c for c in board.cards if c.stage != STAGE_DONE]
+    dependent_count: dict[str, int] = {c.id: 0 for c in candidates}
+    for candidate in candidates:
+        dependent_count[candidate.id] = sum(1 for card in non_done if candidate.id in card.dependencies)
+    ranked = sorted(
+        candidates,
+        key=lambda card: (-dependent_count.get(card.id, 0), priority_key(card)),
+    )
+    return ranked[0]

@@ -36,7 +36,7 @@ from ..tui.screens.kanban_screen import KanbanScreen
 
 
 class OrcApp(App[int]):
-    CSS_PATH = "tui/orc.tcss"
+    CSS_PATH = "../tui/orc.tcss"
     TITLE = "ORC"
     BINDINGS = [
         ("escape", "request_quit", "Stop ORC"),

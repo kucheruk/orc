@@ -107,6 +107,19 @@ class TestPullPriority(unittest.TestCase):
             self.assertEqual(result.card.id, "I-1")
             self.assertEqual(result.role, ROLE_PRODUCT)
 
+    def test_estimate_frontier_prioritizes_unblockers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            _add(td, KanbanCard(id="E-HIGH", stage="2_Estimate", action="Architect", value_score=95, effort_score=10))
+            _add(td, KanbanCard(id="E-UNBLOCK", stage="2_Estimate", action="Architect", value_score=30, effort_score=20))
+            _add(td, KanbanCard(id="D-1", stage="2_Estimate", action="Coding", dependencies=["E-UNBLOCK"]))
+            _add(td, KanbanCard(id="D-2", stage="2_Estimate", action="Coding", dependencies=["E-UNBLOCK"]))
+            board = KanbanBoard(td, repo=FsCardRepository())
+            result = find_next_work(board)
+            self.assertIsNotNone(result)
+            self.assertEqual(result.card.id, "E-UNBLOCK")
+            self.assertEqual(result.role, ROLE_ARCHITECT)
+
     def test_empty_board_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, board = _setup(tmp)

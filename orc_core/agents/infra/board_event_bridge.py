@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,6 +22,8 @@ if TYPE_CHECKING:
 class BoardEventBridge:
     """Wires KanbanBoard → publisher (TUI events) and persists outcomes state."""
 
+    _MIN_PUBLISH_INTERVAL_SECONDS = 1.5
+
     def __init__(
         self,
         *,
@@ -35,6 +38,7 @@ class BoardEventBridge:
         self._publisher = publisher
         self._outcomes = outcomes
         self._pool = pool
+        self._last_board_publish_at = 0.0
 
     def wire(self) -> None:
         """Install move/action-change listeners on the board."""
@@ -58,8 +62,12 @@ class BoardEventBridge:
 
     def publish_board_state(self) -> None:
         """Refresh board, push snapshot to TUI, persist outcomes if dirty."""
-        self._distributor.refresh()
-        self._publisher.publish_board(self._distributor.board, self._pool.session_snapshots)
+        now = time.time()
+        should_publish = (now - self._last_board_publish_at) >= self._MIN_PUBLISH_INTERVAL_SECONDS
+        if should_publish:
+            self._distributor.refresh()
+            self._publisher.publish_board(self._distributor.board, self._pool.session_snapshots)
+            self._last_board_publish_at = now
         if self._outcomes.is_dirty():
             snapshot = self._outcomes.state_snapshot()
             save_kanban_state(

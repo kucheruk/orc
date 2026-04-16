@@ -10,6 +10,25 @@ from orc_core.git import worktree_flow
 
 class WorktreeFlowTest(unittest.TestCase):
     @patch("orc_core.git.worktree_flow.run_git")
+    def test_resolve_integration_commit_skips_tasks_only_commit(self, git_mock) -> None:
+        git_mock.side_effect = [
+            (True, "aaa111\nbbb222\n", "", 0),  # rev-list --no-merges main..HEAD
+            (True, "tasks/5_Review/UX-001.md\n", "", 0),  # show aaa111 files
+            (True, "src/Jeeves.Web/Program.cs\n", "", 0),  # show bbb222 files
+        ]
+        commit = worktree_flow.resolve_integration_commit("/tmp/repo", "master")
+        self.assertEqual(commit, "bbb222")
+
+    @patch("orc_core.git.worktree_flow.run_git")
+    def test_resolve_integration_commit_fails_when_only_tasks_commits(self, git_mock) -> None:
+        git_mock.side_effect = [
+            (True, "aaa111\n", "", 0),  # rev-list --no-merges main..HEAD
+            (True, "tasks/8_Done/UX-001.md\n", "", 0),  # show aaa111 files
+        ]
+        with self.assertRaises(RuntimeError):
+            worktree_flow.resolve_integration_commit("/tmp/repo", "master")
+
+    @patch("orc_core.git.worktree_flow.run_git")
     def test_detect_base_branch_prefers_main_when_exists(self, git_mock) -> None:
         git_mock.side_effect = [
             (True, "refs/heads/main\n", "", 0),

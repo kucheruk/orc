@@ -68,3 +68,22 @@ class RecoverStaleGitStateTest(unittest.TestCase):
         mgr.recover_stale_git_state()
         # Only rev-parse call, no abort calls because marker files don't exist
         self.assertEqual(fake_git.run.call_count, 1)
+
+
+class IntegrationManagerExecuteTest(unittest.TestCase):
+    @patch("orc_core.git.integration_manager.has_commits_ahead_of_branch", return_value=False)
+    def test_has_commits_marks_failure_when_branch_not_ahead(self, _ahead_mock) -> None:
+        mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))
+        ctx = IntegrationContext(
+            session_id="s1",
+            task_id="TASK-1",
+            workdir="/tmp",
+            main_branch="main",
+            log_path=Path("/tmp/orc.log"),
+        )
+
+        has_commits = mgr._has_commits(ctx, "/tmp/wt")
+
+        self.assertFalse(has_commits)
+        self.assertEqual(ctx.report.get("status"), "failed")
+        self.assertEqual(ctx.report.get("reason"), "no_commits_ahead")

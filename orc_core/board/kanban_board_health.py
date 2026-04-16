@@ -8,6 +8,7 @@ this module analyzes health.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,14 @@ from .stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HAN
 
 if TYPE_CHECKING:
     from .kanban_card import KanbanCard
+
+
+@dataclass(frozen=True)
+class CircularDependencyDiagnostic:
+    """Structured cycle diagnostic for downstream auto-remediation."""
+    summary: str
+    cycle_nodes: tuple[str, ...]
+    cycle_edges: tuple[tuple[str, str], ...]
 
 
 def detect_wip_deadlock(
@@ -78,7 +87,7 @@ def detect_wip_deadlock(
     # Check circular dependencies
     circular = detect_circular_deps(non_done, done_ids)
     if circular:
-        return circular
+        return circular.summary
 
     # Check cards stuck too long
     stuck = detect_stuck_cards(non_done, done_ids)
@@ -88,8 +97,11 @@ def detect_wip_deadlock(
     return ""
 
 
-def detect_circular_deps(cards: list[KanbanCard], done_ids: set[str]) -> str:
-    """Detect circular dependency chains among active cards."""
+def detect_circular_deps(
+    cards: list[KanbanCard],
+    done_ids: set[str],
+) -> CircularDependencyDiagnostic | None:
+    """Detect circular dependency chains among active cards (structured)."""
     card_ids = {c.id for c in cards}
     dep_graph: dict[str, list[str]] = {}
     for c in cards:
@@ -99,29 +111,38 @@ def detect_circular_deps(cards: list[KanbanCard], done_ids: set[str]) -> str:
 
     WHITE, GRAY, BLACK = 0, 1, 2
     color: dict[str, int] = {cid: WHITE for cid in dep_graph}
-    cycle_path: list[str] = []
+    stack: list[str] = []
+    cycle_nodes: list[str] = []
 
     def dfs(node: str) -> bool:
         color[node] = GRAY
+        stack.append(node)
         for dep in dep_graph.get(node, []):
             if dep not in color:
                 continue
             if color[dep] == GRAY:
-                cycle_path.append(dep)
-                cycle_path.append(node)
+                idx = stack.index(dep)
+                cycle_nodes[:] = stack[idx:] + [dep]
                 return True
             if color[dep] == WHITE and dfs(dep):
                 return True
+        stack.pop()
         color[node] = BLACK
         return False
 
     for cid in dep_graph:
         if color.get(cid, WHITE) == WHITE:
             if dfs(cid):
-                ids = " → ".join(cycle_path[:5])
-                return f"Circular dependency detected: {ids}. Cards can never unblock."
-    return ""
-
+                if len(cycle_nodes) < 2:
+                    return None
+                pairs = tuple((cycle_nodes[i], cycle_nodes[i + 1]) for i in range(len(cycle_nodes) - 1))
+                summary = f"Circular dependency detected: {' → '.join(cycle_nodes[:6])}. Cards can never unblock."
+                return CircularDependencyDiagnostic(
+                    summary=summary,
+                    cycle_nodes=tuple(cycle_nodes),
+                    cycle_edges=pairs,
+                )
+    return None
 
 def detect_stuck_cards(
     cards: list[KanbanCard],

@@ -245,6 +245,45 @@ def get_head_commit(workdir: str) -> str:
     return stdout.strip()
 
 
+def _list_commit_files(workdir: str, commit_sha: str) -> list[str]:
+    ok, stdout, _, _ = run_git(workdir, ["git", "show", "--pretty=format:", "--name-only", commit_sha])
+    if not ok:
+        return []
+    return [line.strip() for line in stdout.splitlines() if line.strip()]
+
+
+def _is_orchestration_only_path(path: str) -> bool:
+    normalized = (path or "").strip()
+    return normalized.startswith("tasks/") or _is_runtime_artifact_path(normalized)
+
+
+def resolve_integration_commit(workdir: str, main_branch: str) -> str:
+    """
+    Resolve the commit that should be integrated into main.
+
+    Prefer the latest non-merge commit ahead of main. This avoids trying to
+    cherry-pick synthetic merge commits created by "git merge <main>" inside
+    task worktrees.
+    """
+    ok, stdout, stderr, _ = run_git(
+        workdir,
+        ["git", "rev-list", "--no-merges", f"{main_branch}..HEAD"],
+    )
+    if not ok:
+        raise RuntimeError(f"failed to resolve non-merge integration commit: {stderr.strip()}")
+    commits = [line.strip() for line in stdout.splitlines() if line.strip()]
+    if commits:
+        for commit_sha in commits:
+            changed_files = _list_commit_files(workdir, commit_sha)
+            if not changed_files:
+                continue
+            if all(_is_orchestration_only_path(path) for path in changed_files):
+                continue
+            return commit_sha
+        raise RuntimeError("no deliverable commit ahead of main (only tasks/runtime changes)")
+    return get_head_commit(workdir)
+
+
 def _is_commit_in_branch(workdir: str, commit_sha: str, branch: str) -> bool:
     ok, _, _, rc = run_git(workdir, ["git", "merge-base", "--is-ancestor", commit_sha, branch])
     if ok:

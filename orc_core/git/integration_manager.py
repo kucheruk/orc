@@ -27,9 +27,9 @@ from .ports import ConflictResolverPort, GitRunner, SafeFilesGuardPort
 from .safe_files import SafeFilesGuard
 from .subprocess_git import SubprocessGitRunner
 from .worktree_flow import (
-    get_head_commit,
     integrate_commit_into_main,
     preflight_main_integration,
+    resolve_integration_commit,
 )
 
 
@@ -157,7 +157,7 @@ class IntegrationManager:
         merge_expert_fn: Optional[Callable],
     ) -> bool:
         if not self._has_commits(ctx, execution_workdir):
-            return True
+            return False
         if not self._resolve_commit(ctx, execution_workdir):
             return False
         stashed = self._stash_dirty_state(ctx)
@@ -241,13 +241,13 @@ class IntegrationManager:
     def _has_commits(self, ctx: IntegrationContext, execution_workdir: str) -> bool:
         if has_commits_ahead_of_branch(execution_workdir, self.main_branch, self.log_path):
             return True
-        ctx.step("no_commits_ahead", worktree=execution_workdir)
-        ctx.save_report("skipped", "no_commits_ahead")
+        ctx.step_error("no_commits_ahead", worktree=execution_workdir)
+        ctx.save_report("failed", "no_commits_ahead")
         return False
 
     def _resolve_commit(self, ctx: IntegrationContext, execution_workdir: str) -> bool:
         try:
-            ctx.commit_sha = get_head_commit(execution_workdir)
+            ctx.commit_sha = resolve_integration_commit(execution_workdir, self.main_branch)
         except Exception as exc:
             ctx.step_error("get_commit_sha_failed", error=str(exc))
             ctx.save_report("failed", "get_commit_sha_failed")

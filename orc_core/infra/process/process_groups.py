@@ -19,9 +19,13 @@ def is_posix() -> bool:
 
 def subprocess_group_spawn_kwargs() -> Dict[str, object]:
     """
-    Let subprocesses inherit the parent's process group so that
-    os.killpg() on the ORC group leader kills the entire tree.
+    Spawn every agent in its own process group.
+
+    This prevents cleanup of an agent monitor from accidentally sending SIGTERM
+    to ORC itself when the child inherited ORC's PGID.
     """
+    if is_posix():
+        return {"start_new_session": True}
     return {}
 
 
@@ -44,7 +48,7 @@ def terminate_process_group(process_group_id: Optional[int], log_path: Path, lab
     if not process_group_id or not is_posix():
         return False
 
-    group_members = _group_processes(process_group_id)
+    group_members = [proc for proc in _group_processes(process_group_id) if int(getattr(proc, "pid", 0) or 0) > 0]
     pids = [proc.pid for proc in group_members]
     log_event(log_path, "INFO", "process group kill: terminate", label=label, pgid=process_group_id, pids=pids)
     try:

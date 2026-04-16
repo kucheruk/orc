@@ -14,6 +14,8 @@ from typing import Optional
 from ...config import OrcConfig
 from ...tasks.completion.outcomes import TaskOutcomeTracker
 from ...git.integration_manager import IntegrationManager
+from ...git.git_helpers import has_commits_ahead_of_branch
+from ...board.kanban_role_registry import ROLE_CODER, ROLE_INTEGRATOR, ROLE_REVIEWER, ROLE_TESTER
 from ...board.stage_constants import STAGE_DONE
 from ...tasks.status import TaskExecutionStatus
 from ..infra.protocols import CompletionNotifier, EventPublisher, RunnerLifecycle, RunnerStateManager, WorkDistributor
@@ -35,6 +37,7 @@ from ...git.git_dto import WorktreeSession
 from ...git.worktree_flow import cleanup_task_worktree, create_task_worktree
 
 _logger = logging.getLogger(__name__)
+_DELIVERY_ROLES = frozenset({ROLE_CODER, ROLE_REVIEWER, ROLE_TESTER, ROLE_INTEGRATOR})
 
 
 class KanbanWorkerRunner:
@@ -123,6 +126,7 @@ class KanbanWorkerRunner:
         prompt = build_prompt(role, card, self._distributor.board, main_branch=self._main_branch)
         task_start = time.time()
         worktree: Optional[WorktreeSession] = None
+        assignment_succeeded = False
         try:
             if assignment.needs_worktree:
                 with self._worktree_lock:
@@ -142,6 +146,33 @@ class KanbanWorkerRunner:
             result = self._engine.execute(self._state_manager.make_request(task, prompt, wd, sid,
                                                               commit_phase, 1800.0))
             if result and result.status == TaskExecutionStatus.COMPLETED:
+                if (
+                    assignment.needs_worktree
+                    and role in _DELIVERY_ROLES
+                    and not has_commits_ahead_of_branch(wd, self._main_branch, self._log_path)
+                ):
+                    reason = "no_commits_ahead_for_delivery_role"
+                    self._publisher.emit(
+                        "escalate",
+                        card.id,
+                        f"{card.id} {role} completed without branch commits; retrying delivery cycle",
+                    )
+                    log_event(
+                        self._log_path,
+                        "WARN",
+                        "delivery role finished without commits ahead of main",
+                        task_id=card.id,
+                        role=role,
+                        workdir=wd,
+                        main_branch=self._main_branch,
+                    )
+                    handle_task_failure(card, reason, self._outcomes, self._publisher, role)
+                    escalate_if_threshold_reached(
+                        card, reason,
+                        self._distributor.board, self._outcomes,
+                        self._publisher, self._notifier, self._log_path,
+                    )
+                    return
                 elapsed = time.time() - task_start
                 errors = process_completed_task(
                     board=self._distributor.board, card=card, role=role,
@@ -152,6 +183,8 @@ class KanbanWorkerRunner:
                 )
                 if errors:
                     self._outcomes.record_failed(card.id)
+                else:
+                    assignment_succeeded = True
             else:
                 reason = result.reason if result else "no result"
                 handle_task_failure(card, reason, self._outcomes, self._publisher, role)
@@ -172,8 +205,9 @@ class KanbanWorkerRunner:
                 self._publisher, self._notifier, self._log_path,
             )
         else:
-            # Reset failure counter on success
-            self._outcomes.reset_fail_count(card.id)
+            # Reset failure counter only after true successful completion.
+            if assignment_succeeded:
+                self._outcomes.reset_fail_count(card.id)
         finally:
             # Integrate worktree commits into main before cleanup
             if worktree and card.stage == STAGE_DONE:

@@ -185,6 +185,7 @@ def build_session_manager(
         lifecycle=lifecycle_adapter,
         notifier=notifier_adapter,
         state_manager=state_adapter,
+        state_paths=state_paths,
         directives=directive_adapter,
     )
 

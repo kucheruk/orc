@@ -10,6 +10,7 @@ from .stage_constants import STAGE_CODING, STAGE_DONE, STAGE_HANDOFF, STAGE_REVI
 # Add new rules here without modifying KanbanBoard.
 DEFERRED_MOVE_RULES: dict[tuple[str, str], str] = {
     (STAGE_TESTING, "Integrating"): STAGE_HANDOFF,
+    (STAGE_TESTING, "Reviewing"): STAGE_REVIEW,
     (STAGE_HANDOFF, "Done"): STAGE_DONE,
     (STAGE_CODING, "Reviewing"): STAGE_REVIEW,
     (STAGE_REVIEW, "Testing"): STAGE_TESTING,
