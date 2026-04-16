@@ -114,8 +114,8 @@ class KanbanSessionManager:
         self._distributor.refresh()
 
         # Cleanup stale state from previous runs
-        done_ids = release_stale_agents(self._distributor.board, self.publisher)
-        cleanup_done_worktrees(done_ids, self.workdir, self.log_path, self.publisher)
+        cleanup_ids = release_stale_agents(self._distributor.board, self.publisher)
+        cleanup_done_worktrees(cleanup_ids, self.workdir, self.log_path, self.publisher)
 
         done, _ip, total = self._distributor.get_progress()
         self.publisher.emit("system", "", f"Kanban started: {total} cards, {self._pool.max_sessions} agents")

@@ -46,13 +46,19 @@ def save_kanban_state(
 def release_stale_agents(board, publisher) -> set[str]:
     """Release cards stuck with assigned_agent from a crashed previous run.
 
-    Returns set of done card IDs (for worktree cleanup).
+    Returns set of card IDs whose worktrees can be cleaned up (done + blocked).
     """
+    from ...board.action_constants import Action
+
     released = 0
-    done_ids: set[str] = set()
+    cleanup_ids: set[str] = set()
     for card in list(board.cards):
         if card.is_done:
-            done_ids.add(card.id)
+            cleanup_ids.add(card.id)
+        elif card.action == Action.BLOCKED:
+            # Blocked cards won't be picked up until a human unblocks them;
+            # worktree from the previous attempt is just dead weight.
+            cleanup_ids.add(card.id)
         if card.is_assigned and not card.is_done:
             old_agent = card.assigned_agent
             board.release_agent(card)
@@ -60,13 +66,13 @@ def release_stale_agents(board, publisher) -> set[str]:
             publisher.emit("system", card.id, f"{card.id} released stale agent {old_agent}")
     if released:
         publisher.emit("system", "", f"Released {released} stale agent(s) from previous run")
-    return done_ids
+    return cleanup_ids
 
 
 def cleanup_done_worktrees(
     done_ids: set[str], workdir: str, log_path: Path, publisher,
 ) -> None:
-    """Remove worktrees for cards that reached Done."""
+    """Remove worktrees for cards that no longer need them (Done or Blocked)."""
     from ...git.git_dto import WorktreeSession
     from ...git.worktree_flow import _safe_name, cleanup_task_worktree, task_branch_name
     from ...infra.io.state_paths import worktrees_root

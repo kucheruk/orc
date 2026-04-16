@@ -367,14 +367,26 @@ class KanbanWorkerRunner:
             if assignment_succeeded:
                 self._outcomes.reset_fail_count(card.id)
         finally:
-            # Integrate worktree commits into main before cleanup
-            if worktree and card.stage == STAGE_DONE:
-                finalize_completed_worktree(
-                    card=card, worktree=worktree, slot=slot,
-                    board=self._distributor.board, integrator=self._integrator,
-                    cleanup_fn=cleanup_task_worktree, log_path=self._log_path,
-                    main_branch=self._main_branch, publisher=self._publisher,
-                    worktree_lock=self._worktree_lock,
-                )
+            if worktree:
+                # Integrate worktree commits into main before cleanup
+                if card.stage == STAGE_DONE:
+                    finalize_completed_worktree(
+                        card=card, worktree=worktree, slot=slot,
+                        board=self._distributor.board, integrator=self._integrator,
+                        cleanup_fn=cleanup_task_worktree, log_path=self._log_path,
+                        main_branch=self._main_branch, publisher=self._publisher,
+                        worktree_lock=self._worktree_lock,
+                    )
+                elif card.action == Action.BLOCKED:
+                    # Blocked cards won't be picked up again — otherwise the
+                    # worktree would leak forever (cleanup_done_worktrees only
+                    # sweeps STAGE_DONE at startup).
+                    try:
+                        with self._worktree_lock:
+                            cleanup_task_worktree(worktree, self._log_path)
+                    except Exception as exc:
+                        log_event(self._log_path, "WARN",
+                                  "failed to clean worktree for blocked card",
+                                  task_id=card.id, error=str(exc)[:200])
             slot.task = None
             self._distributor.release_card(card.id)
