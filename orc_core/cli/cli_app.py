@@ -44,6 +44,8 @@ from ..infra.io.state_paths import app_log_path, lock_path as state_lock_path
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from ..config import OrcConfig
+    _d = OrcConfig()  # SSOT defaults
     ap = argparse.ArgumentParser()
     ap.add_argument("--workspace", default=".")
     ap.add_argument("--model", default="")
@@ -51,20 +53,20 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--commit-phase",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=_d.commit_phase,
         help="Run a separate commit phase after each completed task (default: true)",
     )
-    ap.add_argument("--commit-stall-timeout", type=float, default=300.0, help="Commit stall timeout seconds")
-    ap.add_argument("--commit-ttl", type=float, default=1800.0, help="Max seconds for commit phase")
-    ap.add_argument("--poll", type=float, default=1.0, help="Poll interval for task completion")
-    ap.add_argument("--stall-timeout", type=float, default=600.0, help="Seconds without output before stall")
+    ap.add_argument("--commit-stall-timeout", type=float, default=_d.commit_stall_timeout, help="Commit stall timeout seconds")
+    ap.add_argument("--commit-ttl", type=float, default=_d.commit_ttl, help="Max seconds for commit phase")
+    ap.add_argument("--poll", type=float, default=_d.poll, help="Poll interval for task completion")
+    ap.add_argument("--stall-timeout", type=float, default=_d.stall_timeout, help="Seconds without output before stall")
     ap.add_argument("--task-ttl", type=float, default=6 * 3600, help="Max seconds per task before abort")
-    ap.add_argument("--max-restarts", type=int, default=2, help="Max restarts for a task")
-    ap.add_argument("--report-interval", type=float, default=2.0, help="Seconds between stats reports")
-    ap.add_argument("--summary-lines", type=int, default=25, help="Lines in Telegram summary")
-    ap.add_argument("--nudge-after", type=int, default=10, help="Send continue after N identical stats")
-    ap.add_argument("--nudge-cooldown", type=float, default=300.0, help="Seconds between auto-nudges")
-    ap.add_argument("--nudge-text", default="continue", help="Text to send before Enter")
+    ap.add_argument("--max-restarts", type=int, default=_d.max_restarts, help="Max restarts for a task")
+    ap.add_argument("--report-interval", type=float, default=_d.report_interval, help="Seconds between stats reports")
+    ap.add_argument("--summary-lines", type=int, default=_d.summary_lines, help="Lines in Telegram summary")
+    ap.add_argument("--nudge-after", type=int, default=_d.nudge_after, help="Send continue after N identical stats")
+    ap.add_argument("--nudge-cooldown", type=float, default=_d.nudge_cooldown, help="Seconds between auto-nudges")
+    ap.add_argument("--nudge-text", default=_d.nudge_text, help="Text to send before Enter")
     ap.add_argument("--telegram-test", nargs="?", const="orc telegram test", default=None, help="Test Telegram and exit")
     ap.add_argument("--reinit-hooks", action="store_true", help="Recreate hooks on startup")
     ap.add_argument("--hooks", action="store_true", help="Install agent hooks (default: off)")

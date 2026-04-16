@@ -11,39 +11,43 @@ DEFAULT_MODEL = "gpt-5.3-codex"
 
 @dataclass(frozen=True)
 class OrcConfig:
-    """Typed config extracted from CLI args at the boundary."""
+    """Typed config extracted from CLI args at the boundary.
+
+    Dataclass defaults are the SSOT — cli_app.py argparse must use them.
+    """
 
     model: str = ""
     commit_model: str = ""
     commit_phase: bool = True
-    poll: float = 0.5
-    stall_timeout: float = 300.0
-    max_restarts: int = 1
-    report_interval: float = 30.0
-    summary_lines: int = 5
-    nudge_after: int = 0
-    nudge_cooldown: float = 120.0
-    nudge_text: str = ""
-    commit_stall_timeout: float = 120.0
-    commit_ttl: float = 300.0
+    poll: float = 1.0
+    stall_timeout: float = 600.0
+    max_restarts: int = 2
+    report_interval: float = 2.0
+    summary_lines: int = 25
+    nudge_after: int = 10
+    nudge_cooldown: float = 300.0
+    nudge_text: str = "continue"
+    commit_stall_timeout: float = 300.0
+    commit_ttl: float = 1800.0
     agent_output_log_path: str = ""
 
     @classmethod
     def from_namespace(cls, args) -> OrcConfig:
-        """Construct from argparse.Namespace, applying defaults for missing attrs."""
+        """Construct from argparse.Namespace — missing attrs fall back to dataclass defaults."""
+        defaults = cls()
         return cls(
-            model=str(getattr(args, "model", "") or ""),
-            commit_model=str(getattr(args, "commit_model", "") or ""),
-            commit_phase=bool(getattr(args, "commit_phase", True)),
-            poll=float(getattr(args, "poll", 0.5)),
-            stall_timeout=float(getattr(args, "stall_timeout", 300.0)),
-            max_restarts=int(getattr(args, "max_restarts", 1)),
-            report_interval=float(getattr(args, "report_interval", 30.0)),
-            summary_lines=int(getattr(args, "summary_lines", 5)),
-            nudge_after=int(getattr(args, "nudge_after", 0)),
-            nudge_cooldown=float(getattr(args, "nudge_cooldown", 120.0)),
-            nudge_text=str(getattr(args, "nudge_text", "")),
-            commit_stall_timeout=float(getattr(args, "commit_stall_timeout", 120.0)),
-            commit_ttl=float(getattr(args, "commit_ttl", 300.0)),
-            agent_output_log_path=str(getattr(args, "agent_output_log_path", "") or ""),
+            model=str(getattr(args, "model", defaults.model) or ""),
+            commit_model=str(getattr(args, "commit_model", defaults.commit_model) or ""),
+            commit_phase=bool(getattr(args, "commit_phase", defaults.commit_phase)),
+            poll=float(getattr(args, "poll", defaults.poll)),
+            stall_timeout=float(getattr(args, "stall_timeout", defaults.stall_timeout)),
+            max_restarts=int(getattr(args, "max_restarts", defaults.max_restarts)),
+            report_interval=float(getattr(args, "report_interval", defaults.report_interval)),
+            summary_lines=int(getattr(args, "summary_lines", defaults.summary_lines)),
+            nudge_after=int(getattr(args, "nudge_after", defaults.nudge_after)),
+            nudge_cooldown=float(getattr(args, "nudge_cooldown", defaults.nudge_cooldown)),
+            nudge_text=str(getattr(args, "nudge_text", defaults.nudge_text)),
+            commit_stall_timeout=float(getattr(args, "commit_stall_timeout", defaults.commit_stall_timeout)),
+            commit_ttl=float(getattr(args, "commit_ttl", defaults.commit_ttl)),
+            agent_output_log_path=str(getattr(args, "agent_output_log_path", defaults.agent_output_log_path) or ""),
         )
