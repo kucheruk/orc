@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...board.kanban_card import PROTECTED_FIELDS, KanbanCard, validate_card
