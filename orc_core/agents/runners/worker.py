@@ -14,7 +14,7 @@ from typing import Optional
 from ...config import OrcConfig
 from ...tasks.completion.outcomes import TaskOutcomeTracker
 from ...git.integration_manager import IntegrationManager
-from ...git.git_helpers import has_commits_ahead_of_branch
+from ...git.git_helpers import has_code_changes_ahead, has_commits_ahead_of_branch
 from ...board.kanban_role_registry import ROLE_CODER, ROLE_INTEGRATOR, ROLE_REVIEWER, ROLE_TESTER
 from ...board.stage_constants import STAGE_DONE
 from ...tasks.status import TaskExecutionStatus
@@ -149,22 +149,25 @@ class KanbanWorkerRunner:
                 if (
                     assignment.needs_worktree
                     and role in _DELIVERY_ROLES
-                    and not has_commits_ahead_of_branch(wd, self._main_branch, self._log_path)
+                    and not has_code_changes_ahead(wd, self._main_branch, self._log_path)
                 ):
-                    reason = "no_commits_ahead_for_delivery_role"
+                    has_any = has_commits_ahead_of_branch(wd, self._main_branch, self._log_path)
+                    reason = "no_code_changes_for_delivery_role"
                     self._publisher.emit(
                         "escalate",
                         card.id,
-                        f"{card.id} {role} completed without branch commits; retrying delivery cycle",
+                        f"{card.id} {role} completed without code changes "
+                        f"(card-only commits: {has_any}); retrying delivery cycle",
                     )
                     log_event(
                         self._log_path,
                         "WARN",
-                        "delivery role finished without commits ahead of main",
+                        "delivery role finished without code changes ahead of main",
                         task_id=card.id,
                         role=role,
                         workdir=wd,
                         main_branch=self._main_branch,
+                        card_only_commits=has_any,
                     )
                     handle_task_failure(card, reason, self._outcomes, self._publisher, role)
                     escalate_if_threshold_reached(

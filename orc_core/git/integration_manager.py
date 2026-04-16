@@ -20,7 +20,7 @@ from ..errors.truncation import (
     TRACEBACK_TRUNCATE,
 )
 from ..infra.io.state_paths import integration_report_path
-from .git_helpers import has_commits_ahead_of_branch
+from .git_helpers import has_code_changes_ahead, has_commits_ahead_of_branch
 from ..tasks.dto import Task
 from .conflict_resolver import ConflictResolver
 from .ports import ConflictResolverPort, GitRunner, SafeFilesGuardPort
@@ -239,11 +239,17 @@ class IntegrationManager:
         return True
 
     def _has_commits(self, ctx: IntegrationContext, execution_workdir: str) -> bool:
-        if has_commits_ahead_of_branch(execution_workdir, self.main_branch, self.log_path):
-            return True
-        ctx.step_error("no_commits_ahead", worktree=execution_workdir)
-        ctx.save_report("failed", "no_commits_ahead")
-        return False
+        if not has_commits_ahead_of_branch(execution_workdir, self.main_branch, self.log_path):
+            ctx.step_error("no_commits_ahead", worktree=execution_workdir)
+            ctx.save_report("failed", "no_commits_ahead")
+            return False
+        if not has_code_changes_ahead(execution_workdir, self.main_branch, self.log_path):
+            ctx.step_error("no_code_changes",
+                           worktree=execution_workdir,
+                           detail="commits exist but only contain card/task file changes")
+            ctx.save_report("failed", "no_code_changes")
+            return False
+        return True
 
     def _resolve_commit(self, ctx: IntegrationContext, execution_workdir: str) -> bool:
         try:

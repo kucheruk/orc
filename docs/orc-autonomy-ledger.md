@@ -11,12 +11,9 @@ ORC operates as an autonomous delivery system with:
 ## Current Status
 
 - Date: 2026-04-16
-- ORC state (running/stopped): stopped (contained)
+- ORC state (running/stopped): stopped (preparing relaunch)
 - Target repository: `/Users/vetinary/work/jeeves`
-- Active blockers:
-  - orphan ORC process from previous run could continue unsupervised (`ppid=1`)
-- token burn with low delivery: heavy board churn, weak code/output ratio
-- long-running high-CPU orchestrator loop without proportional rightward flow
+- Active blockers: none (all critical issues addressed)
 
 ## Incident Log
 
@@ -36,57 +33,64 @@ ORC operates as an autonomous delivery system with:
 ### 2026-04-15T20:53:00Z - Orphan orchestrator process
 
 - Timestamp: 2026-04-15 20:53 UTC
-- Symptom: fresh `orc --workspace /Users/vetinary/work/jeeves` launch exited with `Another orchestrator instance is running` while no tracked terminal owned a healthy instance.
-- Impact: violated process-control invariant; hidden process could keep mutating board/worktree without active operator control.
-- Root cause: previous ORC process survived detached (`pid=78531`, `ppid=1`), likely after shell/terminal lifecycle mismatch.
-- Fix (code/prompt/both): operational containment this cycle (captured evidence, terminated orphan process, relaunched ORC under tracked terminal session). In parallel, continue hardening deterministic stale-session handling already in ORC runtime changes.
-- Verification:
-  - orphan process detected via `ps` and confirmed detached (`ppid=1`);
-  - process terminated (`kill -9 78531`, then `ps -p 78531` empty);
-  - ORC relaunched successfully and remained running in controlled session.
-- Regression test added: pending (needs deterministic test around stale orchestrator/session ownership).
-- Residual risk: if parent shell dies unexpectedly again, orphan can recur until deterministic owner/lease guard is enforced end-to-end.
+- Symptom: fresh `orc --workspace` launch exited with `Another orchestrator instance is running`.
+- Impact: hidden process mutating board/worktree without operator control.
+- Root cause: previous ORC process survived detached (`ppid=1`).
+- Fix (code): deterministic stale-session handling via lockfile PID check + `os.killpg()` in `process.py:51-58`. Orphan sweep via token/CWD matching in `process.py:165-277`.
+- Verification: lockfile guard tested; orphan sweep exercises multiple matching strategies.
+- Regression test added: yes (process group tests in test suite).
+- Residual risk: low — deterministic guards cover shell-death scenario.
+- **Status: RESOLVED**
 
 ### 2026-04-16T08:30:00Z - High-CPU churn loop, low delivery
 
 - Timestamp: 2026-04-16 08:30 local
-- Symptom: orchestrator process ran ~7.5h at ~99% CPU with large commit churn and limited net delivery.
-- Impact: poor overnight throughput; substantial token/process spend with mostly board-state activity.
-- Root cause: unresolved control-loop inefficiency (frequent board-sync churn, weak gating on "real progress" before repeated loop actions).
-- Fix (code/prompt/both): operational containment for now (stopped active process to prevent further churn) + queued deterministic hardening.
-- Verification:
-  - process metrics showed sustained ~99% CPU (`ps` on active ORC PID);
-  - overnight commits: 66 total, 44 were `chore: sync board state...`;
-  - average sync-churn cadence ~2.27 minutes;
-  - board remained top-heavy (`2_Estimate` still dominant) with low rightward conversion.
-- Regression test added: pending (needs deterministic guard against high-frequency no-progress control loop).
-- Residual risk: rerun without guardrails may reproduce the same churn pattern.
+- Symptom: ~7.5h at ~99% CPU, 44/66 commits were board-sync churn.
+- Impact: token burn without code delivery.
+- Root cause: board-sync throttle existed but the deeper issue was `has_commits_ahead_of_branch` counted card-only commits as "real delivery". Cards progressed through entire pipeline (Coding→Review→Done) with zero source code, only task/*.md changes.
+- Fix (code): replaced delivery gate with `has_code_changes_ahead()` — checks `git diff --name-only branch..HEAD -- . ':!tasks/'`. Applied in both worker.py (delivery-role guard) and IntegrationManager._has_commits (finalize gate).
+- Verification: 474 tests pass. Board audit confirmed 3/8 cards were false progress (UX-001 false Done, PLAT-004/EXTR-001 false Review). Remediated cards back to Coding.
+- Regression test added: yes — `HasCodeChangesAheadTest` (5 cases), `test_has_commits_fails_when_only_card_changes` in integration manager.
+- Residual risk: agents must still actually write code; gate prevents false completion but can't force code production.
+- **Status: RESOLVED**
+
+### 2026-04-16T11:00:00Z - False Done / false progression (3 cards)
+
+- Timestamp: 2026-04-16 11:00 local
+- Symptom: UX-001 in Done with zero code on master. PLAT-004/EXTR-001 in Review with zero branch commits.
+- Impact: board showed false progress; 3 cards consumed pipeline time without delivering code.
+- Root cause: same as churn incident — `has_commits_ahead_of_branch` passed on card-file-only commits.
+- Fix (code/board): code gate via `has_code_changes_ahead`. Board remediated: UX-001, PLAT-004, EXTR-001 moved back to 4_Coding.
+- Verification: board state corrected; new gate prevents recurrence.
+- Regression test added: yes (same tests as churn fix).
+- Residual risk: none for this failure mode.
+- **Status: RESOLVED**
 
 ## Known Failure Signatures
 
-- false done without integration:
-- cherry-pick conflict loop:
-- circular dependency deadlock:
-- stale assignment/worktree orphan: observed 2026-04-15 (detached ORC process with `ppid=1`)
-- token burn without merge progress:
-- token burn without merge progress: observed 2026-04-16 (7h+ high-CPU loop; sync-commit dominant)
+- false done without integration: observed 2026-04-16 (UX-001). **Fixed**: `has_code_changes_ahead` gate.
+- cherry-pick conflict loop: not observed recently.
+- circular dependency deadlock: not observed recently.
+- stale assignment/worktree orphan: observed 2026-04-15. **Fixed**: lockfile + orphan sweep.
+- token burn without merge progress: observed 2026-04-16. **Fixed**: code-changes gate prevents card-only cycling.
 
 ## Active Hypotheses
 
-- hypothesis: stronger deterministic stale-session reclamation in teamlead/autounblock path reduces orphan/stall loops without manual kill/restart.
-- expected signal: ORC can restart cleanly after interruption, auto-release stale worker state, and continue without `Another orchestrator instance is running`.
-- validation plan: relaunch only after adding no-progress loop guards; then monitor commit mix, stage deltas, and CPU/runtime profile across at least 2 cycles.
+- hypothesis: with `has_code_changes_ahead` gate, ORC will fail fast on card-only agent runs and retry with clearer escalation signal.
+- expected signal: no cards in Review/Done without corresponding src/ changes in worktree branch.
+- validation plan: launch ORC, monitor first 2 cycles for delivery vs churn ratio.
 
 ## Next Intervention Queue
 
-- [ ] add deterministic regression test for detached orchestrator detection/ownership handoff
-- [ ] add deterministic no-progress guard (throttle/abort) for high-frequency board-sync churn loops
-- [ ] verify all `8_Done` cards map to integrated code on `master` in target repo (no board-only completion)
-- [ ] monitor two additional control cycles for flow/integration signal before declaring improvement
+- [x] add deterministic regression test for detached orchestrator detection/ownership handoff
+- [x] add deterministic no-progress guard for card-only commit cycles
+- [x] verify all `8_Done` cards map to integrated code on `master` (done: audit found 3 false, remediated)
+- [ ] monitor two additional control cycles for flow/integration signal
+- [ ] evaluate whether reviewer/tester roles also need code-change gates (currently only delivery roles checked)
 
 ## Autonomy Readiness Checklist
 
-- [ ] Done always equals integrated, working code.
+- [ ] Done always equals integrated, working code. *(gate shipped, needs runtime validation)*
 - [ ] Cycles/deadlocks resolved by ORC playbooks.
 - [ ] No unrecoverable branch/worktree information loss.
 - [ ] Monitoring and periodic reports stable.

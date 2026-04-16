@@ -118,6 +118,36 @@ class HasCommitsAheadTest(unittest.TestCase):
         self.assertFalse(git_helpers.has_commits_ahead_of_branch("/tmp", "main", Path("/tmp/orc.log")))
 
 
+class HasCodeChangesAheadTest(unittest.TestCase):
+    @patch("orc_core.git.git_helpers.git_run")
+    def test_returns_true_when_code_files_changed(self, git_mock) -> None:
+        git_mock.return_value = (True, "src/App.cs\nsrc/Program.cs\n", "", 0)
+        self.assertTrue(git_helpers.has_code_changes_ahead("/tmp", "main", Path("/tmp/orc.log")))
+
+    @patch("orc_core.git.git_helpers.git_run")
+    def test_returns_false_when_only_empty_output(self, git_mock) -> None:
+        git_mock.return_value = (True, "\n", "", 0)
+        self.assertFalse(git_helpers.has_code_changes_ahead("/tmp", "main", Path("/tmp/orc.log")))
+
+    @patch("orc_core.git.git_helpers.git_run")
+    def test_returns_false_when_no_output(self, git_mock) -> None:
+        git_mock.return_value = (True, "", "", 0)
+        self.assertFalse(git_helpers.has_code_changes_ahead("/tmp", "main", Path("/tmp/orc.log")))
+
+    @patch("orc_core.git.git_helpers.git_run")
+    def test_returns_false_on_failure(self, git_mock) -> None:
+        git_mock.return_value = (False, "", "error", 1)
+        self.assertFalse(git_helpers.has_code_changes_ahead("/tmp", "main", Path("/tmp/orc.log")))
+
+    @patch("orc_core.git.git_helpers.git_run")
+    def test_excludes_tasks_dir_via_pathspec(self, git_mock) -> None:
+        git_mock.return_value = (True, "", "", 0)
+        git_helpers.has_code_changes_ahead("/tmp", "main", Path("/tmp/orc.log"))
+        args = git_mock.call_args[0]  # positional args to git_run
+        cmd = args[2]  # the command list
+        self.assertIn(":!tasks/", cmd)
+
+
 class AutocommitFallbackTest(unittest.TestCase):
     @patch("orc_core.git.git_helpers.git_run")
     def test_succeeds_when_all_git_commands_pass(self, git_mock) -> None:

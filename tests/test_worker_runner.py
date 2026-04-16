@@ -44,6 +44,7 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
         )
 
     @patch("orc_core.agents.runners.worker.has_commits_ahead_of_branch", return_value=False)
+    @patch("orc_core.agents.runners.worker.has_code_changes_ahead", return_value=False)
     @patch("orc_core.agents.runners.worker.build_prompt", return_value="prompt")
     @patch("orc_core.agents.runners.worker.create_task_worktree")
     @patch("orc_core.agents.runners.worker.process_completed_task")
@@ -54,6 +55,7 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
         process_completed_mock,
         create_worktree_mock,
         _build_prompt_mock,
+        _code_changes_mock,
         _ahead_mock,
     ) -> None:
         create_worktree_mock.return_value = WorktreeSession(

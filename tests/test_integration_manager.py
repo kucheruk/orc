@@ -87,3 +87,21 @@ class IntegrationManagerExecuteTest(unittest.TestCase):
         self.assertFalse(has_commits)
         self.assertEqual(ctx.report.get("status"), "failed")
         self.assertEqual(ctx.report.get("reason"), "no_commits_ahead")
+
+    @patch("orc_core.git.integration_manager.has_code_changes_ahead", return_value=False)
+    @patch("orc_core.git.integration_manager.has_commits_ahead_of_branch", return_value=True)
+    def test_has_commits_fails_when_only_card_changes(self, _ahead_mock, _code_mock) -> None:
+        mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))
+        ctx = IntegrationContext(
+            session_id="s1",
+            task_id="TASK-1",
+            workdir="/tmp",
+            main_branch="main",
+            log_path=Path("/tmp/orc.log"),
+        )
+
+        has_commits = mgr._has_commits(ctx, "/tmp/wt")
+
+        self.assertFalse(has_commits)
+        self.assertEqual(ctx.report.get("status"), "failed")
+        self.assertEqual(ctx.report.get("reason"), "no_code_changes")

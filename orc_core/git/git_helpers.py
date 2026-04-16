@@ -137,6 +137,31 @@ def has_commits_ahead_of_branch(workdir: str, branch: str, log_path: Path) -> bo
         return False
 
 
+def has_code_changes_ahead(workdir: str, branch: str, log_path: Path) -> bool:
+    """Check whether the worktree branch has source-code changes vs *branch*.
+
+    Returns True only when ``git diff`` shows changed files **outside**
+    the ``tasks/`` directory (kanban card files).  This prevents the
+    delivery gate from passing on card-only commits that carry no real
+    code.
+    """
+    ok, stdout, stderr, _ = git_run(
+        workdir,
+        log_path,
+        ["git", "diff", "--name-only", f"{branch}..HEAD", "--", ".", ":!tasks/"],
+        label="integration:code_changes",
+    )
+    if not ok:
+        log_event(log_path, "ERROR", "failed to detect code changes",
+                  branch=branch, error=stderr[:200])
+        return False
+    changed = [line for line in (stdout or "").splitlines() if line.strip()]
+    if changed:
+        log_event(log_path, "INFO", "code changes detected",
+                  branch=branch, count=len(changed), sample=changed[:5])
+    return len(changed) > 0
+
+
 _ERROR_PATTERNS: list[tuple[str, IntegrationErrorKind]] = [
     ("dirty before integration", IntegrationErrorKind.DIRTY_BASE_REPO),
     ("git status failed", IntegrationErrorKind.GIT_STATUS_FAILED),
