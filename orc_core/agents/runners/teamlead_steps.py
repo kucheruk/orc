@@ -149,10 +149,24 @@ class ArbitrationStep:
                 ctx.distributor.refresh()
                 refreshed = ctx.distributor.board.card_by_id(card.id)
                 if refreshed:
+                    matched = False
                     for outcome in ARBITRATION_OUTCOMES:
                         if outcome.matches(refreshed, needs_esc):
                             outcome.apply(ctx, card, refreshed, needs_esc)
+                            matched = True
                             break
+                    # Fallback: if TL didn't produce a decision and card is
+                    # still in Arbitration, return it to Coding so it doesn't
+                    # burn tokens in an infinite arbitration loop.
+                    if not matched and refreshed.action == Action.ARBITRATION:
+                        refreshed.action = Action.CODING
+                        ctx.distributor.board.save_card(refreshed)
+                        ctx.publisher.emit("system", card.id,
+                                           f"{card.id} arbitration produced no decision — "
+                                           f"returning to Coding")
+                        log_event(ctx.log_path, "WARN",
+                                  "arbitration fallback: no decision file, returning to Coding",
+                                  task_id=card.id, loop_count=card.loop_count)
         finally:
             ctx.distributor.release_card(card.id)
         ctx.lifecycle.sleep(3.0)
