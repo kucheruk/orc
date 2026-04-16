@@ -27,12 +27,14 @@ class TestKanbanStatePersistence(unittest.TestCase):
             state = {
                 "card_fail_counts": {"TASK-001": 2, "TASK-002": 1},
                 "arbitrated_at_loop": {"TASK-001": 3},
+                "applied_result_runs": ["run-1", "run-2"],
             }
             write_json_atomic(path, state)
 
             loaded = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(loaded["card_fail_counts"]["TASK-001"], 2)
             self.assertEqual(loaded["arbitrated_at_loop"]["TASK-001"], 3)
+            self.assertEqual(loaded["applied_result_runs"], ["run-1", "run-2"])
 
     def test_load_missing_file_is_safe(self):
         """Loading from a non-existent path should not crash."""

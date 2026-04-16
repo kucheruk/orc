@@ -89,10 +89,11 @@ def build_session_manager(
     )
     publisher = KanbanPublisher()
 
-    card_fail_counts, arbitrated_at_loop = load_kanban_state(workdir)
+    card_fail_counts, arbitrated_at_loop, applied_result_runs = load_kanban_state(workdir)
     outcomes = TaskOutcomeTracker(
         card_fail_counts=card_fail_counts,
         arbitrated_at_loop=arbitrated_at_loop,
+        applied_result_runs=applied_result_runs,
     )
 
     directives = DirectiveQueue()

@@ -66,6 +66,8 @@ class KanbanCardFactory:
         stage_dir = self._tasks_dir / stage
         self._repo.ensure_dir(stage_dir)
         path = stage_dir / f"{card.id}.md"
+        card.touch()
+        card.advance_state_version()
         self._repo.write_card_text(path, card.to_markdown())
         card.file_path = path
         return card

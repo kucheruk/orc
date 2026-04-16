@@ -14,32 +14,39 @@ from ...infra.io.state_paths import kanban_state_path
 _logger = logging.getLogger(__name__)
 
 
-def load_kanban_state(workdir: str) -> tuple[dict[str, int], dict[str, int]]:
-    """Load persisted card_fail_counts and arbitrated_at_loop from disk."""
+def load_kanban_state(workdir: str) -> tuple[dict[str, int], dict[str, int], list[str]]:
+    """Load persisted kanban runtime state from disk."""
     path = kanban_state_path(workdir)
     if not path.exists():
-        return {}, {}
+        return {}, {}, []
     try:
         import json
         data = json.loads(path.read_text(encoding="utf-8"))
         fail_counts = {k: int(v) for k, v in data.get("card_fail_counts", {}).items()}
         arb_loop = {k: int(v) for k, v in data.get("arbitrated_at_loop", {}).items()}
-        return fail_counts, arb_loop
+        applied_runs = [
+            str(v).strip()
+            for v in data.get("applied_result_runs", [])
+            if str(v).strip()
+        ]
+        return fail_counts, arb_loop, applied_runs
     except Exception as exc:
         _logger.warning("Failed to load kanban state: %s", exc)
-        return {}, {}
+        return {}, {}, []
 
 
 def save_kanban_state(
     workdir: str,
     card_fail_counts: dict[str, int],
     arbitrated_at_loop: dict[str, int],
+    applied_result_runs: list[str],
 ) -> None:
     """Persist card_fail_counts and arbitrated_at_loop to disk."""
     path = kanban_state_path(workdir)
     write_json_atomic(path, {
         "card_fail_counts": card_fail_counts,
         "arbitrated_at_loop": arbitrated_at_loop,
+        "applied_result_runs": list(applied_result_runs),
     })
 
 

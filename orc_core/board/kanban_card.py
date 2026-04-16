@@ -13,12 +13,19 @@ from typing import Any
 import yaml
 
 from .action_constants import Action, ClassOfService
+from .card_sections import (
+    SECTION_DESIGN,
+    SECTION_FEEDBACK,
+    SECTION_NOTES,
+    SECTION_PRODUCT,
+    new_card_body,
+)
 from .stage_constants import STAGE_INBOX, STAGE_ORDER
 from ..text_parse import parse_frontmatter
 
 # Fields agents are NOT allowed to change (Python-only)
 PROTECTED_FIELDS: frozenset[str] = frozenset({
-    "id", "stage", "roi", "assigned_agent", "created_at",
+    "id", "stage", "roi", "assigned_agent", "created_at", "state_version",
 })
 
 # Fields excluded from YAML frontmatter (runtime-only)
@@ -42,6 +49,7 @@ class KanbanCard:
     assigned_agent: str = ""
     created_at: str = ""
     updated_at: str = ""
+    state_version: int = 0
     body: str = ""
     tokens_spent: int = 0
     token_budget: int = 0    # 0 = no limit; set from effort_score * multiplier
@@ -59,6 +67,9 @@ class KanbanCard:
     def touch(self) -> None:
         self.refresh_roi()
         self.updated_at = _now_iso()
+
+    def advance_state_version(self) -> None:
+        self.state_version += 1
 
     # ── Domain operations ────────────────────────────────────────
 
@@ -199,22 +210,6 @@ def parse_card(text: str, file_path: Path | None = None) -> KanbanCard:
 def validate_card(card: KanbanCard) -> list[str]:
     """Validate card invariants. Delegates to card.validate()."""
     return card.validate()
-
-
-# Card body section headers — SSOT for all section references
-SECTION_PRODUCT = "# 1. Product Requirements"
-SECTION_DESIGN = "# 2. Technical Design & DoD"
-SECTION_NOTES = "# 3. Implementation Notes"
-SECTION_FEEDBACK = "# 4. Feedback & Checklist"
-
-
-def new_card_body() -> str:
-    return (
-        f"{SECTION_PRODUCT}\n\n\n"
-        f"{SECTION_DESIGN}\n\n\n"
-        f"{SECTION_NOTES}\n\n\n"
-        f"{SECTION_FEEDBACK}\n"
-    )
 
 
 # ── Helpers ─────────────────────────────────────────────────────

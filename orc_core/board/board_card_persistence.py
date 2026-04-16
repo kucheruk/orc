@@ -28,6 +28,7 @@ class BoardCardPersistence:
     def save(self, card: KanbanCard, *, old_action: str = "", role: str = "") -> None:
         with self._lock:
             card.touch()  # touch() includes refresh_roi()
+            card.advance_state_version()
             if card.file_path:
                 self._repo.write_card_text(card.file_path, card.to_markdown())
         if old_action and old_action != card.action:
@@ -36,11 +37,13 @@ class BoardCardPersistence:
     def assign(self, card: KanbanCard, agent_id: str) -> None:
         with self._lock:
             card.assign(agent_id)
+            card.advance_state_version()
             if card.file_path:
                 self._repo.write_card_text(card.file_path, card.to_markdown())
 
     def release(self, card: KanbanCard) -> None:
         with self._lock:
             card.release()
+            card.advance_state_version()
             if card.file_path:
                 self._repo.write_card_text(card.file_path, card.to_markdown())

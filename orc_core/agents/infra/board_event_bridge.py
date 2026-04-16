@@ -74,5 +74,6 @@ class BoardEventBridge:
                 self._workdir,
                 snapshot["card_fail_counts"],
                 snapshot["arbitrated_at_loop"],
+                snapshot["applied_result_runs"],
             )
             self._outcomes.clear_dirty()

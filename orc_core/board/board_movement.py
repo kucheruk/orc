@@ -60,10 +60,13 @@ class BoardMovementService:
             count = sum(1 for c in self._cards_view() if c.stage == new_stage)
             self._wip.check_wip_for_move(new_stage, count)
             new_path = self._repo.move_card_file(old_path, new_dir)
+            old_updated_at = card.updated_at
+            old_state_version = card.state_version
             try:
                 card.stage = new_stage
                 card.file_path = new_path
                 card.touch()
+                card.advance_state_version()
                 self._repo.write_card_text(new_path, card.to_markdown())
             except Exception:
                 try:
@@ -72,6 +75,8 @@ class BoardMovementService:
                     _logger.error("rollback move_card_file failed for %s", card.id, exc_info=True)
                 card.stage = old_stage
                 card.file_path = old_path
+                card.updated_at = old_updated_at
+                card.state_version = old_state_version
                 raise
 
         self._listeners.fire_move(card.id, old_stage, new_stage, reason)

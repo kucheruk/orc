@@ -18,12 +18,15 @@ class TaskOutcomeTracker:
         self,
         card_fail_counts: dict[str, int] | None = None,
         arbitrated_at_loop: dict[str, int] | None = None,
+        applied_result_runs: list[str] | None = None,
     ) -> None:
         self._lock = threading.Lock()
         self._completed: list[str] = []
         self._failed: list[str] = []
         self._card_fail_counts: dict[str, int] = dict(card_fail_counts or {})
         self._arbitrated_at_loop: dict[str, int] = dict(arbitrated_at_loop or {})
+        self._applied_result_runs: list[str] = list(applied_result_runs or [])
+        self._applied_result_run_set: set[str] = set(self._applied_result_runs)
         self._dirty = False
 
     # ── Outcome recording ───────────────────────────────────────
@@ -67,6 +70,27 @@ class TaskOutcomeTracker:
             self._arbitrated_at_loop[card_id] = loop_count
             self._dirty = True
 
+    # ── Structured result idempotence ───────────────────────────
+
+    def has_applied_result(self, run_id: str) -> bool:
+        with self._lock:
+            return run_id in self._applied_result_run_set
+
+    def record_applied_result(self, run_id: str, *, limit: int = 256) -> bool:
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("run_id must be non-empty")
+        with self._lock:
+            if rid in self._applied_result_run_set:
+                return False
+            self._applied_result_runs.append(rid)
+            self._applied_result_run_set.add(rid)
+            while len(self._applied_result_runs) > limit:
+                removed = self._applied_result_runs.pop(0)
+                self._applied_result_run_set.discard(removed)
+            self._dirty = True
+            return True
+
     # ── State persistence ───────────────────────────────────────
 
     def is_dirty(self) -> bool:
@@ -84,6 +108,7 @@ class TaskOutcomeTracker:
             return {
                 "card_fail_counts": dict(self._card_fail_counts),
                 "arbitrated_at_loop": dict(self._arbitrated_at_loop),
+                "applied_result_runs": list(self._applied_result_runs),
             }
 
     # ── Read-only queries ───────────────────────────────────────
