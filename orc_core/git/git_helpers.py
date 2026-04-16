@@ -11,6 +11,26 @@ from .subprocess_git import GIT_COMMAND_TIMEOUT_SECONDS, SubprocessGitRunner
 _default_runner = SubprocessGitRunner()
 
 
+# ── Commit message builders (SSOT for all ORC commit formats) ──
+
+def integration_commit_message(task_id: str, title: str = "") -> str:
+    """Commit message for squash-merging a task branch into main."""
+    safe_title = (title or task_id).replace('"', "'")[:200]
+    return f"feat({task_id}): {safe_title}"
+
+
+def checkpoint_commit_message(task_id: str) -> tuple[str, str]:
+    """Title + body for autocommit fallback after agent completion."""
+    title = f"chore({task_id}): checkpoint commit"
+    body = f"Autocommit fallback: committed remaining changes after agent completion.\n\nRefs: {task_id}"
+    return title, body
+
+
+def sync_commit_message() -> str:
+    """Commit message for teamlead board/workspace sync."""
+    return "chore: sync board state and project files"
+
+
 def run_git(
     workdir: str,
     args: list[str],
@@ -107,10 +127,7 @@ def attempt_autocommit_fallback(workdir: str, log_path: Path, task_id: str, task
     if rc not in (1,):
         return False
 
-    title = f"chore({task_id}): checkpoint commit"
-    body = "Autocommit fallback: committed remaining changes after agent completion."
-    if task_text:
-        body = f"{body}\n\nRefs: {task_id}"
+    title, body = checkpoint_commit_message(task_id)
     ok_commit, _, _, _ = git_run(
         workdir,
         log_path,

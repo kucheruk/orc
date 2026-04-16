@@ -310,7 +310,8 @@ class AutoCommitStep:
                           changed=changed_paths[:20])
                 return
             run_git(wd, ["git", "add", "-A"])
-            run_git(wd, ["git", "commit", "-m", "chore: sync board state and project files"])
+            from ...git.git_helpers import sync_commit_message
+            run_git(wd, ["git", "commit", "-m", sync_commit_message()])
             log_event(ctx.log_path, "INFO", "auto-committed workspace state")
         except Exception as exc:
             log_event(ctx.log_path, "WARN", "auto-commit failed", error=str(exc))

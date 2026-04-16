@@ -527,8 +527,8 @@ def merge_task_branch_into_main(
                   task_id=task_id, branch=branch_name)
 
     # Squash merge stages changes but doesn't commit — commit now
-    safe_title = (task_title or task_id).replace('"', "'")[:200]
-    commit_msg = f"feat({task_id}): {safe_title}"
+    from .git_helpers import integration_commit_message
+    commit_msg = integration_commit_message(task_id, task_title)
     ok_commit, _, stderr_commit, _ = run_git(
         base_workdir, ["git", "commit", "-m", commit_msg],
     )
