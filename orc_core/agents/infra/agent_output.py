@@ -203,22 +203,29 @@ def process_agent_result(
         updated.tokens_spent = card.tokens_spent
         updated.token_budget = card.token_budget
 
-        # Teamlead unblock must clear budget exhaustion — otherwise the card
+        # Teamlead unblock must restore budget headroom — otherwise the card
         # stays out of pick_best's candidate pool (card_prioritizer filters
-        # `is_budget_exhausted`). Arbitration IS a fresh start: teamlead has
-        # looked at the evidence and decided the card deserves another run.
+        # `is_budget_exhausted`). Do NOT reset tokens_spent: worker's
+        # `_accumulate_card_tokens` reads the cumulative stats file and will
+        # immediately restore the old value. Instead, grow token_budget by
+        # one more effort-sized allocation so the next run has fresh room.
         if (
             role == "teamlead"
             and old_action == Action.BLOCKED
             and new_action != Action.BLOCKED
             and card.is_budget_exhausted
         ):
-            _logger.info(
-                "Teamlead arbitration unblocked %s — resetting tokens_spent "
-                "so the card is eligible for pick_best again.",
-                card.id,
+            from ...board.limits_constants import TOKENS_PER_EFFORT_POINT
+            extra = max(
+                card.effort_score * TOKENS_PER_EFFORT_POINT,
+                TOKENS_PER_EFFORT_POINT,  # minimum one-point bump
             )
-            updated.tokens_spent = 0
+            _logger.info(
+                "Teamlead arbitration unblocked %s — growing token_budget "
+                "by %d (from %d to %d) so pick_best sees the card.",
+                card.id, extra, updated.token_budget, updated.token_budget + extra,
+            )
+            updated.token_budget += extra
 
         # Recompute ROI in case value/effort changed
         updated.refresh_roi()

@@ -165,31 +165,40 @@ def _auto_archive_decomposed_parents(board: "KanbanBoard") -> None:
 
 
 def _reset_orphaned_exhausted_budgets(board: "KanbanBoard") -> None:
-    """Drain tokens_spent on non-BLOCKED cards that are still budget-exhausted.
+    """Grow token_budget on non-BLOCKED cards that are still budget-exhausted.
 
     Invariant: if action != BLOCKED, the card is supposed to be eligible for
-    pick_best. A card can escape BLOCKED without its tokens_spent being reset
+    pick_best. A card can escape BLOCKED without its budget being refreshed
     (e.g. teamlead arbitration written by an older ORC version, a manual
-    action edit in the card file, or a future role with a legitimate unblock
-    action). When that happens, `card_prioritizer.pick_best` silently drops
-    the card because `is_budget_exhausted` is True, and the board stalls.
+    action edit, or a future unblock path that forgets the refresh). When
+    that happens, `card_prioritizer.pick_best` silently drops the card
+    because `is_budget_exhausted` is True and the board stalls.
 
-    Rather than extend the special-case logic across every unblock path,
-    enforce the invariant once per pull: any non-BLOCKED card whose budget
-    is exhausted gets tokens_spent=0.
+    We do NOT reset tokens_spent: worker's `_accumulate_card_tokens` reads
+    the cumulative stats file and would immediately restore it, triggering
+    an infinite block↔sweep loop. Instead, bump token_budget so
+    `tokens_spent < token_budget` holds for another full effort-sized run.
+
+    Grown budgets survive across saves; the sweep is idempotent because
+    once budget > tokens_spent the card is no longer exhausted and skipped.
     """
+    from .limits_constants import TOKENS_PER_EFFORT_POINT
     for card in board.cards:
         if card.action == Action.BLOCKED:
             continue
         if not card.is_budget_exhausted:
             continue
+        extra = max(
+            card.effort_score * TOKENS_PER_EFFORT_POINT,
+            TOKENS_PER_EFFORT_POINT,
+        )
         _pull_logger.warning(
             "Orphaned exhausted budget on %s (action=%s, tokens_spent=%d, "
-            "token_budget=%d) — resetting tokens_spent to 0 so pick_best "
+            "token_budget=%d) — growing token_budget by %d so pick_best "
             "can see the card.",
-            card.id, card.action, card.tokens_spent, card.token_budget,
+            card.id, card.action, card.tokens_spent, card.token_budget, extra,
         )
-        card.tokens_spent = 0
+        card.token_budget += extra
         board.save_card(card)
 
 

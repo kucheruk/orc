@@ -41,8 +41,10 @@ _logger = logging.getLogger(__name__)
 _DELIVERY_ROLES = frozenset({ROLE_CODER, ROLE_REVIEWER, ROLE_TESTER})
 
 
-_DEFAULT_TOKENS_PER_EFFORT = 5000  # effort_score * this = default budget
-_MIN_TOKEN_BUDGET = 20000  # guard against effort=0 / missing estimate
+from ...board.limits_constants import TOKENS_PER_EFFORT_POINT, MIN_TOKEN_BUDGET
+
+_DEFAULT_TOKENS_PER_EFFORT = TOKENS_PER_EFFORT_POINT  # effort_score * this = default budget
+_MIN_TOKEN_BUDGET = MIN_TOKEN_BUDGET  # guard against effort=0 / missing estimate
 
 
 def _update_card_token_budget(card, board, log_path: Path) -> None:

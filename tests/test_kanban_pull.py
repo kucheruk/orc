@@ -245,10 +245,10 @@ class TestWorktreeFlag(unittest.TestCase):
             self.assertFalse(result.needs_worktree)
 
 
-class TestOrphanedBudgetReset(unittest.TestCase):
-    """Non-BLOCKED exhausted cards must have tokens_spent reset so pick_best sees them."""
+class TestOrphanedBudgetGrowth(unittest.TestCase):
+    """Non-BLOCKED exhausted cards must get their budget grown so pick_best sees them."""
 
-    def test_non_blocked_exhausted_card_gets_tokens_reset(self):
+    def test_non_blocked_exhausted_card_gets_budget_grown(self):
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
             _add(td, KanbanCard(
@@ -262,10 +262,13 @@ class TestOrphanedBudgetReset(unittest.TestCase):
 
             card = board.card_by_id("OB-1")
             self.assertEqual(card.action, "Reviewing")
-            self.assertEqual(card.tokens_spent, 0)
+            # tokens_spent is preserved — cumulative stats file would restore it anyway.
+            self.assertEqual(card.tokens_spent, 400_000)
+            # token_budget grew by effort_score * TOKENS_PER_EFFORT_POINT (64 * 5000 = 320000).
+            self.assertEqual(card.token_budget, 320_000 + 320_000)
             self.assertFalse(card.is_budget_exhausted)
 
-    def test_blocked_exhausted_card_is_not_reset(self):
+    def test_blocked_exhausted_card_is_not_touched(self):
         """Blocked cards stay exhausted until teamlead explicitly unblocks them."""
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
@@ -279,8 +282,28 @@ class TestOrphanedBudgetReset(unittest.TestCase):
             find_next_work(board)
 
             card = board.card_by_id("OB-2")
-            self.assertEqual(card.tokens_spent, 400_000,
-                              "Blocked card must retain its exhaustion until teamlead acts.")
+            self.assertEqual(card.tokens_spent, 400_000)
+            self.assertEqual(card.token_budget, 320_000)
+            self.assertTrue(card.is_budget_exhausted)
+
+    def test_sweep_is_idempotent(self):
+        """Running find_next_work twice must not double-bump the budget."""
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            _add(td, KanbanCard(
+                id="OB-3", stage="5_Review", action="Reviewing",
+                effort_score=64,
+                tokens_spent=400_000, token_budget=320_000,
+            ))
+            board = KanbanBoard(td, repo=FsCardRepository())
+
+            find_next_work(board)
+            budget_after_first = board.card_by_id("OB-3").token_budget
+            find_next_work(board)
+            budget_after_second = board.card_by_id("OB-3").token_budget
+
+            self.assertEqual(budget_after_first, budget_after_second,
+                             "Second sweep must be a no-op (card no longer exhausted).")
 
 
 class TestAutoArchiveDecomposedParents(unittest.TestCase):
