@@ -36,10 +36,7 @@ from .ports import (
 )
 
 
-_SLOT_CLOSED = "closed"
-_SLOT_RUNNING = "running"
-_SLOT_IDLE = "idle"
-from ..agents.session.types import STAGGER_DELAY_SECONDS as _STAGGER_DELAY_SECONDS
+from ..agents.session.types import STAGGER_DELAY_SECONDS as _STAGGER_DELAY_SECONDS, SlotStatus
 
 if TYPE_CHECKING:
     import threading
@@ -92,7 +89,7 @@ class IncidentManager:
         with self._slots_lock:
             for slot in self._slots.values():
                 if (slot.error
-                        and slot.status == _SLOT_CLOSED
+                        and slot.status == SlotStatus.CLOSED
                         and slot.session_id not in self._handled_crash_slots):
                     self._handled_crash_slots.add(slot.session_id)
                     self._incident_counter += 1
@@ -169,13 +166,13 @@ class IncidentManager:
             worker_slots = [
                 s for s in self._slots.values()
                 if (s.role or "worker") == "worker"
-                and s.status in (_SLOT_IDLE, _SLOT_RUNNING)
+                and s.status in (SlotStatus.IDLE, SlotStatus.RUNNING)
             ]
         original_count = len(worker_slots)
         if original_count <= keep:
             return original_count, []
 
-        worker_slots.sort(key=lambda s: (0 if s.status == _SLOT_RUNNING else 1))
+        worker_slots.sort(key=lambda s: (0 if s.status == SlotStatus.RUNNING else 1))
         to_remove = worker_slots[keep:]
 
         removed_ids = []
@@ -191,7 +188,7 @@ class IncidentManager:
             with self._slots_lock:
                 still_open = {
                     sid for sid in remaining
-                    if sid in self._slots and self._slots[sid].status not in (_SLOT_CLOSED,)
+                    if sid in self._slots and self._slots[sid].status not in (SlotStatus.CLOSED,)
                 }
             remaining = still_open
             if remaining:
@@ -203,7 +200,7 @@ class IncidentManager:
             current_workers = sum(
                 1 for s in self._slots.values()
                 if (s.role or "worker") == "worker"
-                and s.status in (_SLOT_IDLE, _SLOT_RUNNING)
+                and s.status in (SlotStatus.IDLE, SlotStatus.RUNNING)
             )
         new_ids = []
         to_add = max(0, target_count - current_workers)
