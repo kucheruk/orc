@@ -35,6 +35,7 @@ from ..session.types import SessionSlot, SlotStatus
 from ..infra.protocols import TaskExecutor
 from ...tasks.dto import Task
 from ...git.git_dto import WorktreeSession
+from ...git.worktree_card_sync import sync_card_to_worktree
 from ...git.worktree_flow import cleanup_task_worktree, create_task_worktree
 
 _logger = logging.getLogger(__name__)
@@ -268,6 +269,16 @@ class KanbanWorkerRunner:
                 log_event(self._log_path, "WARN", "assignment aborted: card state changed",
                           task_id=card.id, action=fresh_card.action if fresh_card else "deleted")
                 return
+            if assignment.needs_worktree:
+                synced_path = sync_card_to_worktree(fresh_card, wd)
+                if synced_path is not None:
+                    log_event(
+                        self._log_path,
+                        "INFO",
+                        "synced canonical card into worktree",
+                        task_id=card.id,
+                        path=str(synced_path),
+                    )
             prompt = build_prompt(role, fresh_card, self._distributor.board, main_branch=self._main_branch, git_context=git_context)
             task = Task(task_id=card.id, text=card.title or card.id, done=False)
             slot.task = task

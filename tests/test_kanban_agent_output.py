@@ -119,6 +119,39 @@ class TestReviewerLoopCount(unittest.TestCase):
             # Card moves back to 4_Coding on rejection
             self.assertEqual(updated.stage, "4_Coding")
 
+    def test_process_agent_result_prefers_canonical_worktree_stage_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            card = _add(td, KanbanCard(id="R-2", stage="5_Review", action="Reviewing"))
+            board = KanbanBoard(td, repo=FsCardRepository())
+            card = board.card_by_id("R-2")
+
+            worktree = Path(tmp) / "wt"
+            stale_path = worktree / "tasks" / "4_Coding" / "R-2.md"
+            canonical_path = worktree / "tasks" / "5_Review" / "R-2.md"
+            stale_path.parent.mkdir(parents=True, exist_ok=True)
+            canonical_path.parent.mkdir(parents=True, exist_ok=True)
+
+            stale_card = KanbanCard(id="R-2", stage="4_Coding", action="Coding", body="stale")
+            write_card(stale_card, stale_path)
+            current_card = KanbanCard(id="R-2", stage="5_Review", action="Testing", body="fresh")
+            write_card(current_card, canonical_path)
+
+            original = KanbanCard(
+                id="R-2", stage="5_Review", action="Reviewing",
+                file_path=card.file_path,
+            )
+            errors = process_agent_result(
+                board,
+                original,
+                "reviewer",
+                execution_workdir=str(worktree),
+            )
+            self.assertEqual(errors, [])
+            updated = board.card_by_id("R-2")
+            self.assertEqual(updated.stage, "6_Testing")
+            self.assertEqual(updated.action, "Testing")
+
 
 class TestProtectedFields(unittest.TestCase):
 

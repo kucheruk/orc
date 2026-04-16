@@ -126,15 +126,18 @@ def process_agent_result(
         # above, not the worktree path.
         worktree_card_path = None
         if execution_workdir:
-            # Card may be in any stage dir in the worktree (worktree branch
-            # was created when card was in an earlier stage)
             wt_tasks = Path(execution_workdir) / "tasks"
             card_filename = f"{card.id}.md"
-            for stage_dir in sorted(wt_tasks.iterdir()) if wt_tasks.exists() else []:
-                candidate = stage_dir / card_filename
-                if candidate.is_file():
-                    worktree_card_path = candidate
-                    break
+            canonical_candidate = wt_tasks / card.stage / card_filename
+            if canonical_candidate.is_file():
+                worktree_card_path = canonical_candidate
+            else:
+                # Fallback for older worktrees created before card sync existed.
+                for stage_dir in sorted(wt_tasks.iterdir()) if wt_tasks.exists() else []:
+                    candidate = stage_dir / card_filename
+                    if candidate.is_file():
+                        worktree_card_path = candidate
+                        break
 
         read_path = worktree_card_path if worktree_card_path is not None else file_path
         if read_path is None or not read_path.exists():
