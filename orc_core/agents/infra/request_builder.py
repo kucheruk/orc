@@ -89,7 +89,7 @@ def build_kanban_request(
         commit_phase=commit_phase,
         integrate_to_main=False,
         main_branch=main_branch,
-        allow_fallback_commits=False,
+        allow_fallback_commits=True,
         enforce_stage_artifacts=False,
         stage_specs=(),
         progress_done=done,
