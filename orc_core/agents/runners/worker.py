@@ -42,15 +42,31 @@ _DELIVERY_ROLES = frozenset({ROLE_CODER, ROLE_REVIEWER, ROLE_TESTER})
 
 
 _DEFAULT_TOKENS_PER_EFFORT = 5000  # effort_score * this = default budget
+_MIN_TOKEN_BUDGET = 20000  # guard against effort=0 / missing estimate
 
 
 def _update_card_token_budget(card, board, log_path: Path) -> None:
-    """Set initial token budget from effort_score if not yet set."""
-    if card.token_budget == 0 and card.effort_score > 0:
-        card.token_budget = card.effort_score * _DEFAULT_TOKENS_PER_EFFORT
-        board.save_card(card)
-        log_event(log_path, "INFO", "token budget initialized",
-                  task_id=card.id, budget=card.token_budget, effort=card.effort_score)
+    """Initialize or refresh the token budget for a card.
+
+    - If effort_score > 0, budget = effort_score * _DEFAULT_TOKENS_PER_EFFORT.
+    - If effort_score <= 0 (e.g. architect reset it for re-estimation), still
+      set a minimum floor so the card can't burn tokens without any ceiling.
+    - Re-applies when effort_score changed (architect re-estimated) and the
+      current budget no longer matches the expected value for the new effort.
+    """
+    expected = card.effort_score * _DEFAULT_TOKENS_PER_EFFORT if card.effort_score > 0 else _MIN_TOKEN_BUDGET
+    if card.token_budget == expected:
+        return
+    # Only grow the budget or install an initial value — never silently
+    # shrink below what the card already used.
+    if card.token_budget > 0 and expected < card.token_budget:
+        return
+    previous = card.token_budget
+    card.token_budget = expected
+    board.save_card(card)
+    log_event(log_path, "INFO", "token budget updated",
+              task_id=card.id, previous=previous,
+              budget=card.token_budget, effort=card.effort_score)
 
 
 def _accumulate_card_tokens(card, board, workdir: str, log_path: Path) -> None:
