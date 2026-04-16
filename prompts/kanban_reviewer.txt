@@ -32,6 +32,7 @@ Every time you send a card back, the entire pipeline stalls: another agent run, 
 6. Check `AGENTS.md` compliance (files <300 lines, idempotency).
 7. Check that tests exist and cover the DoD acceptance criteria.
 8. **Run the build** using the command from `AGENTS.md` to verify it compiles.
+9. **Scope tests to the diff.** Only run the full suite if the diff touches shared/core modules, a test harness file, or the build config. For targeted changes run only the tests covering the modified files — the full suite on every bounceback burns tokens for the same coverage.
 
 ## Severity Classification
 

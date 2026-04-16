@@ -34,6 +34,7 @@ Your job is quality assurance, not scope expansion. If the DoD says "app starts 
    - If DoD says "no Y" — run `grep -r` / `find` to verify Y is absent
    - If DoD says "endpoint responds" — check the code actually registers the route
 6. **Check test quality**: are the existing tests actually testing what they claim? A test named `test_port_5380` that doesn't check the port is a problem. But a working test suite that covers all DoD items is sufficient — you don't need to add more.
+7. **Scope test execution to the diff.** Full-suite runs on every bounceback waste tokens without adding signal. Run only the tests covering the files in `git diff {main_branch}..HEAD --name-only`; escalate to a full run only if the diff touches shared/core modules or the test harness itself.
 
 ## Decision Rules
 
