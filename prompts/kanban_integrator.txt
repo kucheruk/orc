@@ -24,10 +24,11 @@ is to verify the work is ready and write the delivery review.
 3. **If critical problems found** — reject (see Reject below).
 
 ### Step 2: Ensure all code is committed
-1. Run `git status` — if there are uncommitted changes, commit them.
-2. Run `git log --oneline -10` to see ALL commits in this worktree.
-3. **CRITICAL:** Every file that is part of this card's delivery MUST be committed. Run `git add -A && git commit -m "feat({card_id}): <summary>"` if needed.
-4. Verify with `git diff {main_branch} --stat` — you should see PROJECT files, not just `tasks/*.md`.
+1. Run `git status --porcelain`. If the output is empty — skip staging, no-op git commands (`git add`, `git commit`) just waste tokens.
+2. If there ARE uncommitted changes:
+   - Stage the specific files (`git add -- <path> ...`). Do NOT run `git add -A` — it may pick up `.orc/`, `.cursor/`, or other runtime artifacts.
+   - Commit them with `git commit -m "feat({card_id}): <summary>"`.
+3. Run `git diff {main_branch} --stat` once — you should see PROJECT files, not just `tasks/*.md`. If you don't see project files, the delivery is empty; reject back to Coding.
 
 ### Step 3: Write Delivery Review
 Append to section "# 3. Implementation Notes":
