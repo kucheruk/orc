@@ -12,11 +12,9 @@ from .kanban_board import KanbanBoard
 from .kanban_card import KanbanCard
 from .stage_constants import STAGE_DONE
 from .kanban_pull import WorkAssignment, find_next_work, find_teamlead_work
+from .limits_constants import ESCALATION_THRESHOLD, LOOP_THRESHOLD
 
 _logger = logging.getLogger(__name__)
-
-LOOP_THRESHOLD = 2
-ESCALATION_THRESHOLD = 4
 
 
 class KanbanDistributor:

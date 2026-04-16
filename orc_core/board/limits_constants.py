@@ -16,5 +16,13 @@ DEFAULT_WIP_LIMITS: dict[str, int] = {
     STAGE_HANDOFF: 2,
 }
 
+# Loop-count thresholds — used in code AND referenced in prompts
+LOOP_THRESHOLD = 2            # teamlead arbitration
+ESCALATION_THRESHOLD = 4      # force-block / escalation
+
+# Effort-score thresholds
+DECOMPOSITION_EFFORT_THRESHOLD = 70   # architect must split above this
+DECOMPOSITION_MAX_SUB_EFFORT = 50     # sub-cards must be at or below
+
 INDEX_FILENAME = "_index.md"
 TASKS_DIR = "tasks"
