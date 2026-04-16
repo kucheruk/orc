@@ -6,10 +6,14 @@ from __future__ import annotations
 
 import json
 import re
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Dict, Optional
 
 if TYPE_CHECKING:
     from ...tasks.ports import MetricsStore
+
+
+_USAGE_CACHE_MAX = 4096
 
 
 class TokenTracker:
@@ -35,8 +39,16 @@ class TokenTracker:
     )
 
     def __init__(self) -> None:
-        self._seen_token_usage_keys: set[str] = set()
+        # LRU-bounded so long-running agents with many usage events don't
+        # grow memory without bound.
+        self._seen_token_usage_keys: "OrderedDict[str, None]" = OrderedDict()
         self._max_tokens_by_request: dict[str, int] = {}
+
+    def _remember_usage_key(self, key: str) -> None:
+        self._seen_token_usage_keys[key] = None
+        self._seen_token_usage_keys.move_to_end(key)
+        while len(self._seen_token_usage_keys) > _USAGE_CACHE_MAX:
+            self._seen_token_usage_keys.popitem(last=False)
 
     def _normalize_token_key(self, key: str) -> str:
         return re.sub(r"[^a-z0-9]", "", str(key).strip().lower())
@@ -167,8 +179,9 @@ class TokenTracker:
             total_delta = 0
             for request_key, usage_key, usage_tokens in structured_entries:
                 if usage_key in self._seen_token_usage_keys:
+                    self._seen_token_usage_keys.move_to_end(usage_key)
                     continue
-                self._seen_token_usage_keys.add(usage_key)
+                self._remember_usage_key(usage_key)
                 if request_key:
                     previous_max = self._max_tokens_by_request.get(request_key, 0)
                     if usage_tokens > previous_max:
