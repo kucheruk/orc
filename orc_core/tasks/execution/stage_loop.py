@@ -241,6 +241,7 @@ def run_stage_loop(engine: "TaskExecutionEngine", ctx: _ExecutionContext, resume
             prompt = request.templates.continue_template.format_map(continue_vars)
             prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}__r{restart_count}")
             resume_prompt_text = prompt
+            stage_resume_id = None  # fresh prompt, don't resume stale conversation
             delay = restart_policy.backoff_seconds(restart_count)
             log_event(log_path, "INFO", "restart backoff", task_id=task_id, restart_count=restart_count, delay_seconds=delay)
             with timeline_step(
