@@ -35,10 +35,15 @@ _WORKTREE_CONTEXT = (
     "You are working in an **isolated git worktree**, not the main repository. "
     "Your changes will be merged to main automatically at the Handoff stage. "
     "Do NOT run `git push` or try to merge to main yourself.\n\n"
-    "**Sync with upstream first:** Before starting work, run "
-    "`git merge {main_branch} --no-edit` "
-    "to pick up changes from other completed cards. If there are merge conflicts, "
-    "resolve them — you are a coding agent, this is part of your job."
+    "**Sync with upstream only if needed.** First check:\n"
+    "```\n"
+    "git merge-base --is-ancestor {main_branch} HEAD\n"
+    "```\n"
+    "If the exit code is 0, your worktree already contains the latest {main_branch} — "
+    "**skip the merge**, go straight to the task. Only if the exit code is non-zero "
+    "run `git merge {main_branch} --no-edit` to pick up new commits from other "
+    "completed cards. If there are merge conflicts, resolve them — you are a coding "
+    "agent, this is part of your job."
 )
 
 _FEEDBACK_LOOP_BLOCK = (
