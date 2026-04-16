@@ -198,6 +198,25 @@ class TestTeamlead(unittest.TestCase):
             card = find_teamlead_work(board)
             self.assertIsNone(card)
 
+    def test_finds_arbitration_card(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            _add(td, KanbanCard(id="A-1", stage="4_Coding", action="Arbitration", loop_count=1))
+            board = KanbanBoard(td, repo=FsCardRepository())
+            card = find_teamlead_work(board)
+            self.assertIsNotNone(card)
+            self.assertEqual(card.id, "A-1")
+
+    def test_blocked_takes_priority_over_arbitration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            _add(td, KanbanCard(id="A-1", stage="4_Coding", action="Arbitration", loop_count=1))
+            _add(td, KanbanCard(id="B-1", stage="5_Review", action="Blocked"))
+            board = KanbanBoard(td, repo=FsCardRepository())
+            card = find_teamlead_work(board)
+            self.assertIsNotNone(card)
+            self.assertEqual(card.id, "B-1")
+
 
 class TestWorktreeFlag(unittest.TestCase):
 

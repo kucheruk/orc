@@ -7,6 +7,7 @@ from __future__ import annotations
 import threading
 from typing import Callable
 
+from .action_constants import Action
 from .kanban_card import KanbanCard
 from .stage_constants import STAGES
 from .wip_manager import WIPManager
@@ -38,6 +39,12 @@ class BoardQueries:
         with self._lock:
             return [c for c in self._cards_view()
                     if c.is_blocked and not c.is_assigned
+                    and not c.is_done]
+
+    def needs_arbitration(self) -> list[KanbanCard]:
+        with self._lock:
+            return [c for c in self._cards_view()
+                    if c.action == Action.ARBITRATION and not c.is_assigned
                     and not c.is_done]
 
     def has_unmet_dependencies(self, card: KanbanCard) -> bool:

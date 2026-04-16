@@ -114,11 +114,14 @@ def _auto_promote_estimate(board: "KanbanBoard") -> None:
 def find_teamlead_work(board: "KanbanBoard", loop_threshold: int = 2) -> Optional["KanbanCard"]:
     """Find a card that needs teamlead arbitration.
 
-    Returns the highest-priority card with loop_count >= threshold, or a Blocked card.
+    Priority: blocked > arbitration-requested > high loop_count.
     """
     blocked = board.blocked_cards()
     if blocked:
         return blocked[0]
+    arbitration = board.arbitration_cards()
+    if arbitration:
+        return sorted(arbitration, key=priority_key)[0]
     looping = board.looping_cards(loop_threshold)
     if looping:
         return sorted(looping, key=lambda c: -c.loop_count)[0]

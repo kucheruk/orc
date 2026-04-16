@@ -131,6 +131,9 @@ class KanbanBoard:
     def blocked_cards(self) -> list[KanbanCard]:
         return self._queries.blocked()
 
+    def arbitration_cards(self) -> list[KanbanCard]:
+        return self._queries.needs_arbitration()
+
     def detect_wip_deadlock(self) -> str:
         """Detect WIP deadlock conditions. Returns diagnostic string or '' if healthy."""
         with self._lock:
