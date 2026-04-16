@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Optional
 
 from .action_constants import Action
 from .card_prioritizer import priority_key
+from .limits_constants import DECOMPOSITION_EFFORT_THRESHOLD
 from .stage_constants import STAGE_CODING, STAGE_DONE, STAGE_ESTIMATE, STAGE_HANDOFF, STAGE_INBOX, STAGE_REVIEW, STAGE_TESTING, STAGE_TODO
 
 _pull_logger = logging.getLogger(__name__)
@@ -104,6 +105,14 @@ def _auto_promote_estimate(board: "KanbanBoard") -> None:
     if not board.has_wip_room(STAGE_TODO):
         return
     for card in board.cards_with_action(STAGE_ESTIMATE, Action.CODING):
+        if card.effort_score > DECOMPOSITION_EFFORT_THRESHOLD:
+            card.action = Action.ARCHITECT
+            card.effort_score = 0
+            board.save_card(card)
+            _pull_logger.warning(
+                "Blocked %s from Todo: effort_score %d > %d, sent back to Architect for decomposition",
+                card.id, card.effort_score, DECOMPOSITION_EFFORT_THRESHOLD)
+            continue
         if not board.has_unmet_dependencies(card):
             board.move_card(card, STAGE_TODO, reason="pull: deps now met")
             _pull_logger.info("Auto-promoted %s to Todo (deps unblocked)", card.id)
