@@ -136,7 +136,7 @@ def _append_feedback(card, text: str) -> None:
     if SECTION_FEEDBACK in body:
         card.body = body.rstrip() + f"\n\n{text}\n"
     else:
-        card.body = body.rstrip() + f"\n\n{marker}\n\n{text}\n"
+        card.body = body.rstrip() + f"\n\n{SECTION_FEEDBACK}\n\n{text}\n"
 
 
 def _active_tasks_by_session(ctx) -> dict[str, str]:
