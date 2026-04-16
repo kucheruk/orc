@@ -17,6 +17,8 @@ def _safe_name(value: str, limit: int = 64) -> str:
     return cleaned[:limit]
 
 
+DEFAULT_MAIN_BRANCH = "main"
+
 _BRANCH_PREFIX = "orc/"
 
 
@@ -137,7 +139,7 @@ def detect_base_branch(workdir: str) -> str:
     current = stdout.strip() if ok else ""
     if current and current != "HEAD":
         return current
-    return "main"
+    return DEFAULT_MAIN_BRANCH
 
 
 def create_task_worktree(
@@ -145,7 +147,7 @@ def create_task_worktree(
     base_workdir: str,
     task_id: str,
     log_path: Path,
-    main_branch: str = "main",
+    main_branch: str = DEFAULT_MAIN_BRANCH,
 ) -> WorktreeSession:
     safe_task = _safe_name(task_id)
     branch_name = task_branch_name(task_id)
@@ -337,7 +339,7 @@ def integrate_commit_into_main(
     commit_sha: str,
     task_id: str,
     log_path: Path,
-    main_branch: str = "main",
+    main_branch: str = DEFAULT_MAIN_BRANCH,
     skip_preflight: bool = False,
 ) -> IntegrationResult:
     if not skip_preflight:
@@ -457,7 +459,7 @@ def merge_task_branch_into_main(
     task_id: str,
     task_title: str,
     log_path: Path,
-    main_branch: str = "main",
+    main_branch: str = DEFAULT_MAIN_BRANCH,
     skip_preflight: bool = False,
 ) -> IntegrationResult:
     """Squash-merge task branch into main.

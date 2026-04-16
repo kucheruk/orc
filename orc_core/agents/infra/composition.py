@@ -17,7 +17,7 @@ from ...git.conflict_resolver import ConflictResolver
 from ...git.integration_manager import IntegrationManager
 from ...git.safe_files import SafeFilesGuard
 from ...git.subprocess_git import SubprocessGitRunner
-from ...git.worktree_flow import detect_base_branch
+from ...git.worktree_flow import DEFAULT_MAIN_BRANCH, detect_base_branch
 from ...incident.manager import IncidentManager
 from ...backends.backend import Backend
 from ...infra.io.state_paths_adapter import FsStatePaths
@@ -55,7 +55,7 @@ def build_session_manager(
     commit_template: str = "",
     merge_expert_template: str = "",
     merge_expert_model: str = "",
-    main_branch: str = "main",
+    main_branch: str = DEFAULT_MAIN_BRANCH,
     max_sessions: int = 4,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> KanbanSessionManager:

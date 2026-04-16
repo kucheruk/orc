@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ...git.integration_manager import IntegrationManager
+from ...git.worktree_flow import DEFAULT_MAIN_BRANCH
 from ...board.kanban_distributor import KanbanDistributor
 from ...board.stage_constants import STAGE_INBOX
 from ...config import OrcConfig
@@ -68,7 +69,7 @@ class KanbanSessionManager:
         worker_runner: KanbanWorkerRunner,
         teamlead_runner: KanbanTeamleadRunner,
         process_lifecycle: ProcessLifecyclePort,
-        main_branch: str = "main",
+        main_branch: str = DEFAULT_MAIN_BRANCH,
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         self.workdir = workdir

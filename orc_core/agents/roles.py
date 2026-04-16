@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Callable
 
 from ..board.action_constants import COS_PRIORITY, ClassOfService
 from ..board.kanban_card import SECTION_FEEDBACK
+from ..git.worktree_flow import DEFAULT_MAIN_BRANCH
 from ..board.board_summary import format_board_summary
 from ..board.stage_constants import STAGES, STAGE_DONE
 from ..board.kanban_role_registry import (
@@ -61,7 +62,7 @@ def _escape_braces(text: str) -> str:
 
 
 def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard",
-                 *, main_branch: str = "main",
+                 *, main_branch: str = DEFAULT_MAIN_BRANCH,
                  loader: TemplateLoader | None = None,
                  git_context: str = "") -> str:
     """Build a complete prompt for the given role, card, and board state."""
