@@ -71,6 +71,10 @@ class AgentProcess:
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._spawned = threading.Event()
         self._spawn_error: Optional[BaseException] = None
+        # Async event on the worker loop, set from the main thread when stop()
+        # is called — lets _read_stream wake out of a blocking readline() even
+        # when the child process hasn't closed its pipes yet.
+        self._stop_async: Optional[asyncio.Event] = None
 
         self._runner_thread = threading.Thread(target=self._run_event_loop, daemon=True)
         self._runner_thread.start()
@@ -101,7 +105,14 @@ class AgentProcess:
         loop = self._loop
         if loop is not None and not loop.is_closed():
             try:
-                loop.call_soon_threadsafe(lambda: None)
+                # Wake readers sleeping on readline() even if process-group
+                # termination didn't close the pipes (rare edge cases on
+                # macOS or when PGID resolution returned None).
+                def _set_stop() -> None:
+                    if self._stop_async is not None and not self._stop_async.is_set():
+                        self._stop_async.set()
+
+                loop.call_soon_threadsafe(_set_stop)
             except RuntimeError:
                 pass
         if self._runner_thread.is_alive():
@@ -118,6 +129,7 @@ class AgentProcess:
             self._loop.close()
 
     async def _spawn_and_stream(self) -> None:
+        self._stop_async = asyncio.Event()
         try:
             child_env = os.environ.copy()
             if self._run_token:
@@ -169,15 +181,41 @@ class AgentProcess:
         callback: Callable[[str], None] | None,
         name: str,
     ) -> None:
+        stop_async = self._stop_async
         try:
             while not self._stop.is_set():
-                line = await stream.readline()
+                read_task = asyncio.create_task(stream.readline())
+                waiters = [read_task]
+                stop_task: Optional[asyncio.Task] = None
+                if stop_async is not None:
+                    stop_task = asyncio.create_task(stop_async.wait())
+                    waiters.append(stop_task)
+                done, pending = await asyncio.wait(
+                    waiters, return_when=asyncio.FIRST_COMPLETED,
+                )
+                if stop_task is not None and stop_task in done:
+                    # Stop requested: cancel the pending readline so we don't
+                    # keep the loop alive waiting for pipe close.
+                    if not read_task.done():
+                        read_task.cancel()
+                    for p in pending:
+                        if p is not read_task:
+                            p.cancel()
+                    return
+                if stop_task is not None and stop_task not in done:
+                    stop_task.cancel()
+                try:
+                    line = read_task.result()
+                except asyncio.CancelledError:
+                    return
                 if not line:
                     return
                 decoded = line.decode("utf-8", errors="replace")
                 self.last_output_time = time.time()
                 if callback is not None:
                     callback(decoded)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             log_event(
                 self.log_path, "ERROR", f"fatal error reading {name} stream",
