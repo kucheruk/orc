@@ -53,7 +53,7 @@ def _collect_completion_stats(log_path: Path, task_id: str, request, monitor) ->
     )
     _update_completion_stats(
         monitor=monitor, task_id=task_id, task_path=request.task_path,
-        workdir=request.workdir, log_path=log_path,
+        workdir=request.base_workdir or request.workdir, log_path=log_path,
         writer=request.state_writer, paths=request.state_paths,
     )
     debug_log("H8", "orc_core/task_execution.py:execute:summary", "summary prepared", {
