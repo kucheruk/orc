@@ -5,9 +5,9 @@
 from __future__ import annotations
 
 from ...board.gateway import BoardGateway, CardView
+from ...board.use_cases.escalate_card import escalate_card
 
 
 def mark_task_blocked(card: CardView, board: BoardGateway, *, reason: str) -> None:
     """Block the card with the given reason and persist it through the board port."""
-    card.block(reason)
-    board.save_card(card)
+    escalate_card(board, card, reason=reason)

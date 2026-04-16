@@ -115,6 +115,30 @@ ORC operates as an autonomous delivery system with:
 - Fix: architect prompt requires decomposition when effort_score > 70; sub-cards replace original; deps rewired
 - **RESOLVED** (prompt-level)
 
+### I-20: Existing task branch gets hard-reset to main on worktree reattach (2026-04-16 21:45)
+- Root cause: `create_task_worktree()` handled "branch already exists" by running `git reset --hard <main_branch>` inside the reattached worktree
+- Evidence: reflog for `orc/AUTH-003` showed repeated `reset: moving to master`, after which the branch became empty vs `master`
+- Fix: reattach existing task branches as-is; never reset task history during worktree reuse
+- **RESOLVED**
+
+### I-21: Worktree keeps stale card copies across stage moves (2026-04-16 21:50)
+- Root cause: task worktrees accumulated old `tasks/<stage>/<card>.md` copies, so agents and `process_agent_result()` could read/write an obsolete stage file
+- Evidence: `CTRL-001` canonical card was already in `5_Review`, while the worktree still modified `tasks/4_Coding/CTRL-001.md`
+- Fix: sync exactly one canonical card copy into the worktree before each run, delete stale duplicates, and prefer the canonical stage path when reading agent output
+- **RESOLVED**
+
+### I-22: Completed agent output can overwrite a card that changed mid-run (2026-04-16 21:55)
+- Root cause: worker validated card state only before launch; if teamlead/system changed `stage` or `action` while the agent was running, the stale completion was still processed
+- Evidence: `CTRL-001` reached Arbitration after `max_restarts_exceeded`, yet the concurrent worker still had a valid completion path from the older state
+- Fix: snapshot `(stage, action, file_path)` at launch and discard the agent result if the canonical card state differs at completion time
+- **RESOLVED**
+
+### I-23: Blocked cards can remain in active or terminal stages (2026-04-16 22:05)
+- Root cause: multiple block paths called `card.block()` + `save_card()` directly instead of the shared "escalate to Handoff" flow, so impossible states like `8_Done + Blocked` and WIP-clogging `6_Testing + Blocked` were reachable
+- Evidence: `JOB-001` ended up as `stage=8_Done, action=Blocked`; similar patterns also starved Testing WIP
+- Fix: route known block/escalation paths through a single use case that always moves blocked cards to `7_Handoff`
+- **RESOLVED**
+
 ## Known Failure Signatures
 
 | Signature | First Seen | Status | Fix |
@@ -125,6 +149,10 @@ ORC operates as an autonomous delivery system with:
 | stale assignment after restart | 2026-04-15 | Fixed | release_stale_agents at startup |
 | agent feedback silently lost | 2026-04-16 | Fixed | worktree card read |
 | integration drops multi-commit work | 2026-04-16 | **Fixed** | squash-merge replaces cherry-pick |
+| task branch reset to main on reuse | 2026-04-16 | Fixed | preserve existing branch history during worktree reattach |
+| stale worktree card path chosen over canonical | 2026-04-16 | Fixed | sync canonical card copy + prefer canonical worktree path |
+| stale agent completion applied after card moved | 2026-04-16 | Fixed | launch-state fingerprint + discard stale results |
+| blocked card parked in Done/active WIP stage | 2026-04-16 | Fixed | normalized all known block paths to Handoff |
 
 ## Architectural Hardening (2026-04-16)
 

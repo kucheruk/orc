@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable, Optional, Protocol
 
 from ...board.gateway import BoardGateway, CardView
+from ...board.use_cases.escalate_card import escalate_card
 from ...log import log_event
 
 # Callable type for processing agent output: (board, card, role) -> list[errors]
@@ -105,8 +106,7 @@ def escalate_if_threshold_reached(
     if count < FAIL_BLOCK_THRESHOLD:
         return False
     try:
-        card.block(error_desc)
-        board.save_card(card)
+        escalate_card(board, card, reason=error_desc)
         publisher.emit("escalate", card.id,
                         f"{card.id} marked Blocked after {count} consecutive failures: {error_desc}")
         log_event(log_path, "WARN", "card blocked after repeated failures",

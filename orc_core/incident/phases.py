@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..board.action_constants import Action
+from ..board.use_cases.escalate_card import escalate_card
 from ..board.stage_constants import STAGE_CODING, STAGE_DONE
 from ..board.state_machine import ROLE_PLACEMENT
 from ..log import log_event
@@ -224,8 +225,7 @@ def handle_notify_human(ctx, incident: Incident) -> None:
         board = ctx.distributor.board
         card = board.card_by_id(incident.source_task_id)
         if card and card.action != Action.BLOCKED:
-            card.block()
-            board.save_card(card)
+            escalate_card(board, card)
             ctx.distributor.release_card(card.id)
 
     log_event(ctx.log_path, "WARN", "orc error notified, workers remain scaled down",

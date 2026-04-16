@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 from ..board.action_constants import Action
+from ..board.use_cases.escalate_card import escalate_card
 from ..log import log_event
 from ..notifications.notify import send_telegram_message
 from ..quit_signal import is_stop_requested
@@ -149,8 +150,7 @@ class IncidentManager:
         board = self._distributor.board
         fix_card = board.card_by_id(incident.fix_card_id)
         if fix_card and fix_card.action != Action.BLOCKED:
-            fix_card.block()
-            board.save_card(fix_card)
+            escalate_card(board, fix_card)
             self._distributor.release_card(fix_card.id)
 
     def send_incident_telegram(self, incident: Incident, message: str) -> None:

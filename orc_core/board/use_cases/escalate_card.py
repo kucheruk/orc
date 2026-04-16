@@ -4,12 +4,11 @@
 
 from __future__ import annotations
 
-from ...board.kanban_board import KanbanBoard
-from ...board.kanban_card import KanbanCard
+from ...board.gateway import BoardGateway, CardView
 from ...board.stage_constants import STAGE_HANDOFF
 
 
-def escalate_card(board: KanbanBoard, card: KanbanCard, *, reason: str = "") -> None:
+def escalate_card(board: BoardGateway, card: CardView, *, reason: str = "") -> None:
     """Block the card and move it to Handoff for human attention."""
     card.block(reason)
     board.save_card(card)

@@ -63,8 +63,6 @@ class LeftArbitrationOutcome:
         refreshed: KanbanCard,
         needs_esc: bool,
     ) -> None:
-        refreshed.block()
-        ctx.distributor.board.save_card(refreshed)
         log_event(
             ctx.log_path,
             "WARN",

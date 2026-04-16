@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Optional, Protocol
 
 from ...board.kanban_card import KanbanCard
 from ...board.action_constants import Action
+from ...board.use_cases.escalate_card import escalate_card
 from ...log import log_event
 from ...tasks.ports import StatePathsPort
 from ...tasks.status import TaskExecutionStatus
@@ -83,8 +84,7 @@ class TeamleadContext:
                 pass
 
     def escalate(self, card: KanbanCard) -> None:
-        card.block()
-        self.distributor.board.save_card(card)
+        escalate_card(self.distributor.board, card)
         self.outcomes.set_arbitrated_loop(card.id, card.loop_count)
         msg = (f"ESCALATION: Task {card.id} ({card.title}) blocked. "
                f"Loop count: {card.loop_count}. Stage: {card.stage}.")
