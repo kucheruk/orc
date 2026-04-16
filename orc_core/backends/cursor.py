@@ -53,14 +53,19 @@ class CursorBackend:
             "stream-json",
             "--stream-partial-output",
         ]
+        # cursor-agent's `-p` (print) mode rejects a command with no prompt
+        # argument: it prints "Error: No prompt provided for print mode".
+        # On resume paths where the caller didn't give a nudge, send a minimal
+        # "continue" so the CLI accepts the invocation. Previously an empty or
+        # None resume_prompt caused the agent to crash immediately after a
+        # recoverable upstream failure (e.g. "Service Unavailable"), which
+        # exhausted max-restarts and blocked otherwise-healthy tasks.
         if resume_id:
             cmd.extend(["--resume", resume_id])
-            if resume_prompt:
-                cmd.append(resume_prompt)
+            cmd.append(resume_prompt or "continue")
         elif resume_latest:
             cmd.append("--continue")
-            if resume_prompt:
-                cmd.append(resume_prompt)
+            cmd.append(resume_prompt or "continue")
         elif prompt is not None:
             cmd.append(prompt)
         else:

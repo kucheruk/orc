@@ -29,6 +29,9 @@ class CursorBuildCmdTest(unittest.TestCase):
         self.assertIn("--resume", cmd)
         self.assertIn("abc-123", cmd)
         self.assertNotIn("--continue", cmd)
+        # Must carry SOME prompt arg — cursor-agent's -p mode rejects empty.
+        idx = cmd.index("abc-123")
+        self.assertEqual(cmd[idx + 1], "continue")
 
     def test_resume_by_id_with_prompt(self) -> None:
         cmd = self.backend.build_agent_cmd(model="gpt-5.3-codex", resume_id="abc-123", resume_prompt="keep going")
@@ -39,6 +42,9 @@ class CursorBuildCmdTest(unittest.TestCase):
         cmd = self.backend.build_agent_cmd(model="gpt-5.3-codex", resume_latest=True)
         self.assertIn("--continue", cmd)
         self.assertNotIn("--resume", cmd)
+        # Must carry a prompt arg even when resuming latest session.
+        idx = cmd.index("--continue")
+        self.assertEqual(cmd[idx + 1], "continue")
 
     def test_resume_latest_with_prompt(self) -> None:
         cmd = self.backend.build_agent_cmd(model="gpt-5.3-codex", resume_latest=True, resume_prompt="next task")
