@@ -36,6 +36,7 @@ _VALID_TRANSITIONS: dict[str, dict[str, set[str]]] = {
     },
     "coder": {
         "Coding": {Action.REVIEWING, Action.TESTING},
+        "Arbitration": {Action.REVIEWING, Action.TESTING},  # post-arbitration coding pass
     },
     "reviewer": {
         "Reviewing": {Action.CODING, Action.TESTING},
@@ -111,7 +112,7 @@ def process_agent_result(
         # Auto-default: if the agent didn't change the action, apply the most
         # common "done" transition for that role so work keeps flowing.
         _IDENTITY_DEFAULTS: dict[str, dict[str, str]] = {
-            "coder": {Action.CODING: Action.REVIEWING},
+            "coder": {Action.CODING: Action.REVIEWING, Action.ARBITRATION: Action.REVIEWING},
             "reviewer": {Action.REVIEWING: Action.TESTING},
             "tester": {Action.TESTING: Action.INTEGRATING},
             "integrator": {Action.INTEGRATING: Action.DONE},
