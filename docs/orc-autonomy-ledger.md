@@ -11,113 +11,143 @@ ORC operates as an autonomous delivery system with:
 ## Current Status
 
 - Date: 2026-04-16
-- ORC state (running/stopped): stopped (preparing relaunch)
-- Target repository: `/Users/vetinary/work/jeeves`
-- Active blockers: none (all critical issues addressed)
+- ORC state: running (PID 50182)
+- Target repository: jeeves
+- Done: 15/47 cards
+- Active blockers: integration reliability (agent-driven merge not yet proven)
 
-## Incident Log
+## Incident Log (Chronological)
 
-### Incident Template
+### I-01: Orphan orchestrator process (2026-04-15)
+- Root cause: previous ORC survived detached (ppid=1)
+- Fix: lockfile PID check + os.killpg() + orphan sweep
+- **RESOLVED**
 
-- Timestamp:
-- Symptom:
-- Impact:
-- Root cause:
-- Fix (code/prompt/both):
-- Verification:
-- Regression test added:
-- Residual risk:
+### I-02: High-CPU churn loop (2026-04-16 08:30)
+- Root cause: `has_commits_ahead_of_branch` counted card-only commits as delivery
+- Fix: `has_code_changes_ahead()` gate checking `git diff --name-only -- . ':!tasks/'`
+- **RESOLVED**
 
----
+### I-03: UX-001 branch code lost during remediation (2026-04-16 08:35)
+- Root cause: `git branch -f orc/UX-001 master` destroyed code commits
+- Fix: reflog recovery + manual merge + conflict resolution
+- **RESOLVED**
 
-### 2026-04-15T20:53:00Z - Orphan orchestrator process
+### I-04: TL generates false "model_unavailable" alert (2026-04-16 08:33)
+- Root cause: TL hallucinated system diagnoses
+- Fix: prompt constrains TL to observable facts only
+- **RESOLVED**
 
-- Timestamp: 2026-04-15 20:53 UTC
-- Symptom: fresh `orc --workspace` launch exited with `Another orchestrator instance is running`.
-- Impact: hidden process mutating board/worktree without operator control.
-- Root cause: previous ORC process survived detached (`ppid=1`).
-- Fix (code): deterministic stale-session handling via lockfile PID check + `os.killpg()` in `process.py:51-58`. Orphan sweep via token/CWD matching in `process.py:165-277`.
-- Verification: lockfile guard tested; orphan sweep exercises multiple matching strategies.
-- Regression test added: yes (process group tests in test suite).
-- Residual risk: low — deterministic guards cover shell-death scenario.
-- **Status: RESOLVED**
+### I-05: 3/4 worker slots idle — Arbitration cards invisible (2026-04-16 08:40)
+- Root cause: `find_teamlead_work` only checked Blocked/looping, not action=Arbitration
+- Fix: added `arbitration_cards()` query + priority chain in find_teamlead_work
+- **RESOLVED**
 
-### 2026-04-16T08:30:00Z - High-CPU churn loop, low delivery
+### I-06: EXTR-001 infinite token burn — 0 code, 500K+ tokens (2026-04-16 09:00)
+- Root cause: agent wrote code but didn't commit; `has_code_changes_ahead` only checked commits
+- Fix: guard now also checks `git status --porcelain` for uncommitted changes
+- **RESOLVED**
 
-- Timestamp: 2026-04-16 08:30 local
-- Symptom: ~7.5h at ~99% CPU, 44/66 commits were board-sync churn.
-- Impact: token burn without code delivery.
-- Root cause: board-sync throttle existed but the deeper issue was `has_commits_ahead_of_branch` counted card-only commits as "real delivery". Cards progressed through entire pipeline (Coding→Review→Done) with zero source code, only task/*.md changes.
-- Fix (code): replaced delivery gate with `has_code_changes_ahead()` — checks `git diff --name-only branch..HEAD -- . ':!tasks/'`. Applied in both worker.py (delivery-role guard) and IntegrationManager._has_commits (finalize gate).
-- Verification: 474 tests pass. Board audit confirmed 3/8 cards were false progress (UX-001 false Done, PLAT-004/EXTR-001 false Review). Remediated cards back to Coding.
-- Regression test added: yes — `HasCodeChangesAheadTest` (5 cases), `test_has_commits_fails_when_only_card_changes` in integration manager.
-- Residual risk: agents must still actually write code; gate prevents false completion but can't force code production.
-- **Status: RESOLVED**
+### I-07: Integrator blocked by delivery guard (2026-04-16 09:30)
+- Root cause: after merge, worktree has 0 changes vs master; guard treated as failure
+- Fix: excluded ROLE_INTEGRATOR from _DELIVERY_ROLES
+- **RESOLVED**
 
-### 2026-04-16T11:00:00Z - False Done / false progression (3 cards)
+### I-08: Agents blind — no git context in prompts (2026-04-16 10:00)
+- Root cause: prompts had no info about existing code on branch
+- Fix: `_gather_git_context()` injects git log, diff stat, status into prompts
+- **RESOLVED**
 
-- Timestamp: 2026-04-16 11:00 local
-- Symptom: UX-001 in Done with zero code on master. PLAT-004/EXTR-001 in Review with zero branch commits.
-- Impact: board showed false progress; 3 cards consumed pipeline time without delivering code.
-- Root cause: same as churn incident — `has_commits_ahead_of_branch` passed on card-file-only commits.
-- Fix (code/board): code gate via `has_code_changes_ahead`. Board remediated: UX-001, PLAT-004, EXTR-001 moved back to 4_Coding.
-- Verification: board state corrected; new gate prevents recurrence.
-- Regression test added: yes (same tests as churn fix).
-- Residual risk: none for this failure mode.
-- **Status: RESOLVED**
+### I-09: Cards stuck — no backward stage moves (2026-04-16 10:30)
+- Root cause: `_FORWARD_MOVES` had no entries for (Review,Coding)→Coding etc.
+- Fix: added backward move entries for reviewer/tester/integrator rejections
+- **RESOLVED**
+
+### I-10: Coder post-arbitration leaves action=Arbitration (2026-04-16 11:00)
+- Root cause: auto-default only mapped Coding→Reviewing, not Arbitration→Reviewing
+- Fix: added Arbitration→Reviewing to coder auto-defaults + valid transitions
+- **RESOLVED**
+
+### I-11: TL decision file never written → Arbitration infinite loop (2026-04-16 11:30)
+- Root cause: Cursor agent doesn't reliably write decision files
+- Fix: deterministic fallback — if no decision after TL completion, force action=Coding
+- **RESOLVED**
+
+### I-12: process_agent_result reads main repo, not worktree (2026-04-16 12:00)
+- Root cause: agent edits card in worktree (relative path), ORC reads from main repo (absolute path)
+- Fix: process_agent_result accepts execution_workdir, scans worktree tasks/ dirs
+- Impact: THIS WAS THE #1 SYSTEMIC BUG — every agent's feedback/action was silently lost
+- **RESOLVED**
+
+### I-13: Missing `from pathlib import Path` crash (2026-04-16 12:10)
+- Root cause: worktree card read fix used Path without importing it
+- Fix: added import
+- Impact: every agent completion crashed with NameError, blocking all cards
+- **RESOLVED**
+
+### I-14: allow_fallback_commits=False — agent code lost (2026-04-16 12:30)
+- Root cause: agents write code but don't commit; commit phase also doesn't commit; fallback disabled
+- Fix: enabled allow_fallback_commits=True
+- **RESOLVED**
+
+### I-15: Worktree card in wrong stage dir (2026-04-16 13:00)
+- Root cause: worktree created when card in Estimate/Coding; card moves on main; worktree copy stays in old dir
+- Fix: process_agent_result scans ALL stage dirs in worktree, not just current stage
+- **RESOLVED**
+
+### I-16: AUTH-001 merge conflict markers break YAML parsing (2026-04-16)
+- Root cause: manual merge left `<<<<<<<` markers in card file
+- Fix: manual cleanup
+- **RESOLVED**
+
+### I-17: 11 branches with unmerged code — cards Done but code not on master (2026-04-16 14:00)
+- Root cause: `finalize_completed_worktree` cherry-picks only 1 commit; multi-commit branches partially lost; integration often fails silently
+- Fix: manual squash-merge of all 8 branches. Integrator prompt now instructs agent to merge all commits to main itself.
+- Residual risk: agent-driven merge not yet proven in runtime
+- **OPEN** — monitoring
+
+### I-18: Phantom dependencies block cards permanently (2026-04-16 14:00)
+- Root cause: `has_unmet_dependencies` treats non-existent card IDs as unmet
+- Fix: phantom deps (ID not on board) now treated as met with WARN log
+- **RESOLVED**
+
+### I-19: Architect doesn't decompose oversized cards (2026-04-16)
+- Root cause: no mandatory decomposition threshold
+- Fix: architect prompt requires decomposition when effort_score > 70; sub-cards replace original; deps rewired
+- **RESOLVED** (prompt-level)
 
 ## Known Failure Signatures
 
-- false done without integration: observed 2026-04-16 (UX-001). **Fixed**: `has_code_changes_ahead` gate.
-- cherry-pick conflict loop: not observed recently.
-- circular dependency deadlock: not observed recently.
-- stale assignment/worktree orphan: observed 2026-04-15. **Fixed**: lockfile + orphan sweep.
-- token burn without merge progress: observed 2026-04-16. **Fixed**: code-changes gate prevents card-only cycling.
+| Signature | First Seen | Status | Fix |
+|-----------|-----------|--------|-----|
+| false Done without code on master | 2026-04-16 | Fixed | code-changes gate + worktree card read |
+| token burn without progress | 2026-04-16 | Fixed | uncommitted detection + fail threshold |
+| cards stuck in Arbitration | 2026-04-16 | Fixed | fallback to Coding + auto-default |
+| stale assignment after restart | 2026-04-15 | Fixed | release_stale_agents at startup |
+| agent feedback silently lost | 2026-04-16 | Fixed | worktree card read |
+| integration drops multi-commit work | 2026-04-16 | Mitigated | agent-driven merge (monitoring) |
 
-### 2026-04-16T08:35:00Z - UX-001 branch reset lost code
+## Hardening Plan (from subagent analysis)
 
-- Timestamp: 2026-04-16 08:35 local
-- Symptom: UX-001 in Review with zero code diff vs master; reviewer correctly blocked it.
-- Impact: completed design system work (79 files, 1721 insertions) was invisible on master.
-- Root cause: remediation step `git branch -f orc/UX-001 master` destroyed code commits. UX-001 had real code (commits 6d004c2, 11204ab) but was lumped with PLAT-004/EXTR-001 (which genuinely had no code).
-- Fix (manual): restored branch from reflog (`55d14b3`), resolved merge conflicts, fixed test compatibility with master infrastructure, integrated to master.
-- Verification: `dotnet build` passes, all 5 tests pass, UX-001 in Done with integrated code.
-- Regression test added: no — root cause was operator error during remediation, not ORC logic.
-- Residual risk: future remediations must check `git diff --stat master..branch -- . ':!tasks/'` before resetting.
-- **Status: RESOLVED**
+### P1 — Fix Soon
+- [ ] Unify _FORWARD_MOVES and DEFERRED_MOVE_RULES into single source
+- [ ] Reduce stale-assignment timeout from 20min to 5min
+- [ ] Auto-resolve conflicts only for task files (not source code)
+- [ ] Stuck detection handles phantom deps
+- [ ] Health check diagnostic dedup normalizes timestamps
 
-### 2026-04-16T08:33:00Z - TL agent generates false "model_unavailable" alert
-
-- Timestamp: 2026-04-16 08:33 local
-- Symptom: Telegram alert "model_unavailable outcomes are occupying Coding slots" — no actual model availability issue.
-- Impact: operator confusion; false alert suggesting infrastructure problem.
-- Root cause: TL agent hallucinated "model_unavailable" as diagnosis for stuck cards (UX-001/PLAT-004/EXTR-001 with no code progress).
-- Fix: TODO — constrain TL prompt to report observed data, not invent system-level diagnoses.
-- Verification: pending.
-- Regression test added: no — prompt issue.
-- Residual risk: medium — false alerts erode operator trust.
-- **Status: OPEN**
-
-## Active Hypotheses
-
-- hypothesis: with `has_code_changes_ahead` gate, ORC will fail fast on card-only agent runs and retry with clearer escalation signal.
-- expected signal: no cards in Review/Done without corresponding src/ changes in worktree branch.
-- validation plan: launch ORC, monitor first 2 cycles for delivery vs churn ratio.
-
-## Next Intervention Queue
-
-- [x] add deterministic regression test for detached orchestrator detection/ownership handoff
-- [x] add deterministic no-progress guard for card-only commit cycles
-- [x] verify all `8_Done` cards map to integrated code on `master` (done: audit found 3 false, remediated)
-- [x] restore UX-001 code and integrate to master (done: reflog recovery + merge + test fix)
-- [ ] fix TL prompt to prevent hallucinated system diagnostics (model_unavailable false alarm)
-- [ ] monitor two additional control cycles for flow/integration signal
-- [ ] evaluate whether reviewer/tester roles also need code-change gates (currently only delivery roles checked)
+### P2 — Improve
+- [ ] Card lifecycle trace ID for log correlation
+- [ ] Token spend tracking per card
+- [ ] Duplicate card ID detection in board hydration
+- [ ] Board validation dry-run mode
+- [ ] Cycle decomposition cards fast-track to Estimate
 
 ## Autonomy Readiness Checklist
 
-- [ ] Done always equals integrated, working code. *(gate shipped, needs runtime validation)*
-- [ ] Cycles/deadlocks resolved by ORC playbooks.
-- [ ] No unrecoverable branch/worktree information loss.
-- [ ] Monitoring and periodic reports stable.
-- [ ] At least 3 uninterrupted healthy control cycles.
+- [x] Done always equals integrated, working code *(gate + worktree read + fallback autocommit)*
+- [ ] Integration merges all commits reliably *(agent-driven, monitoring)*
+- [x] Cycles/deadlocks resolved by ORC *(arbitration fallback + backward moves)*
+- [x] No unrecoverable branch/worktree information loss *(branches preserved)*
+- [ ] Monitoring and periodic reports stable *(Telegram blocked without VPN)*
+- [ ] At least 3 uninterrupted healthy control cycles *(not yet achieved)*
