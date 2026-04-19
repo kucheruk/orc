@@ -150,37 +150,6 @@ def _resolve_templates(args, workdir: str, role_registry: RoleProfileRegistry) -
     return commit_model, commit_template, merge_expert_model, merge_expert_template
 
 
-def _build_orchestrator(args, workdir: str, log_path: Path, backend, base_branch: str,
-                        commit_template: str, merge_expert_template: str, merge_expert_model: str):
-    """Composition root: construct the full dependency graph for KanbanSessionManager."""
-    from ..board.kanban_init import init_kanban_board
-    from ..agents.infra.composition import build_session_manager
-    from ..config import OrcConfig
-    from ..notifications.adapters import TelegramNotify
-    from ..tasks.execution.worker import AgentTaskWorker
-
-    engine = TaskExecutionEngine(
-        worker=AgentTaskWorker(backend=backend),
-        log_path=log_path,
-        notify=TelegramNotify(log_path=log_path),
-    )
-    tasks_dir = init_kanban_board(Path(workdir))
-    orc_config = OrcConfig.from_namespace(args)
-    return build_session_manager(
-        workdir=workdir,
-        tasks_dir=tasks_dir,
-        config=orc_config,
-        log_path=log_path,
-        engine=engine,
-        backend=backend,
-        commit_template=commit_template,
-        merge_expert_template=merge_expert_template,
-        merge_expert_model=merge_expert_model,
-        main_branch=base_branch,
-        max_sessions=max(2, min(int(getattr(args, "max_sessions", 0) or 4), 4)),
-    )
-
-
 def main() -> int:
     os.setpgrp()  # ORC becomes process group leader
     atexit.register(_atexit_kill_group)
@@ -250,9 +219,16 @@ def main() -> int:
                 ui_error(str(exc))
                 return 2
 
-            manager = _build_orchestrator(
-                args, workdir, log_path, backend, base_branch,
-                commit_template, merge_expert_template, merge_expert_model,
+            from ..agents.infra.composition import build_orchestrator
+            manager = build_orchestrator(
+                args=args,
+                workdir=workdir,
+                log_path=log_path,
+                backend=backend,
+                base_branch=base_branch,
+                commit_template=commit_template,
+                merge_expert_template=merge_expert_template,
+                merge_expert_model=merge_expert_model,
             )
 
             def _run_orchestrator(snapshot_publisher: Callable[[str, MonitorSnapshot | None], None]) -> int:

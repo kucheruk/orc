@@ -216,3 +216,47 @@ def build_session_manager(
         main_branch=resolved_main_branch,
         sleep_fn=sleep_fn,
     )
+
+
+def build_orchestrator(
+    *,
+    args,
+    workdir: str,
+    log_path: Path,
+    backend: Backend,
+    base_branch: str,
+    commit_template: str = "",
+    merge_expert_template: str = "",
+    merge_expert_model: str = "",
+) -> KanbanSessionManager:
+    """Top-level composition root.
+
+    Builds the TaskExecutionEngine, initializes the kanban board on disk,
+    and assembles the full KanbanSessionManager graph. CLI and TUI entry
+    points call this single function instead of wiring the engine
+    themselves.
+    """
+    from ...board.kanban_init import init_kanban_board
+    from ...notifications.adapters import TelegramNotify
+    from ...tasks.execution.worker import AgentTaskWorker
+
+    engine = TaskExecutionEngine(
+        worker=AgentTaskWorker(backend=backend),
+        log_path=log_path,
+        notify=TelegramNotify(log_path=log_path),
+    )
+    tasks_dir = init_kanban_board(Path(workdir))
+    orc_config = OrcConfig.from_namespace(args)
+    return build_session_manager(
+        workdir=workdir,
+        tasks_dir=tasks_dir,
+        config=orc_config,
+        log_path=log_path,
+        engine=engine,
+        backend=backend,
+        commit_template=commit_template,
+        merge_expert_template=merge_expert_template,
+        merge_expert_model=merge_expert_model,
+        main_branch=base_branch,
+        max_sessions=max(2, min(int(getattr(args, "max_sessions", 0) or 4), 4)),
+    )
