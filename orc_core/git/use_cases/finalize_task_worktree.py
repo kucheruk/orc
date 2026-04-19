@@ -16,6 +16,7 @@ from ...board.action_constants import Action
 from ...board.gateway import BoardGateway, CardView
 from ...board.stage_constants import STAGE_DONE, STAGE_HANDOFF
 from ...log import log_event
+from ...git.branch_resolver import task_branch_name
 from ...git.git_dto import WorktreeSession
 from ...tasks.dto import Task
 
@@ -60,7 +61,10 @@ def finalize_completed_worktree(
     else:
         task_obj = Task(task_id=card.id, text=card.title or card.id, done=True)
     execution_workdir = worktree.worktree_path if worktree else ""
-    branch_name = worktree.branch_name if (worktree and worktree.branch_name) else f"orc/{card.id}"
+    # Fallback must mirror what worktree_lifecycle.create_task_worktree uses:
+    # task_branch_name applies _safe_name (sanitizes /, spaces, truncates to 64)
+    # so card IDs with special characters still resolve to the real branch.
+    branch_name = worktree.branch_name if (worktree and worktree.branch_name) else task_branch_name(card.id)
     integrated = integrator.integrate(
         session_id, task_obj, execution_workdir, branch_name=branch_name,
     )
