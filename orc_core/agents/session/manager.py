@@ -211,11 +211,16 @@ class KanbanSessionManager:
 
     def _finalize_orphan_handoff_done(self) -> None:
         """Run the same finalize path that live sessions use, but against every
-        card already sitting in 7_Handoff with action=Done — i.e. cards whose
-        integrator decision landed on disk before a prior ORC exit skipped
-        cleanup. With no live WorktreeSession to pass, finalize uses the
-        deterministic branch name ``orc/<card_id>`` and merges from the main
-        workdir.
+        card stuck in 7_Handoff after a prior run skipped cleanup.
+
+        Both action=Done (integrator decided, worker crashed before finalize)
+        and action=Integrating (finalize ran and failed, resetting the card
+        for retry) qualify — otherwise a card whose first finalize landed in
+        the Integrating retry state would be invisible to every subsequent
+        startup and would wait indefinitely for a live integrator pull.
+
+        With no live WorktreeSession to pass, finalize uses the deterministic
+        branch name ``orc/<safe_task_id>`` and merges from the main workdir.
         """
         from ...board.action_constants import Action
         from ...board.stage_constants import STAGE_HANDOFF
@@ -223,7 +228,8 @@ class KanbanSessionManager:
         from ...git.worktree_lifecycle import cleanup_task_worktree
 
         board = self._distributor.board
-        stale = [c for c in list(board.cards_in_stage(STAGE_HANDOFF)) if c.action == Action.DONE]
+        orphan_actions = (Action.DONE, Action.INTEGRATING)
+        stale = [c for c in list(board.cards_in_stage(STAGE_HANDOFF)) if c.action in orphan_actions]
         if not stale:
             return
         # Startup runs serially before any worker session starts, so a fresh
