@@ -86,7 +86,7 @@ class WorkerAssignmentExecutor:
             # between pick and engine.execute.
             self._sync_tokens_and_budget(fresh_card)
             if check_and_block_budget(
-                fresh_card, self._distributor.board, self._publisher, self._log_path,
+                fresh_card, self._distributor.board, self._publisher, self._log_path, self._notifier,
             ):
                 return
             pre_attempt_tokens = int(getattr(fresh_card, "tokens_spent", 0) or 0)
@@ -136,7 +136,7 @@ class WorkerAssignmentExecutor:
                 self._sync_tokens_and_budget(card)
                 if errors:
                     self._mark_attempt_discarded(card.id, pre_attempt_tokens, reason="validation_failed")
-                if check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path):
+                if check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path, self._notifier):
                     return
                 if not errors:
                     assignment_succeeded = True
@@ -183,7 +183,7 @@ class WorkerAssignmentExecutor:
         token_card = latest_card if latest_card is not None else self._distributor.board.card_by_id(card_id)
         if token_card is not None:
             self._sync_tokens_and_budget(token_card)
-            check_and_block_budget(token_card, self._distributor.board, self._publisher, self._log_path)
+            check_and_block_budget(token_card, self._distributor.board, self._publisher, self._log_path, self._notifier)
         return True
 
     def _mark_attempt_discarded(self, card_id: str, pre_attempt_tokens: int, *, reason: str) -> None:
@@ -222,7 +222,7 @@ class WorkerAssignmentExecutor:
         log_event(self._log_path, "WARN", "delivery role finished without code changes ahead of main", task_id=card.id, role=role)
         handle_task_failure(card, reason, self._outcomes, self._publisher, role)
         self._sync_tokens_and_budget(card)
-        check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path)
+        check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path, self._notifier)
         escalate_if_threshold_reached(
             card,
             reason,
@@ -236,7 +236,7 @@ class WorkerAssignmentExecutor:
 
     def _handle_failed_result(self, card, role: str, reason: str) -> None:
         self._sync_tokens_and_budget(card)
-        if check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path):
+        if check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path, self._notifier):
             return
         handle_task_failure(card, reason, self._outcomes, self._publisher, role)
         escalate_if_threshold_reached(

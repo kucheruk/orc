@@ -64,7 +64,7 @@ def accumulate_card_tokens(card, board, workdir: str) -> None:
         board.save_card(card)
 
 
-def check_and_block_budget(card, board, publisher, log_path: Path) -> bool:
+def check_and_block_budget(card, board, publisher, log_path: Path, notifier=None) -> bool:
     if not card.is_budget_exhausted:
         return False
     from ...log import log_event
@@ -81,6 +81,15 @@ def check_and_block_budget(card, board, publisher, log_path: Path) -> bool:
     publisher.emit("escalate", card.id, f"{card.id} BLOCKED: {reason}")
     card.block(reason)
     board.save_card(card)
+    # Notify the human via Telegram — budget exhaustion is a terminal
+    # block that needs an operator decision (skip / bump budget / rewrite
+    # the card), identical in severity to the repeated-failure escalation
+    # path which already notifies.
+    if notifier is not None:
+        try:
+            notifier.notify_card_blocked(card.id, 1, reason)
+        except Exception:  # notifier is best-effort
+            pass
     return True
 
 
