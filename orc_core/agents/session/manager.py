@@ -23,6 +23,7 @@ from ..infra.publisher import KanbanPublisher
 from ..infra.request_factory import KanbanRequestFactory
 from .state_persistence import (
     cleanup_done_worktrees,
+    cleanup_stale_parallel_sessions,
     release_stale_agents,
 )
 from ..runners.teamlead import KanbanTeamleadRunner
@@ -116,6 +117,9 @@ class KanbanSessionManager:
         # Cleanup stale state from previous runs
         cleanup_ids = release_stale_agents(self._distributor.board, self.publisher)
         cleanup_done_worktrees(cleanup_ids, self.workdir, self.log_path, self.publisher)
+        cleanup_stale_parallel_sessions(
+            self._distributor.board, self.workdir, self.log_path, self.publisher,
+        )
 
         done, _ip, total = self._distributor.get_progress()
         self.publisher.emit("system", "", f"Kanban started: {total} cards, {self._pool.max_sessions} agents")

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -20,7 +21,6 @@ def load_kanban_state(workdir: str) -> tuple[dict[str, int], dict[str, int], lis
     if not path.exists():
         return {}, {}, []
     try:
-        import json
         data = json.loads(path.read_text(encoding="utf-8"))
         fail_counts = {k: int(v) for k, v in data.get("card_fail_counts", {}).items()}
         arb_loop = {k: int(v) for k, v in data.get("arbitrated_at_loop", {}).items()}
@@ -74,6 +74,65 @@ def release_stale_agents(board, publisher) -> set[str]:
     if released:
         publisher.emit("system", "", f"Released {released} stale agent(s) from previous run")
     return cleanup_ids
+
+
+def cleanup_stale_parallel_sessions(board, workdir: str, log_path: Path, publisher) -> int:
+    """Remove parallel/sN/active-task.json files for cards that finished.
+
+    A stale record keeps a slot looking "busy" to any code that still
+    reads these files (e.g. the teamlead flow before B0.f). Cleanup at
+    startup so a previous crashed run does not block new assignments.
+    """
+    from ...infra.io.state_paths import run_root
+    from ...board.action_constants import Action
+
+    base = run_root(workdir, "").parent
+    parallel_dir = base / "parallel"
+    if not parallel_dir.exists():
+        return 0
+
+    card_by_id = {c.id: c for c in board.cards}
+    removed = 0
+    for session_dir in sorted(p for p in parallel_dir.iterdir() if p.is_dir()):
+        task_file = session_dir / "active-task.json"
+        runtime_file = session_dir / "orc-task-runtime.json"
+        if not task_file.exists():
+            continue
+        try:
+            payload = json.loads(task_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log_event(log_path, "WARN", "stale parallel session: unreadable",
+                      path=str(task_file), error=str(exc))
+            payload = {}
+        task_id = str(payload.get("task_id") or "").strip()
+        card = card_by_id.get(task_id) if task_id else None
+        drop = False
+        reason = ""
+        if not task_id:
+            drop = True
+            reason = "missing task_id"
+        elif card is None:
+            drop = True
+            reason = "card not on board"
+        elif card.is_done or card.action == Action.BLOCKED:
+            drop = True
+            reason = f"card is {card.action or card.stage}"
+        if not drop:
+            continue
+        for path in (task_file, runtime_file):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            except Exception as exc:
+                log_event(log_path, "WARN", "stale parallel session: unlink failed",
+                          path=str(path), error=str(exc))
+        log_event(log_path, "INFO", "stale parallel session cleaned",
+                  session=session_dir.name, task_id=task_id, reason=reason)
+        removed += 1
+    if removed:
+        publisher.emit("system", "", f"Cleaned {removed} stale parallel session(s)")
+    return removed
 
 
 def cleanup_done_worktrees(
