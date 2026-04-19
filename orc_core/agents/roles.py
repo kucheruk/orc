@@ -120,12 +120,20 @@ def _elapsed_str(iso_ts: str) -> str:
         return "—"
 
 
-def format_board_detail(board: "KanbanBoard", token_stats: dict[str, int] | None = None) -> str:
+def format_board_detail(
+    board: "KanbanBoard",
+    token_stats: dict[str, int] | None = None,
+    *,
+    compact: bool = False,
+) -> str:
     """Format full board inventory for the teamlead prompt.
 
-    Shows every card with ID, title, action, assigned agent, deps (✓/✗),
-    loop count, CoS, elapsed time in stage, and token usage.
-    Done cards are listed as IDs only to save tokens.
+    Full mode (arbitration/directive): every card with ID, title, action,
+    assigned agent, deps (✓/✗), loop count, CoS, elapsed, tokens.
+
+    Compact mode (health): one terse line per card with only the signals the
+    teamlead actually reads — ID, stage/action, loop, tokens, dep counts.
+    Drops title/agent/CoS/elapsed to keep the health prompt slim.
     """
     done_ids = {c.id for c in board.cards if c.stage == STAGE_DONE}
     stats = token_stats or {}
@@ -146,6 +154,19 @@ def format_board_detail(board: "KanbanBoard", token_stats: dict[str, int] | None
 
         if not cards:
             sections.append(f"{header}\n(empty)")
+            continue
+
+        if compact:
+            lines = [header]
+            for c in cards:
+                total_deps = len(c.dependencies)
+                unmet = sum(1 for d in c.dependencies if d not in done_ids)
+                tokens = stats.get(c.id, 0)
+                lines.append(
+                    f"- {c.id} action={c.action} loop={c.loop_count} "
+                    f"tokens={tokens} deps={total_deps}({unmet} unmet)"
+                )
+            sections.append("\n".join(lines))
             continue
 
         rows = ["| ID | Title | Action | Agent | Deps | Loop | CoS | Elapsed | Tokens |",
@@ -297,12 +318,15 @@ def build_teamlead_prompt(
 ) -> str:
     """Build a teamlead prompt for any invocation mode.
 
-    Modes: 'arbitration', 'directive', 'health'.
+    Modes: 'arbitration', 'directive', 'health'. Health mode renders a
+    compact board view because that invocation only needs triage signals.
     """
     if loader is None:
         loader = default_template_loader()
     template = loader.load(ROLE_TEAMLEAD)
-    board_detail = _escape_braces(format_board_detail(board, token_stats=token_stats))
+    board_detail = _escape_braces(
+        format_board_detail(board, token_stats=token_stats, compact=(mode == "health"))
+    )
     board_summary = format_board_summary(board)
 
     # Build mode-specific context via dispatch

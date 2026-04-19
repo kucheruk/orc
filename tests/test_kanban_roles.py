@@ -22,6 +22,8 @@ from orc_core.board.kanban_pull import (
 from orc_core.agents.roles import (
     ROLE_TEAMLEAD,
     build_prompt,
+    build_teamlead_prompt,
+    format_board_detail,
     format_board_summary,
 )
 
@@ -74,6 +76,54 @@ class TestBoardSummary(unittest.TestCase):
             self.assertIn("1_Inbox", summary)
             self.assertIn("8_Done", summary)
             self.assertIn("Stage", summary)
+
+
+class TestHealthModeCompactBoard(unittest.TestCase):
+
+    def _make_board(self, tmp: Path) -> KanbanBoard:
+        tasks_dir = init_kanban_board(tmp)
+        for cid, title in (
+            ("HC-1", "One card in estimate"),
+            ("HC-2", "Another in estimate with deps"),
+        ):
+            card = KanbanCard(
+                id=cid, title=title, stage="2_Estimate", action="Product",
+                body="body", dependencies=["HC-1"] if cid == "HC-2" else [],
+            )
+            write_card(card, tasks_dir / "2_Estimate" / f"{cid}.md")
+        return KanbanBoard(tasks_dir, repo=FsCardRepository())
+
+    def test_compact_board_drops_title_and_keeps_signals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            board = self._make_board(Path(tmp))
+            rendered = format_board_detail(board, compact=True)
+            self.assertIn("HC-1", rendered)
+            self.assertIn("action=Product", rendered)
+            self.assertIn("loop=0", rendered)
+            self.assertIn("deps=1(1 unmet)", rendered)  # HC-2 has one unmet dep
+            self.assertNotIn("One card in estimate", rendered)  # title stripped
+            self.assertNotIn("| Title |", rendered)            # no table header
+
+    def test_health_prompt_uses_compact_board(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            board = self._make_board(Path(tmp))
+            prompt = build_teamlead_prompt(
+                mode="health", board=board,
+                diagnostic_info="test alert",
+                decision_path=str(Path(tmp) / ".orc" / "decision.md"),
+            )
+            self.assertIn("action=Product", prompt)
+            self.assertNotIn("| Title |", prompt)
+
+    def test_arbitration_prompt_still_uses_full_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            board = self._make_board(Path(tmp))
+            card = board.card_by_id("HC-1")
+            prompt = build_teamlead_prompt(
+                mode="arbitration", board=board, card=card,
+                decision_path=str(Path(tmp) / ".orc" / "decision.md"),
+            )
+            self.assertIn("| Title |", prompt)
 
 
 if __name__ == "__main__":
