@@ -48,6 +48,30 @@ def recover_resume_state(
         active_task_id = active.get("task_id")
         active_task_text = active.get("task_text")
         active_backlog_raw = str(active.get("backlog_path") or "").strip()
+        # Guard against cross-task resume: if the slot's active-task.json
+        # points at a different card than the current assignment, the
+        # previous task's state (conversation_id, env paths) must not leak
+        # into the new attempt. Drop the stale file and start fresh.
+        incoming_task_id = str(ctx.task_id or "").strip()
+        active_task_id_str = str(active_task_id or "").strip()
+        if incoming_task_id and active_task_id_str and active_task_id_str != incoming_task_id:
+            log_event(
+                log_path,
+                "WARN",
+                "resume state ignored: task id mismatch",
+                slot_task_id=active_task_id_str,
+                incoming_task_id=incoming_task_id,
+            )
+            try:
+                request.task_path.unlink()
+                request.state_writer.delete_runtime_state(request.task_path, log_path, reason="cross_task_resume_guard")
+            except OSError as exc:
+                log_event(log_path, "WARN", "failed to drop mismatched task file", error=str(exc))
+            resume.resume_existing = False
+            resume.resume_id = None
+            resume.persisted_restart_count = 0
+            resume.elapsed_before_start = 0.0
+            return None
         raw_conversation_id = active.get("conversation_id", None)
         resume.resume_id = str(raw_conversation_id or "").strip() or None
         raw_restart_count = active.get("restart_count", 0)
