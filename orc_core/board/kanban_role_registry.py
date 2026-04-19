@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Kanban role registry: single source of truth for role names and prompt file mappings."""
+"""Kanban role registry: single source of truth for role names, prompt
+files, and capability flags (`requires_worktree`, `is_delivery`)."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -21,39 +23,90 @@ ROLE_INTEGRATOR = "integrator"
 ROLE_TEAMLEAD = "teamlead"
 ROLE_TEAMLEAD_TRIAGE = "teamlead_triage"
 
-# ── Registry ──────────────────────────────────────────────────────
 
-_ROLE_PROMPT_FILES: dict[str, str] = {
-    ROLE_PRODUCT: "kanban_product.txt",
-    ROLE_ARCHITECT: "kanban_architect.txt",
-    ROLE_CODER: "kanban_coder.txt",
-    ROLE_REVIEWER: "kanban_reviewer.txt",
-    ROLE_TESTER: "kanban_tester.txt",
-    ROLE_INTEGRATOR: "kanban_integrator.txt",
-    ROLE_TEAMLEAD: "kanban_teamlead.txt",
-    ROLE_TEAMLEAD_TRIAGE: "kanban_teamlead_triage.txt",
-}
+# ── Role profile & registry ───────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class KanbanRoleProfile:
+    """Capabilities of a kanban role.
+
+    - `requires_worktree`: the role needs an isolated git worktree to run
+      (any role that touches source code).
+    - `is_delivery`: the role is expected to produce code commits for a
+      card (CODER/REVIEWER/TESTER); consumed by post-run guards that
+      reject empty deliveries.
+    """
+
+    name: str
+    prompt_file: str
+    requires_worktree: bool = False
+    is_delivery: bool = False
+
+
+_DEFAULT_PROFILES: tuple[KanbanRoleProfile, ...] = (
+    KanbanRoleProfile(ROLE_PRODUCT, "kanban_product.txt"),
+    KanbanRoleProfile(ROLE_ARCHITECT, "kanban_architect.txt"),
+    KanbanRoleProfile(ROLE_CODER, "kanban_coder.txt", requires_worktree=True, is_delivery=True),
+    KanbanRoleProfile(ROLE_REVIEWER, "kanban_reviewer.txt", requires_worktree=True, is_delivery=True),
+    KanbanRoleProfile(ROLE_TESTER, "kanban_tester.txt", requires_worktree=True, is_delivery=True),
+    KanbanRoleProfile(ROLE_INTEGRATOR, "kanban_integrator.txt", requires_worktree=True, is_delivery=False),
+    KanbanRoleProfile(ROLE_TEAMLEAD, "kanban_teamlead.txt"),
+    KanbanRoleProfile(ROLE_TEAMLEAD_TRIAGE, "kanban_teamlead_triage.txt"),
+)
+
+
+_PROFILES: dict[str, KanbanRoleProfile] = {p.name: p for p in _DEFAULT_PROFILES}
+
+
+def register_role_profile(profile: KanbanRoleProfile) -> None:
+    """Register or replace a full role profile."""
+    _PROFILES[profile.name] = profile
 
 
 def register_role(name: str, prompt_file: str) -> None:
-    """Register a new kanban role with its prompt template filename."""
-    _ROLE_PROMPT_FILES[name] = prompt_file
+    """Legacy registration. Creates a default (non-worktree, non-delivery) profile.
+
+    New code should use `register_role_profile` to set capabilities.
+    """
+    existing = _PROFILES.get(name)
+    if existing is None:
+        _PROFILES[name] = KanbanRoleProfile(name=name, prompt_file=prompt_file)
+    else:
+        _PROFILES[name] = replace(existing, prompt_file=prompt_file)
 
 
 def known_roles() -> list[str]:
     """Return all registered role names."""
-    return sorted(_ROLE_PROMPT_FILES.keys())
+    return sorted(_PROFILES.keys())
+
+
+def role_profile(role: str) -> KanbanRoleProfile:
+    """Return the profile for a role, raising ValueError on unknown roles."""
+    profile = _PROFILES.get(role)
+    if profile is None:
+        raise ValueError(
+            f"Unknown kanban role: {role!r}. "
+            f"Known roles: {', '.join(sorted(_PROFILES))}"
+        )
+    return profile
 
 
 def role_prompt_filename(role: str) -> str:
     """Return the prompt filename for a role, raising on unknown roles."""
-    filename = _ROLE_PROMPT_FILES.get(role)
-    if not filename:
-        raise ValueError(
-            f"Unknown kanban role: {role!r}. "
-            f"Known roles: {', '.join(sorted(_ROLE_PROMPT_FILES))}"
-        )
-    return filename
+    return role_profile(role).prompt_file
+
+
+def is_delivery_role(role: str) -> bool:
+    """True for roles expected to produce code commits (CODER/REVIEWER/TESTER)."""
+    profile = _PROFILES.get(role)
+    return bool(profile and profile.is_delivery)
+
+
+def requires_worktree(role: str) -> bool:
+    """True for roles that need an isolated git worktree to operate."""
+    profile = _PROFILES.get(role)
+    return bool(profile and profile.requires_worktree)
 
 
 # ── Template loader port & default implementation ─────────────────

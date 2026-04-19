@@ -51,34 +51,44 @@ class RoleResolvedConfig:
     prompt: str
 
 
+_DEFAULT_DEFINITIONS: tuple[RoleDefinition, ...] = (
+    RoleDefinition(
+        role_id=ROLE_CODER,
+        title="Кодер",
+        default_enabled=True,
+        can_toggle_enabled=True,
+        default_prompt_text="(kanban mode — model config only)",
+    ),
+    RoleDefinition(
+        role_id=ROLE_HANDOFF,
+        title="Сдача кода",
+        default_enabled=True,
+        can_toggle_enabled=False,
+        default_prompt_path=COMMIT_PROMPT_PATH,
+    ),
+    RoleDefinition(
+        role_id=ROLE_MERGE_EXPERT,
+        title="Merge Expert",
+        default_enabled=False,
+        can_toggle_enabled=False,
+        default_prompt_path=MERGE_EXPERT_PROMPT_PATH,
+    ),
+)
+
+
 class RoleProfileRegistry:
-    def __init__(self) -> None:
-        self._definitions: dict[str, RoleDefinition] = {
-            ROLE_CODER: RoleDefinition(
-                role_id=ROLE_CODER,
-                title="Кодер",
-                default_enabled=True,
-                can_toggle_enabled=True,
-                default_prompt_text="(kanban mode — model config only)",
-            ),
-            ROLE_HANDOFF: RoleDefinition(
-                role_id=ROLE_HANDOFF,
-                title="Сдача кода",
-                default_enabled=True,
-                can_toggle_enabled=False,
-                default_prompt_path=COMMIT_PROMPT_PATH,
-            ),
-            ROLE_MERGE_EXPERT: RoleDefinition(
-                role_id=ROLE_MERGE_EXPERT,
-                title="Merge Expert",
-                default_enabled=False,
-                can_toggle_enabled=False,
-                default_prompt_path=MERGE_EXPERT_PROMPT_PATH,
-            ),
-        }
+    def __init__(self, definitions: Optional[tuple[RoleDefinition, ...]] = None) -> None:
+        self._definitions: dict[str, RoleDefinition] = {}
+        for definition in (definitions if definitions is not None else _DEFAULT_DEFINITIONS):
+            self._definitions[definition.role_id] = definition
+
+    def register(self, definition: RoleDefinition) -> None:
+        """Register or replace a role definition."""
+        self._definitions[definition.role_id] = definition
 
     def definitions(self) -> list[RoleDefinition]:
-        return [self._definitions[role_id] for role_id in ALL_ROLE_IDS]
+        return [self._definitions[role_id]
+                for role_id in ALL_ROLE_IDS if role_id in self._definitions]
 
     def load_prompt(self, path: Path) -> str:
         if not path.exists():

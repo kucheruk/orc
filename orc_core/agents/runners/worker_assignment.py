@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from ...board.action_constants import Action
-from ...board.kanban_role_registry import ROLE_CODER, ROLE_REVIEWER, ROLE_TESTER
+from ...board.kanban_role_registry import is_delivery_role
 from ...git.git_dto import WorktreeSession
 from ...git.git_helpers import has_code_changes_ahead, has_commits_ahead_of_branch
 from ...git.use_cases.finalize_task_worktree import finalize_completed_worktree
@@ -32,9 +32,6 @@ from .worker_support import (
     update_card_token_budget,
     verify_and_commit_uncommitted,
 )
-
-DELIVERY_ROLES = frozenset({ROLE_CODER, ROLE_REVIEWER, ROLE_TESTER})
-
 
 class WorkerAssignmentExecutor:
     def __init__(
@@ -99,7 +96,7 @@ class WorkerAssignmentExecutor:
             if result and result.status == TaskExecutionStatus.COMPLETED:
                 if self._discard_if_stale(card.id, launch_state):
                     return
-                if assignment.needs_worktree and role in DELIVERY_ROLES:
+                if assignment.needs_worktree and is_delivery_role(role):
                     verify_and_commit_uncommitted(wd, self._main_branch, self._log_path, card.id, card.title or card.id)
                 if self._reject_empty_delivery(card, role, assignment.needs_worktree, wd):
                     return
@@ -172,7 +169,7 @@ class WorkerAssignmentExecutor:
         return True
 
     def _reject_empty_delivery(self, card, role: str, needs_worktree: bool, workdir: str) -> bool:
-        if not needs_worktree or role not in DELIVERY_ROLES:
+        if not needs_worktree or not is_delivery_role(role):
             return False
         if has_code_changes_ahead(workdir, self._main_branch, self._log_path):
             return False
