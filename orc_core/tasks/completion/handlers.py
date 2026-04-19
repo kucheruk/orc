@@ -9,7 +9,7 @@ from typing import Optional, Protocol
 
 from ...log import log_event
 from ...observability import timeline_instant
-from ..integration.hooks import update_task_restart_count
+from ..integration.task_file import update_task_restart_count
 from ..execution.request import TaskExecutionResult
 from ..status import TaskCompletionStatus, TaskExecutionStatus
 

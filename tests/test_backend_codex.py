@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -56,14 +55,6 @@ class CodexPreflightTest(unittest.TestCase):
     @patch("shutil.which", return_value="/usr/local/bin/codex")
     def test_installed_ok(self, _mock_which) -> None:
         CodexBackend().ensure_installed()
-
-
-class CodexHooksTest(unittest.TestCase):
-    def test_setup_hooks_is_noop(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "orc.log"
-            CodexBackend().setup_hooks(tmpdir, log_path)
-            self.assertFalse((Path(tmpdir) / ".cursor").exists())
 
 
 class CodexResumeTest(unittest.TestCase):

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 from ...observability import debug_log
 from ...log import log_event
 from ...agents.session.state import save_active_session, save_session_manifest
-from ..integration.hooks import write_task_file
+from ..integration.task_file import write_task_file
 from ..ports import TaskStateWriter
 from .request import TaskExecutionResult
 from ..status import TaskExecutionStatus

@@ -68,8 +68,6 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--nudge-cooldown", type=float, default=_d.nudge_cooldown, help="Seconds between auto-nudges")
     ap.add_argument("--nudge-text", default=_d.nudge_text, help="Text to send before Enter")
     ap.add_argument("--telegram-test", nargs="?", const="orc telegram test", default=None, help="Test Telegram and exit")
-    ap.add_argument("--reinit-hooks", action="store_true", help="Recreate hooks on startup")
-    ap.add_argument("--hooks", action="store_true", help="Install agent hooks (default: off)")
     ap.add_argument("--max-sessions", type=int, default=0, help="Max parallel agent sessions (2-4, default: 4)")
     ap.add_argument("--init-kanban", action="store_true", help="Initialize kanban board folder structure and exit")
     ap.add_argument(

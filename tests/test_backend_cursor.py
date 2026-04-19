@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -70,24 +69,6 @@ class CursorPreflightTest(unittest.TestCase):
     @patch("shutil.which", return_value="/usr/local/bin/agent")
     def test_installed_ok(self, _mock_which) -> None:
         CursorBackend().ensure_installed()
-
-
-class CursorHooksTest(unittest.TestCase):
-    def test_setup_hooks_creates_files_when_installer_injected(self) -> None:
-        from orc_core.tasks.integration.hooks import TasksRepoHooksInstaller
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "orc.log"
-            log_path.touch()
-            CursorBackend(TasksRepoHooksInstaller()).setup_hooks(tmpdir, log_path)
-            self.assertTrue((Path(tmpdir) / ".cursor" / "hooks" / "orc_stop.py").exists())
-            self.assertTrue((Path(tmpdir) / ".cursor" / "hooks.json").exists())
-
-    def test_setup_hooks_no_op_when_no_installer(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "orc.log"
-            log_path.touch()
-            CursorBackend().setup_hooks(tmpdir, log_path)
-            self.assertFalse((Path(tmpdir) / ".cursor").exists())
 
 
 class CursorDefaultModelTest(unittest.TestCase):

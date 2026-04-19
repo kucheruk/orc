@@ -15,7 +15,7 @@ from ...text_parse import SafeDict
 from ...agents.results.io import RESULT_FILE_ENV, RESULT_RUN_ID_ENV
 from ..backlog.detector import check_backlog_done as _check_backlog_done
 from ..completion.handlers import COMPLETION_HANDLERS
-from ..integration.hooks import update_task_restart_count
+from ..integration.task_file import update_task_restart_count
 from ..stages.artifacts import build_stage_artifact_bundle
 from ..backlog.source import MarkdownTaskSource
 from ..status import TaskCompletionStatus, TaskExecutionStatus

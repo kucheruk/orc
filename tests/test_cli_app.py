@@ -79,8 +79,6 @@ class CliAppCrashDiagnosticsTest(unittest.TestCase):
             nudge_cooldown=300.0,
             nudge_text="continue",
             telegram_test=None,
-            reinit_hooks=False,
-            hooks=False,
             max_sessions=0,
             init_kanban=False,
             debug=False,

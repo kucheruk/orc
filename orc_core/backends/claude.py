@@ -7,7 +7,6 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-
 from ..errors.exceptions import AgentNotInstalledError
 
 
@@ -66,9 +65,6 @@ class ClaudeBackend:
         else:
             raise ValueError("prompt is required when not resuming")
         return cmd
-
-    def setup_hooks(self, workdir: str, log_path: Path) -> None:
-        pass
 
     def get_resume_id(self, workdir: str, log_path: Path) -> Optional[str]:
         return None

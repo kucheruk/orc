@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -61,14 +60,6 @@ class ClaudePreflightTest(unittest.TestCase):
     @patch("shutil.which", return_value="/usr/local/bin/claude")
     def test_installed_ok(self, _mock_which) -> None:
         ClaudeBackend().ensure_installed()
-
-
-class ClaudeHooksTest(unittest.TestCase):
-    def test_setup_hooks_is_noop(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "orc.log"
-            ClaudeBackend().setup_hooks(tmpdir, log_path)
-            self.assertFalse((Path(tmpdir) / ".cursor").exists())
 
 
 class ClaudeResumeTest(unittest.TestCase):
