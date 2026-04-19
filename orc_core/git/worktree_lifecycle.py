@@ -79,7 +79,7 @@ def create_task_worktree(
     )
 
 
-def cleanup_task_worktree(session: WorktreeSession, log_path: Path) -> None:
+def cleanup_task_worktree(session: WorktreeSession, log_path: Path, *, force: bool = False) -> None:
     ok, _, stderr, _ = run_git(session.base_workdir, ["git", "worktree", "remove", session.worktree_path])
     if not ok:
         status_ok, status_out, status_err, _ = run_git(session.worktree_path, ["git", "status", "--porcelain"])
@@ -94,12 +94,13 @@ def cleanup_task_worktree(session: WorktreeSession, log_path: Path) -> None:
             if path:
                 dirty_paths.append(path)
         only_runtime_artifacts = bool(dirty_paths) and all(is_runtime_artifact(path) for path in dirty_paths)
-        if not only_runtime_artifacts:
+        if not (only_runtime_artifacts or force):
             raise RuntimeError(f"failed to remove worktree: {stderr.strip()}")
+        fallback_reason = "force remove requested" if force else "force remove due to runtime artifacts"
         log_event(
             log_path,
             "WARN",
-            "worktree cleanup fallback: force remove due to runtime artifacts",
+            f"worktree cleanup fallback: {fallback_reason}",
             task_id=session.task_id,
             worktree_path=session.worktree_path,
             dirty_paths=dirty_paths[:20],

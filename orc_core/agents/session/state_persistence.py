@@ -100,7 +100,7 @@ def cleanup_done_worktrees(
                 task_id=card_id,
             )
             try:
-                cleanup_task_worktree(session, log_path)
+                cleanup_task_worktree(session, log_path, force=True)
                 cleaned += 1
             except Exception as exc:
                 log_event(log_path, "WARN", "failed to cleanup done worktree",
