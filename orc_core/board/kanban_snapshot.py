@@ -14,7 +14,7 @@ from .stage_constants import STAGES, STAGE_DONE
 
 if TYPE_CHECKING:
     from .kanban_board import KanbanBoard
-    from ..tasks.ports import MonitorSnapshot
+    from ..contracts.session import MonitorSnapshot
 
 
 @dataclass(frozen=True)

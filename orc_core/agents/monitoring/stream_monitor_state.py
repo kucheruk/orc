@@ -16,7 +16,7 @@ import time
 from collections import deque
 from typing import Deque, Dict, Optional
 
-from ...tasks.ports import MetricsStore, MonitorSnapshot
+from ...contracts.session import MetricsStore, MonitorSnapshot
 from ...text_parse import clean_summary_lines
 from .token_tracker import TokenTracker
 from .reasoning_tracker import ReasoningTracker

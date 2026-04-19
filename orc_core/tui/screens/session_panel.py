@@ -29,7 +29,7 @@ from ..display_constants import (
     RECENT_FILES_COUNT,
     RECENT_LOG_MAX_LINES,
 )
-from ...tasks.ports import MonitorSnapshot
+from ...contracts.session import MonitorSnapshot
 from .session_panel_format import (
     format_activity,
     format_duration,

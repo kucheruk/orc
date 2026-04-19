@@ -3,7 +3,7 @@
 
 from textual.message import Message
 
-from ..tasks.ports import MonitorSnapshot
+from ..contracts.session import MonitorSnapshot
 
 
 class SnapshotUpdated(Message):

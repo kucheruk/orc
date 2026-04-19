@@ -10,7 +10,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Dict, Optional
 
 if TYPE_CHECKING:
-    from ...tasks.ports import MetricsStore
+    from ...contracts.session import MetricsStore
 
 
 _USAGE_CACHE_MAX = 4096

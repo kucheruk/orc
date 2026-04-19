@@ -17,7 +17,7 @@ from pathlib import Path
 
 from ...infra.io.logging import log_event, now_ms
 from ...infra.io.timeline import timeline_instant
-from ...tasks.ports import MetricsStore
+from ...contracts.session import MetricsStore
 from .monitor_metrics_collector import MonitorMetricsCollector
 from .snapshot_builder import SnapshotBuilder
 from .stream_monitor_state import StreamMonitorState

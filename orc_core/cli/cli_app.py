@@ -35,7 +35,7 @@ from ..role_config import (
     ROLE_MERGE_EXPERT,
     RoleProfileRegistry,
 )
-from ..tasks.ports import MonitorSnapshot
+from ..contracts.session import MonitorSnapshot
 from ..tasks.execution.engine import TaskExecutionEngine
 from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn

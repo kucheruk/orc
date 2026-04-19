@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from ...infra.io.timeline import timeline_instant
-from ...tasks.ports import MonitorSnapshot
+from ...contracts.session import MonitorSnapshot
 from .stream_monitor_state import StreamMonitorState
 
 

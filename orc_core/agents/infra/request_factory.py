@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 from ...board.kanban_distributor import KanbanDistributor
 from ...config import OrcConfig
 from ...backends.backend import Backend
-from ...tasks.ports import GitIntegrationPort, MonitorSnapshot, ProcessLifecyclePort, StatePathsPort, TaskStateWriter
+from ...contracts.session import MonitorSnapshot
+from ...tasks.ports import GitIntegrationPort, ProcessLifecyclePort, StatePathsPort, TaskStateWriter
 from .request_builder import build_kanban_request
 
 if TYPE_CHECKING:

@@ -11,7 +11,8 @@ from ...config import OrcConfig
 from ...backends.backend import Backend
 from ...infra.io.state_paths import parallel_task_path
 from ...infra.io.state_paths import run_root as state_run_root
-from ...tasks.ports import GitIntegrationPort, MonitorSnapshot, ProcessLifecyclePort, StatePathsPort, TaskStateWriter
+from ...contracts.session import MonitorSnapshot
+from ...tasks.ports import GitIntegrationPort, ProcessLifecyclePort, StatePathsPort, TaskStateWriter
 from ...tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from ...tasks.execution.request import TaskExecutionRequest
 from ...tasks.dto import Task

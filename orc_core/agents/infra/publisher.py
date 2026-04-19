@@ -11,7 +11,7 @@ from ...board.kanban_snapshot import JournalEntry, KanbanBoardSnapshot, build_bo
 
 if TYPE_CHECKING:
     from ...board.kanban_board import KanbanBoard
-    from ...tasks.ports import MonitorSnapshot
+    from ...contracts.session import MonitorSnapshot
 
 
 class KanbanPublisher:
