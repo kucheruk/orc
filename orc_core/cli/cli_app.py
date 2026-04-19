@@ -110,6 +110,40 @@ def _failure_message(reason: str) -> str:
     return "ORC завершился с ошибкой без детали причины. Проверьте лог ORC."
 
 
+def _terminate_child_process_groups() -> None:
+    """Send SIGTERM to each direct-child process group we don't share.
+
+    Agent subprocesses are spawned with start_new_session=True, so they
+    become leaders of their own groups and do NOT die when we kill
+    ORC's own group. psutil still lists them as our direct children,
+    which is enough to reach them by PGID.
+    """
+    try:
+        import os
+        import signal as _signal
+        import psutil
+    except Exception:
+        return
+    try:
+        me = psutil.Process()
+    except Exception:
+        return
+    own_pgid = os.getpgrp()
+    for child in me.children(recursive=False):
+        try:
+            pgid = os.getpgid(child.pid)
+        except (ProcessLookupError, psutil.NoSuchProcess):
+            continue
+        except OSError:
+            continue
+        if pgid <= 0 or pgid == own_pgid:
+            continue
+        try:
+            os.killpg(pgid, _signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+
+
 def _atexit_kill_group() -> None:
     """Kill our entire process group on exit so no children survive."""
     # Ignore signals to prevent recursive handler invocation
@@ -120,6 +154,7 @@ def _atexit_kill_group() -> None:
                 signal.signal(sig, signal.SIG_IGN)
             except Exception:
                 pass
+    _terminate_child_process_groups()
     from ..infra.process.process_groups import kill_own_process_group
     kill_own_process_group()
 

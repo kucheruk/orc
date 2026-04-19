@@ -141,7 +141,9 @@ def install_crash_handlers(
             _CRASH_HANDLER_LOCK.release()
         if not _killpg_fired:
             _killpg_fired = True
+            from ..cli.cli_app import _terminate_child_process_groups
             from ..infra.process.process_groups import kill_own_process_group
+            _terminate_child_process_groups()
             kill_own_process_group()
         raise SystemExit(128 + int(signum))
 
