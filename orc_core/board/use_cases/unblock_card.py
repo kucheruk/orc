@@ -34,4 +34,11 @@ def unblock_card(
         log_event(log_path, "INFO", "card unblocked", card_id=card_id, directive=directive)
     if publisher is not None:
         publisher.log_unblock(card_id, directive)
+    from ...signals import SignalKind, emit_signal
+    emit_signal(
+        SignalKind.CARD_UNBLOCKED,
+        "operator_directive" if directive else "operator",
+        task_id=card_id,
+        context={"directive": (directive or "")[:300]},
+    )
     return True

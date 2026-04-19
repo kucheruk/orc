@@ -250,6 +250,12 @@ class KanbanSessionManager:
             pool_running="",
             hint="supervisor may safely restart ORC now",
         )
+        from ...signals import SignalKind, emit_signal
+        emit_signal(
+            SignalKind.ORC_IDLE_WINDOW,
+            "worker_slots_idle",
+            context={"idle_seconds": int(duration)},
+        )
 
     def _send_heartbeat_telegram(self, message: str) -> None:
         """Heartbeat pings are routine — only surface them in debug mode."""

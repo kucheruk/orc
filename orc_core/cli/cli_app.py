@@ -71,6 +71,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-sessions", type=int, default=0, help="Max parallel agent sessions (2-4, default: 4)")
     ap.add_argument("--init-kanban", action="store_true", help="Initialize kanban board folder structure and exit")
     ap.add_argument(
+        "--signals-digest",
+        nargs="?", const="20m", default=None, metavar="DURATION",
+        help="Print signals digest for the given window (e.g. '20m', '2h', '30s') and exit",
+    )
+    ap.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging to the system temp directory",
@@ -167,6 +172,33 @@ def _resolve_model(args, workdir: str, role_registry: RoleProfileRegistry) -> st
     return coder_config.model or load_last_selected_model(workdir) or DEFAULT_MODEL
 
 
+def _parse_duration(raw: str) -> int:
+    """Return seconds from a short spec: '20m', '2h', '45s'. Bare number = seconds."""
+    s = (raw or "").strip().lower()
+    if not s:
+        return 1200
+    mult = 1
+    if s.endswith("s"):
+        s = s[:-1]
+    elif s.endswith("m"):
+        mult, s = 60, s[:-1]
+    elif s.endswith("h"):
+        mult, s = 3600, s[:-1]
+    try:
+        return max(int(float(s) * mult), 1)
+    except ValueError:
+        return 1200
+
+
+def _print_signals_digest(workdir: str, window_raw: str) -> int:
+    from ..signals import format_digest, load_since, signals_path_for
+    seconds = _parse_duration(window_raw)
+    path = signals_path_for(workdir)
+    signals = load_since(path, seconds=seconds)
+    print(format_digest(signals, window_seconds=seconds))
+    return 0
+
+
 def _resolve_templates(args, workdir: str, role_registry: RoleProfileRegistry) -> tuple[str, str, str, str]:
     """Resolve commit/merge templates. Returns (commit_model, commit_template, merge_model, merge_template)."""
     commit_template = ""
@@ -207,6 +239,9 @@ def main() -> int:
         if args.telegram_test is not None:
             send_telegram_message(args.telegram_test, log_path)
             return 0
+
+        if getattr(args, "signals_digest", None) is not None:
+            return _print_signals_digest(workdir, args.signals_digest)
 
         if getattr(args, "init_kanban", False):
             from ..board.kanban_init import init_kanban_board
@@ -269,9 +304,17 @@ def main() -> int:
 
             from ..notifications.messages import format_orc_shutdown, format_orc_startup
             from ..notifications.notify import send_severity
+            from ..signals import SignalKind, emit_signal
+            max_sessions = int(getattr(args, "max_sessions", 0) or 0)
             send_severity(
-                format_orc_startup(workdir, int(getattr(args, "max_sessions", 0) or 0)),
+                format_orc_startup(workdir, max_sessions),
                 log_path, orc_root=Path(workdir),
+            )
+            emit_signal(
+                SignalKind.ORC_STARTUP,
+                "bootstrap",
+                workdir=workdir,
+                context={"max_sessions": max_sessions, "backend": getattr(args, "backend", "")},
             )
 
             app = OrcApp(_run_orchestrator, session_manager=manager)
@@ -280,6 +323,12 @@ def main() -> int:
             send_severity(
                 format_orc_shutdown(f"exit_code={exit_code}"),
                 log_path, orc_root=Path(workdir),
+            )
+            emit_signal(
+                SignalKind.ORC_SHUTDOWN,
+                f"exit_code={exit_code}",
+                workdir=workdir,
+                context={"exit_code": exit_code, "crashed": bool(app.last_error)},
             )
             if app.last_error:
                 crash_payload = emit_crash_stdout_payload(

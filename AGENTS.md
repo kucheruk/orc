@@ -8,4 +8,5 @@
 - После каждого фикса обязателен коммит — не копить несколько фиксов в одном коммите
 - любой запущенный процесс должен быть под контролем, инвариант: недопустимо оставить беспризорный процесс
 - Тесты запускать через unittest в uv-окружении: полный прогон `uv run python -m unittest`, для одного файла `uv run python -m unittest tests.test_<name>`
+- Операторские сигналы (журнал важных событий): `from orc_core.signals import SignalKind, emit_signal`. Писать только курируемые `SignalKind` при blocked/done/skipped/escalated/validation_failed/max_restarts/arbitration/health_check/startup/shutdown/idle_window и т.п. Каждый сигнал: `event + reason + context`. Хранится в `{state}/analytics/signals.jsonl`. Дайджест: `orc --workspace <dir> --signals-digest 20m`. Не превращать в дубликат `orc.log`.
 

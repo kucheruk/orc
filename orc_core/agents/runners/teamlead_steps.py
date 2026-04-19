@@ -92,6 +92,14 @@ class TeamleadContext:
         self.publisher.log_escalate(card.id, msg)
         self.notifier.notify_escalation(card.id, card.title, card.stage, card.loop_count)
         log_event(self.log_path, "WARN", "escalation", task_id=card.id, detail=msg)
+        from ...signals import SignalKind, emit_signal
+        emit_signal(
+            SignalKind.CARD_ESCALATED,
+            "loop_count_threshold",
+            task_id=card.id,
+            context={"loop_count": card.loop_count, "stage": card.stage,
+                     "title": card.title[:80]},
+        )
 
 
 class TeamleadStep(Protocol):
@@ -131,6 +139,15 @@ class ArbitrationStep:
         log_event(ctx.log_path, "INFO", "teamlead arbitration",
                   session_id=sid, task_id=card.id, loop_count=card.loop_count,
                   escalation_candidate=needs_esc)
+        from ...signals import SignalKind, emit_signal
+        emit_signal(
+            SignalKind.TEAMLEAD_ARBITRATION,
+            "loop_count_bounceback",
+            task_id=card.id,
+            context={"loop_count": card.loop_count,
+                     "escalation_candidate": bool(needs_esc),
+                     "stage": card.stage},
+        )
         card.action = Action.ARBITRATION
         ctx.distributor.board.save_card(card)
         dec_path = ctx.decision_path()
@@ -247,6 +264,12 @@ class HealthCheckStep:
             token_stats=load_token_stats(ctx.workdir, paths=ctx.state_paths),
         )
         task = Task(task_id="tl-health", text="[TL] Board health check", done=False)
+        from ...signals import SignalKind, emit_signal
+        emit_signal(
+            SignalKind.TEAMLEAD_HEALTH_CHECK,
+            diag_text.split("\n", 1)[0][:200] if diag_text else "board_deadlock",
+            context={"consecutive": self._consecutive, "diagnostic": diag_text[:500]},
+        )
         ctx.invoke_teamlead(slot, sid, task, prompt)
         ctx.process_decision(dec_path)
         ctx.lifecycle.sleep(3.0)

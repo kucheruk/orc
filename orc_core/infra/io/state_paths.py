@@ -92,6 +92,11 @@ def stats_path(workdir: str) -> Path:
     return _repo_analytics_dir(workdir) / "stats.json"
 
 
+def signals_path(workdir: str) -> Path:
+    """Per-workspace operator-facing signals journal (append-only JSON lines)."""
+    return _repo_analytics_dir(workdir) / "signals.jsonl"
+
+
 def metrics_path(workdir: str) -> Path:
     return _runtime_dir() / "metrics" / f"{_repo_key(workdir)}.json"
 

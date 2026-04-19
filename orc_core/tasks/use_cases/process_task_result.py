@@ -68,11 +68,41 @@ def process_completed_task(
         outcomes.record_completed(card.id)
         publisher.log_complete(card.id, role, elapsed)
         notifier.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
+        from ...signals import SignalKind, emit_signal
+        emit_signal(
+            SignalKind.ATTEMPT_FINISH,
+            "applied",
+            task_id=card.id,
+            context={"role": role, "stage": card.stage, "elapsed_s": int(elapsed)},
+        )
+        if old_stage != card.stage:
+            emit_signal(
+                SignalKind.CARD_MOVED,
+                "pipeline_transition",
+                task_id=card.id,
+                context={"from": old_stage, "to": card.stage, "role": role,
+                         "action_from": old_action, "action_to": card.action},
+            )
+        from ...board.stage_constants import STAGE_DONE
+        if card.stage == STAGE_DONE and old_stage != STAGE_DONE:
+            emit_signal(
+                SignalKind.CARD_DONE,
+                "integration_complete" if role == "integrator" else "pipeline_complete",
+                task_id=card.id,
+                context={"role": role, "elapsed_s": int(elapsed)},
+            )
     else:
         publisher.emit("escalate", card.id,
                         f"{card.id} validation failed: {'; '.join(errors[:3])}")
         log_event(log_path, "WARN", "agent output validation failed",
                   task_id=card.id, role=role, errors=str(errors))
+        from ...signals import SignalKind, emit_signal
+        emit_signal(
+            SignalKind.ATTEMPT_VALIDATION_FAILED,
+            "; ".join(errors[:3])[:200],
+            task_id=card.id,
+            context={"role": role, "stage": card.stage, "errors": errors[:5]},
+        )
         outcomes.record_failed(card.id)
     return errors
 
@@ -112,6 +142,13 @@ def escalate_if_threshold_reached(
         log_event(log_path, "WARN", "card blocked after repeated failures",
                   task_id=card.id, fail_count=count, error=error_desc)
         notifier.notify_card_blocked(card.id, count, error_desc)
+        from ...signals import SignalKind, emit_signal
+        emit_signal(
+            SignalKind.CARD_BLOCKED,
+            "failure_threshold_reached",
+            task_id=card.id,
+            context={"fail_count": count, "error": str(error_desc)[:300]},
+        )
     except (OSError, ConnectionError, TimeoutError, ValueError) as exc:
         log_event(log_path, "ERROR", "failed to block card after repeated failures",
                   task_id=card.id, fail_count=count, error=str(exc))

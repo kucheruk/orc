@@ -206,6 +206,18 @@ class WorkerAssignmentExecutor:
             tokens_spent=card.tokens_spent,
             reason=reason,
         )
+        from ...signals import SignalKind, emit_signal
+        emit_signal(
+            SignalKind.ATTEMPT_DISCARDED,
+            reason,
+            task_id=card.id,
+            context={
+                "tokens": attempt_tokens,
+                "tokens_discarded": card.tokens_discarded,
+                "tokens_spent": card.tokens_spent,
+                "stage": card.stage,
+            },
+        )
 
     def _reject_empty_delivery(self, card, role: str, needs_worktree: bool, workdir: str) -> bool:
         if not needs_worktree or not is_delivery_role(role):

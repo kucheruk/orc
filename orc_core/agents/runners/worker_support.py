@@ -68,6 +68,7 @@ def check_and_block_budget(card, board, publisher, log_path: Path, notifier=None
     if not card.is_budget_exhausted:
         return False
     from ...log import log_event
+    from ...signals import SignalKind, emit_signal
 
     reason = f"token budget exhausted: {card.tokens_spent}/{card.token_budget}"
     log_event(
@@ -77,6 +78,17 @@ def check_and_block_budget(card, board, publisher, log_path: Path, notifier=None
         task_id=card.id,
         tokens_spent=card.tokens_spent,
         token_budget=card.token_budget,
+    )
+    emit_signal(
+        SignalKind.CARD_BLOCKED,
+        "token_budget_exhausted",
+        task_id=card.id,
+        context={
+            "tokens_spent": card.tokens_spent,
+            "tokens_discarded": int(getattr(card, "tokens_discarded", 0) or 0),
+            "token_budget": card.token_budget,
+            "stage": card.stage,
+        },
     )
     publisher.emit("escalate", card.id, f"{card.id} BLOCKED: {reason}")
     card.block(reason)

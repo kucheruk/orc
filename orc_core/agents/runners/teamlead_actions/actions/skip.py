@@ -32,3 +32,9 @@ class SkipCardHandler:
                 ctx.notifier.notify_card_skipped(card_id, ctx.reason or "")
             except Exception:
                 pass
+        from orc_core.signals import SignalKind, emit_signal
+        emit_signal(
+            SignalKind.CARD_SKIPPED,
+            ctx.reason or "teamlead_skip",
+            task_id=card_id,
+        )

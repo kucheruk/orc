@@ -235,6 +235,15 @@ def run_stage_loop(engine: "TaskExecutionEngine", ctx: _ExecutionContext, resume
                 ts_attempt.reason = result
             if restart_policy.exceeded(restart_count):
                 log_event(log_path, "ERROR", "max restarts exceeded", task_id=task_id)
+                from ...signals import SignalKind, emit_signal
+                emit_signal(
+                    SignalKind.ATTEMPT_MAX_RESTARTS,
+                    "restart_policy_exceeded",
+                    task_id=task_id,
+                    context={"restart_count": restart_count,
+                             "max_restarts": restart_policy.max_restarts,
+                             "stage_id": stage_id},
+                )
                 debug_log(
                     "H6",
                     "orc_core/task_execution.py:_run_stage_loop:max_restarts",
