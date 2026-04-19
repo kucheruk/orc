@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 from ...board.action_constants import Action
 from ...board.card_sections import merge_section_updates
-from ...board.kanban_card import validate_card
 from ...board.state_machine import FORWARD_MOVES, IDENTITY_DEFAULTS, LOOP_BACK_ACTIONS, VALID_TRANSITIONS
 from ...board.stage_constants import STAGE_CODING, STAGE_ORDER, STAGE_TODO
 from .card_update_rules import allowed_fields, allowed_sections, can_append_feedback
@@ -52,7 +51,7 @@ def apply_card_update_result(
         if current.action in LOOP_BACK_ACTIONS and old_action != Action.CODING:
             current.loop_count += 1
         current.refresh_roi()
-        card_errors = validate_card(current)
+        card_errors = current.validate()
         if card_errors:
             _logger.warning("Card validation warnings for %s: %s", current.id, card_errors)
         board.save_card(current, old_action=old_action, role=role)

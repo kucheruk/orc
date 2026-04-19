@@ -12,6 +12,7 @@ from typing import Callable
 from .board_listeners import BoardListenerBus
 from .card_repository import CardRepository
 from .kanban_card import KanbanCard
+from .kanban_card_serializer import card_to_markdown
 from .movement_rules import resolve_deferred_target
 from .stage_constants import STAGE_ORDER
 from .wip_manager import WIPManager
@@ -67,7 +68,7 @@ class BoardMovementService:
                 card.file_path = new_path
                 card.touch()
                 card.advance_state_version()
-                self._repo.write_card_text(new_path, card.to_markdown())
+                self._repo.write_card_text(new_path, card_to_markdown(card))
             except Exception:
                 try:
                     self._repo.move_card_file(new_path, old_path.parent)

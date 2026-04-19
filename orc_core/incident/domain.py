@@ -62,7 +62,8 @@ class Incident:
 
 # ── Prompt builder ────────────────────────────────────────────────
 
-from ..board.kanban_card import SECTION_DESIGN, SECTION_FEEDBACK, SECTION_NOTES, SECTION_PRODUCT
+from ..board.card_sections import SECTION_DESIGN, SECTION_FEEDBACK, SECTION_NOTES, SECTION_PRODUCT
+from ..board.kanban_card_serializer import card_to_markdown
 from ..board.kanban_role_registry import ROLE_CODER, ROLE_TEAMLEAD_TRIAGE
 
 _FRONT_RE = re.compile(r"\A---\n(.*?\n?)---\n?(.*)", re.DOTALL)
@@ -100,7 +101,7 @@ def build_incident_prompt(
         error_traceback=incident.traceback[:2000],
         traceback_file=traceback_file,
         source_card_path=str(source_card.file_path) if source_card else "N/A",
-        source_card_content=source_card.to_markdown() if source_card else "No card was being processed.",
+        source_card_content=card_to_markdown(source_card) if source_card else "No card was being processed.",
         worktree_path=incident.worktree_path or "N/A (main workdir)",
         orc_install_path=orc_install_path,
         decision_path=decision_path,

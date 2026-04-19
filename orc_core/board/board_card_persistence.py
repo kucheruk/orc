@@ -9,6 +9,7 @@ import threading
 from .board_listeners import BoardListenerBus
 from .card_repository import CardRepository
 from .kanban_card import KanbanCard
+from .kanban_card_serializer import card_to_markdown
 
 
 class BoardCardPersistence:
@@ -30,7 +31,7 @@ class BoardCardPersistence:
             card.touch()  # touch() includes refresh_roi()
             card.advance_state_version()
             if card.file_path:
-                self._repo.write_card_text(card.file_path, card.to_markdown())
+                self._repo.write_card_text(card.file_path, card_to_markdown(card))
         if old_action and old_action != card.action:
             self._listeners.fire_action_change(card.id, old_action, card.action, role)
 
@@ -39,11 +40,11 @@ class BoardCardPersistence:
             card.assign(agent_id)
             card.advance_state_version()
             if card.file_path:
-                self._repo.write_card_text(card.file_path, card.to_markdown())
+                self._repo.write_card_text(card.file_path, card_to_markdown(card))
 
     def release(self, card: KanbanCard) -> None:
         with self._lock:
             card.release()
             card.advance_state_version()
             if card.file_path:
-                self._repo.write_card_text(card.file_path, card.to_markdown())
+                self._repo.write_card_text(card.file_path, card_to_markdown(card))

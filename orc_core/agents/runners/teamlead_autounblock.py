@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ...board.kanban_card import SECTION_DESIGN, SECTION_FEEDBACK, SECTION_NOTES, SECTION_PRODUCT
+from ...board.card_sections import SECTION_DESIGN, SECTION_FEEDBACK, SECTION_NOTES, SECTION_PRODUCT
 from ...board.stage_constants import STAGE_DONE
 from ...board.use_cases.create_card import create_inbox_card
 from ...log import log_event

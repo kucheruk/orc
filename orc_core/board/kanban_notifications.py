@@ -3,7 +3,8 @@
 """Notification formatting for kanban card lifecycle events."""
 
 from .action_constants import ClassOfService
-from .kanban_card import SECTION_NOTES, KanbanCard
+from .card_sections import SECTION_NOTES
+from .kanban_card import KanbanCard
 from .stage_constants import STAGE_DONE, STAGE_SHORT_NAMES
 
 

@@ -5,12 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orc_core.board.kanban_card import (
-    KanbanCard,
-    new_card_body,
-    parse_card,
-    validate_card,
-)
+from orc_core.board.card_sections import new_card_body
+from orc_core.board.kanban_card import KanbanCard
+from orc_core.board.kanban_card_serializer import card_to_markdown, parse_card
 from orc_core.board.fs_card_repository import FsCardRepository
 
 _repo = FsCardRepository()
@@ -117,7 +114,7 @@ class TestRoundTrip(unittest.TestCase):
             body=new_card_body(),
         )
         card.refresh_roi()
-        md = card.to_markdown()
+        md = card_to_markdown(card)
         parsed = parse_card(md)
         self.assertEqual(parsed.id, "RT-01")
         self.assertEqual(parsed.class_of_service, "expedite")
@@ -139,31 +136,31 @@ class TestValidation(unittest.TestCase):
 
     def test_valid_card(self):
         card = KanbanCard(id="V-1", value_score=50, effort_score=50)
-        self.assertEqual(validate_card(card), [])
+        self.assertEqual(card.validate(), [])
 
     def test_missing_id(self):
         card = KanbanCard(id="")
-        errors = validate_card(card)
+        errors = card.validate()
         self.assertTrue(any("id" in e for e in errors))
 
     def test_expedite_needs_justification(self):
         card = KanbanCard(id="E-1", class_of_service="expedite")
-        errors = validate_card(card)
+        errors = card.validate()
         self.assertTrue(any("cos_justification" in e for e in errors))
 
     def test_fixed_date_needs_deadline(self):
         card = KanbanCard(id="F-1", class_of_service="fixed-date")
-        errors = validate_card(card)
+        errors = card.validate()
         self.assertTrue(any("deadline" in e for e in errors))
 
     def test_score_out_of_range(self):
         card = KanbanCard(id="S-1", value_score=101)
-        errors = validate_card(card)
+        errors = card.validate()
         self.assertTrue(any("value_score" in e for e in errors))
 
     def test_invalid_action(self):
         card = KanbanCard(id="A-1", action="InvalidAction")
-        errors = validate_card(card)
+        errors = card.validate()
         self.assertTrue(any("action" in e for e in errors))
 
 

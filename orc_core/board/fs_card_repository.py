@@ -13,7 +13,8 @@ import yaml
 
 from .limits_constants import INDEX_FILENAME
 from .stage_constants import STAGES
-from .kanban_card import KanbanCard, parse_card
+from .kanban_card import KanbanCard
+from .kanban_card_serializer import card_to_markdown, parse_card
 from ..infra.io.atomic_io import write_text_atomic
 
 
@@ -75,5 +76,5 @@ class FsCardRepository:
         target = path or card.file_path
         if target is None:
             raise ValueError("No path specified for card write")
-        self.write_card_text(target, card.to_markdown())
+        self.write_card_text(target, card_to_markdown(card))
         card.file_path = target

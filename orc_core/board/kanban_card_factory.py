@@ -9,7 +9,9 @@ from pathlib import Path
 from .action_constants import Action
 from .clock import Clock, SystemClock
 from .card_repository import CardRepository
-from .kanban_card import KanbanCard, new_card_body
+from .card_sections import new_card_body
+from .kanban_card import KanbanCard
+from .kanban_card_serializer import card_to_markdown
 from .stage_constants import STAGE_CODING, STAGE_INBOX
 
 
@@ -68,6 +70,6 @@ class KanbanCardFactory:
         path = stage_dir / f"{card.id}.md"
         card.touch()
         card.advance_state_version()
-        self._repo.write_card_text(path, card.to_markdown())
+        self._repo.write_card_text(path, card_to_markdown(card))
         card.file_path = path
         return card

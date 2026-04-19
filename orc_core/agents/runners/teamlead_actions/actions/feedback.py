@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from .....board.kanban_card import SECTION_FEEDBACK
+from .....board.card_sections import SECTION_FEEDBACK
 from ..registry import ActionContext, register_action
 from ..validation import require
 

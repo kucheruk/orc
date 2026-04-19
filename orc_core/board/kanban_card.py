@@ -1,34 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Kanban card: YAML frontmatter + markdown body, parse/serialize/validate."""
+"""Kanban card domain aggregate — invariants and mutators only.
+
+Serialization (markdown ↔ dataclass) lives in `kanban_card_serializer.py`;
+section helpers live in `card_sections.py`. This module stays free of
+storage-format concerns.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields as _dc_fields
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
 from pathlib import Path
-from typing import Any
-
-import yaml
 
 from .action_constants import Action, ClassOfService
-from .card_sections import (
-    SECTION_DESIGN,
-    SECTION_FEEDBACK,
-    SECTION_NOTES,
-    SECTION_PRODUCT,
-    new_card_body,
-)
 from .stage_constants import STAGE_INBOX, STAGE_ORDER
-from ..text_parse import parse_frontmatter
 
 # Fields agents are NOT allowed to change (Python-only)
 PROTECTED_FIELDS: frozenset[str] = frozenset({
     "id", "stage", "roi", "assigned_agent", "created_at", "state_version",
 })
 
-# Fields excluded from YAML frontmatter (runtime-only)
+# Fields excluded from YAML frontmatter (runtime-only). Consumed by the
+# serializer module; colocated with the dataclass so the two stay in sync.
 _RUNTIME_FIELDS: frozenset[str] = frozenset({"body", "file_path"})
 
 
@@ -142,100 +136,6 @@ class KanbanCard:
         except ValueError:
             errors.append(f"Invalid class_of_service: {self.class_of_service}")
         return errors
-
-    # ── Serialization ───────────────────────────────────────────
-
-    def to_markdown(self) -> str:
-        fm = _build_frontmatter(self)
-        return f"---\n{fm}---\n\n{self.body}"
-
-    def frontmatter_dict(self) -> dict[str, Any]:
-        """Build YAML-serializable dict from dataclass fields (SSOT)."""
-        result: dict[str, Any] = {}
-        for f in _dc_fields(self):
-            if f.name in _RUNTIME_FIELDS:
-                continue
-            val = getattr(self, f.name)
-            if isinstance(val, list):
-                val = [str(v) for v in val]
-            elif isinstance(val, Enum):
-                val = val.value  # StrEnum → plain str for yaml.safe_load compat
-            result[f.name] = val
-        return result
-
-
-# ── Parsing ─────────────────────────────────────────────────────
-
-
-def _normalize_action(raw: str) -> str:
-    """Normalize action string to match Action enum casing (e.g., 'coding' → 'Coding')."""
-    s = str(raw).strip()
-    if not s:
-        return Action.PRODUCT
-    # Try exact match first
-    try:
-        return Action(s)
-    except ValueError:
-        pass
-    # Try case-insensitive match
-    for member in Action:
-        if member.value.lower() == s.lower():
-            return member.value
-    return s  # return as-is, validation will catch it
-
-
-def parse_card(text: str, file_path: Path | None = None) -> KanbanCard:
-    data, body = parse_frontmatter(text, str(file_path or "<string>"))
-    defaults = KanbanCard(id="")
-    kwargs: dict[str, Any] = {"body": body, "file_path": file_path}
-    for f in _dc_fields(defaults):
-        if f.name in _RUNTIME_FIELDS:
-            continue
-        default_val = getattr(defaults, f.name)
-        raw = data.get(f.name, default_val)
-        # Per-field coercion
-        if f.name == "action":
-            kwargs[f.name] = _normalize_action(raw)
-        elif f.name == "dependencies":
-            kwargs[f.name] = _parse_list(raw)
-        elif isinstance(default_val, int):
-            kwargs[f.name] = int(raw or 0)
-        elif isinstance(default_val, float):
-            kwargs[f.name] = float(raw or 0.0)
-        else:
-            kwargs[f.name] = str(raw or "")
-    return KanbanCard(**kwargs)
-
-
-def validate_card(card: KanbanCard) -> list[str]:
-    """Validate card invariants. Delegates to card.validate()."""
-    return card.validate()
-
-
-# ── Helpers ─────────────────────────────────────────────────────
-
-
-def _build_frontmatter(card: KanbanCard) -> str:
-    return yaml.dump(
-        card.frontmatter_dict(),
-        default_flow_style=False,
-        allow_unicode=True,
-        sort_keys=False,
-        width=120,
-    )
-
-
-def _parse_list(val: Any) -> list[str]:
-    if val is None:
-        return []
-    if isinstance(val, list):
-        return [str(v).strip() for v in val if str(v).strip()]
-    # Handle comma-separated string: "TASK-1, TASK-2" → ["TASK-1", "TASK-2"]
-    s = str(val)
-    if "," in s:
-        return [part.strip() for part in s.split(",") if part.strip()]
-    s = s.strip()
-    return [s] if s else []
 
 
 def _now_iso() -> str:

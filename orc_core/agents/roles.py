@@ -7,7 +7,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 from ..board.action_constants import COS_PRIORITY, ClassOfService
-from ..board.kanban_card import SECTION_FEEDBACK
+from ..board.card_sections import SECTION_FEEDBACK
+from ..board.kanban_card_serializer import card_to_markdown
 from ..git.branch_resolver import DEFAULT_MAIN_BRANCH
 from ..board.board_summary import format_board_summary
 from ..board.stage_constants import STAGES, STAGE_DONE
@@ -74,7 +75,7 @@ def build_prompt(role: str, card: "KanbanCard", board: "KanbanBoard",
     if loader is None:
         loader = default_template_loader()
     template = loader.load(role)
-    card_content = _escape_braces(card.to_markdown())
+    card_content = _escape_braces(card_to_markdown(card))
     # Always use relative path — agent works in worktree with its own tasks/ dir
     card_path = f"tasks/{card.stage}/{card.id}.md"
     board_summary = format_board_summary(board)
@@ -220,7 +221,7 @@ def _truncate_card_for_prompt(card_md: str) -> str:
 def _mode_arbitration(card, agent_log_path, **_kw) -> tuple[str, str]:
     if not card:
         return "", ""
-    card_content = _escape_braces(_truncate_card_for_prompt(card.to_markdown()))
+    card_content = _escape_braces(_truncate_card_for_prompt(card_to_markdown(card)))
     card_path = str(card.file_path) if card.file_path else f"tasks/{card.stage}/{card.id}.md"
     log_hint = ""
     if agent_log_path:
@@ -319,7 +320,7 @@ def build_teamlead_prompt(
         board_detail=board_detail,
         mode_context=mode_context,
         card_path=card_path,
-        card_content=_escape_braces(card.to_markdown()) if card else "",
+        card_content=_escape_braces(card_to_markdown(card)) if card else "",
         card_id=card.id if card else "",
         card_stage=card.stage if card else "",
         card_action=card.action if card else "",

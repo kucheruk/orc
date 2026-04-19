@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .card_repository import CardRepository
-from .kanban_card import KanbanCard, parse_card
+from .kanban_card import KanbanCard
+from .kanban_card_serializer import parse_card
 from .stage_constants import STAGES
 from .wip_manager import WIPManager
 
