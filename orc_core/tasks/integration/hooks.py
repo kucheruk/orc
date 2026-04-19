@@ -95,6 +95,21 @@ def ensure_repo_hooks_config(
     return cursor_hooks_path
 
 
+class TasksRepoHooksInstaller:
+    """Concrete `backends.ports.RepoHooksInstaller` backed by task lifecycle hooks."""
+
+    def __init__(self, writer: Optional[TaskStateWriter] = None) -> None:
+        self._writer = writer
+
+    def install(self, workdir: str, log_path: Path) -> None:
+        writer = self._writer
+        if writer is None:
+            from ...infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
+            writer = DEFAULT_TASK_STATE_WRITER
+        before_path, stop_path = ensure_repo_hooks(workdir, writer=writer)
+        ensure_repo_hooks_config(workdir, before_path, stop_path, log_path, writer=writer)
+
+
 def write_task_file(
     workdir: str,
     task: Task,

@@ -11,11 +11,15 @@ from typing import Optional
 
 from ..errors.exceptions import AgentNotInstalledError
 from ..log import log_event
+from .ports import RepoHooksInstaller
 
 AGENT_LS_TIMEOUT_SECONDS = 15.0
 
 
 class CursorBackend:
+
+    def __init__(self, hooks_installer: Optional[RepoHooksInstaller] = None) -> None:
+        self._hooks_installer = hooks_installer
 
     @property
     def name(self) -> str:
@@ -73,11 +77,9 @@ class CursorBackend:
         return cmd
 
     def setup_hooks(self, workdir: str, log_path: Path) -> None:
-        from ..infra.io.task_state_adapter import DEFAULT_TASK_STATE_WRITER
-        from ..tasks.integration.hooks import ensure_repo_hooks, ensure_repo_hooks_config
-        writer = DEFAULT_TASK_STATE_WRITER
-        before_path, stop_path = ensure_repo_hooks(workdir, writer=writer)
-        ensure_repo_hooks_config(workdir, before_path, stop_path, log_path, writer=writer)
+        if self._hooks_installer is None:
+            return
+        self._hooks_installer.install(workdir, log_path)
 
     def get_resume_id(self, workdir: str, log_path: Path) -> Optional[str]:
         return _get_resume_id_from_agent_ls(workdir, log_path)
