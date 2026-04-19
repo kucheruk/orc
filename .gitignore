@@ -4,3 +4,4 @@ __pycache__/
 .cursor/
 .worktrees/.claude/
 .claude/
+next-cycle-prompt.md

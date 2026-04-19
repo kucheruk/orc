@@ -264,8 +264,8 @@ class TestOrphanedBudgetGrowth(unittest.TestCase):
             self.assertEqual(card.action, "Reviewing")
             # tokens_spent is preserved — cumulative stats file would restore it anyway.
             self.assertEqual(card.tokens_spent, 400_000)
-            # token_budget grew by effort_score * TOKENS_PER_EFFORT_POINT (64 * 5000 = 320000).
-            self.assertEqual(card.token_budget, 320_000 + 320_000)
+            # token_budget grew by effort_score * TOKENS_PER_EFFORT_POINT (64 * 10000 = 640000).
+            self.assertEqual(card.token_budget, 320_000 + 640_000)
             self.assertFalse(card.is_budget_exhausted)
 
     def test_blocked_exhausted_card_is_not_touched(self):

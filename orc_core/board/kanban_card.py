@@ -46,6 +46,10 @@ class KanbanCard:
     state_version: int = 0
     body: str = ""
     tokens_spent: int = 0
+    # Tokens consumed by attempts whose result was discarded (ORC restart,
+    # stale fingerprint, validation failure). Subtracted from tokens_spent
+    # when gating the budget so "not agent's fault" burn does not block a card.
+    tokens_discarded: int = 0
     token_budget: int = 0    # 0 = no limit; set from effort_score * multiplier
     # runtime — not serialized
     file_path: Path | None = field(default=None, repr=False)
@@ -84,8 +88,13 @@ class KanbanCard:
         return self.loop_count >= threshold
 
     @property
+    def tokens_spent_net(self) -> int:
+        """Tokens spent on kept attempts (discarded restarts subtracted)."""
+        return max(0, self.tokens_spent - self.tokens_discarded)
+
+    @property
     def is_budget_exhausted(self) -> bool:
-        return self.token_budget > 0 and self.tokens_spent >= self.token_budget
+        return self.token_budget > 0 and self.tokens_spent_net >= self.token_budget
 
     def can_move_to(self, target_stage: str, *, allow_backward: bool = False) -> bool:
         """Check if this card can transition to target_stage."""

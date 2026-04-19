@@ -25,8 +25,10 @@ DECOMPOSITION_EFFORT_THRESHOLD = 70   # architect must split above this
 DECOMPOSITION_MAX_SUB_EFFORT = 50     # sub-cards must be at or below
 
 # Token-budget defaults (also used by teamlead/pull-time budget growth)
-TOKENS_PER_EFFORT_POINT = 5000        # token_budget = effort_score * this
-MIN_TOKEN_BUDGET = 20000              # floor when effort_score <= 0
+# 10K/effort_point leaves room for one legitimate restart per card; net of
+# discarded attempts is what gates blocking, see KanbanCard.is_budget_exhausted.
+TOKENS_PER_EFFORT_POINT = 10000       # token_budget = effort_score * this
+MIN_TOKEN_BUDGET = 40000              # floor when effort_score <= 0
 
 INDEX_FILENAME = "_index.md"
 TASKS_DIR = "tasks"

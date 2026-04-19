@@ -89,6 +89,7 @@ class WorkerAssignmentExecutor:
                 fresh_card, self._distributor.board, self._publisher, self._log_path,
             ):
                 return
+            pre_attempt_tokens = int(getattr(fresh_card, "tokens_spent", 0) or 0)
             launch_state = card_state_fingerprint(fresh_card)
             git_context = gather_git_context(wd, self._main_branch, self._log_path, git=self._git) if assignment.needs_worktree else ""
             prompt = prompt_builder(role, fresh_card, self._distributor.board, main_branch=self._main_branch, git_context=git_context)
@@ -107,10 +108,12 @@ class WorkerAssignmentExecutor:
             result = self._engine.execute(request)
             if result and result.status == TaskExecutionStatus.COMPLETED:
                 if self._discard_if_stale(card.id, launch_state):
+                    self._mark_attempt_discarded(card.id, pre_attempt_tokens, reason="stale_fingerprint")
                     return
                 if assignment.needs_worktree and is_delivery_role(role):
                     verify_and_commit_uncommitted(wd, self._main_branch, self._log_path, card.id, card.title or card.id, git=self._git)
                 if self._reject_empty_delivery(card, role, assignment.needs_worktree, wd):
+                    self._mark_attempt_discarded(card.id, pre_attempt_tokens, reason="empty_delivery")
                     return
                 errors = process_completed_task(
                     board=self._distributor.board,
@@ -131,11 +134,14 @@ class WorkerAssignmentExecutor:
                     ),
                 )
                 self._sync_tokens_and_budget(card)
+                if errors:
+                    self._mark_attempt_discarded(card.id, pre_attempt_tokens, reason="validation_failed")
                 if check_and_block_budget(card, self._distributor.board, self._publisher, self._log_path):
                     return
                 if not errors:
                     assignment_succeeded = True
             else:
+                self._mark_attempt_discarded(card.id, pre_attempt_tokens, reason="exec_not_completed")
                 self._handle_failed_result(card, role, result.reason if result else "no result")
         except Exception as exc:
             self._publisher.emit("escalate", card.id, f"{card.id} ERROR: {type(exc).__name__}: {exc}")
@@ -170,7 +176,7 @@ class WorkerAssignmentExecutor:
             self._publisher.emit("system", card_id, f"{card_id} worktree ready")
         return worktree.worktree_path, worktree
 
-    def _discard_if_stale(self, card_id: str, launch_state: tuple[str, str, str, int]) -> bool:
+    def _discard_if_stale(self, card_id: str, launch_state: tuple[str, str, str]) -> bool:
         latest_card = self._distributor.board.card_by_id(card_id)
         if latest_card is not None and card_state_fingerprint(latest_card) == launch_state:
             return False
@@ -179,6 +185,27 @@ class WorkerAssignmentExecutor:
             self._sync_tokens_and_budget(token_card)
             check_and_block_budget(token_card, self._distributor.board, self._publisher, self._log_path)
         return True
+
+    def _mark_attempt_discarded(self, card_id: str, pre_attempt_tokens: int, *, reason: str) -> None:
+        card = self._distributor.board.card_by_id(card_id)
+        if card is None:
+            return
+        self._sync_tokens_and_budget(card)
+        attempt_tokens = max(0, int(getattr(card, "tokens_spent", 0) or 0) - int(pre_attempt_tokens))
+        if attempt_tokens <= 0:
+            return
+        card.tokens_discarded = int(getattr(card, "tokens_discarded", 0) or 0) + attempt_tokens
+        self._distributor.board.save_card(card)
+        log_event(
+            self._log_path,
+            "INFO",
+            "attempt tokens marked discarded",
+            task_id=card.id,
+            attempt_tokens=attempt_tokens,
+            tokens_discarded=card.tokens_discarded,
+            tokens_spent=card.tokens_spent,
+            reason=reason,
+        )
 
     def _reject_empty_delivery(self, card, role: str, needs_worktree: bool, workdir: str) -> bool:
         if not needs_worktree or not is_delivery_role(role):
