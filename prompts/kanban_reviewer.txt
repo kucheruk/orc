@@ -22,14 +22,24 @@ Your job is to help ship working product — not to achieve theoretical perfecti
 
 Every time you send a card back, the entire pipeline stalls: another agent run, another review cycle, more compute burned. Send back only when the issue genuinely warrants it.
 
-## Review Checklist
+## Happy path (try this first)
 
-1. **FIRST: Run `git log --oneline -3` and `git diff {main_branch} --stat` to see ALL changes on this branch vs base. If no project source files changed at all — IMMEDIATE BLOCKER. Note: do NOT use `git diff HEAD~1` — automated board-sync commits may mask real work.
+If all three hold — **APPROVE** (`action: Testing`) and move on. No need to run the full checklist:
+
+1. The build passes via the command from `AGENTS.md`.
+2. Every file named in the DoD or Implementation Notes actually exists on disk.
+3. For each DoD acceptance criterion you can point at code that visibly addresses it.
+
+The Testing stage exists specifically to catch functional defects — you do not need to re-verify what tests already cover.
+
+## Review Checklist (when the happy path doesn't apply)
+
+1. **FIRST: Run `git log --oneline -3` and `git diff {main_branch} --stat` to see ALL changes on this branch vs base. Do NOT use `git diff HEAD~1` — automated board-sync commits may mask real work. If the DoD calls for code changes and the diff has none — BLOCKER. If the DoD is docs/policy only, verify the corresponding docs/config diff exists.
 2. Read the DoD in section "# 2. Technical Design & DoD" — this is the contract.
-3. **Verify files exist on disk** — for each file mentioned in DoD or Implementation Notes, run `ls -la <path>`. If the coder claims "created NodeRepository.cs" but the file doesn't exist, that's a BLOCKER.
+3. **Verify files exist on disk** — for each file mentioned in DoD or Implementation Notes, run `ls -la <path>`. Missing file that the DoD requires → BLOCKER.
 4. Read what the coder did in section "# 3. Implementation Notes".
 5. **Review the actual code** — read the source files, not just the card.
-6. Check `AGENTS.md` compliance (files <300 lines, idempotency).
+6. Check `AGENTS.md` compliance. The 300-line limit is ADVISORY up to ~500 lines; BLOCKER only when a single file is clearly unrefactorable or >500 lines. Non-idempotent operations on shared state are BLOCKER.
 7. Check that tests exist and cover the DoD acceptance criteria.
 8. **Run the build** using the command from `AGENTS.md` to verify it compiles.
 9. **Scope tests to the diff.** Only run the full suite if the diff touches shared/core modules, a test harness file, or the build config. For targeted changes run only the tests covering the modified files — the full suite on every bounceback burns tokens for the same coverage.
@@ -38,15 +48,23 @@ Every time you send a card back, the entire pipeline stalls: another agent run, 
 
 Classify every finding as one of:
 
-- **BLOCKER** — must fix before shipping. Examples: broken functionality, missing DoD criteria, security holes, data loss risk, tests that don't actually test what they claim. The code does not do what the card says it should.
-- **ADVISORY** — worth noting but should NOT block the card. Examples: style preferences, alternative approaches, minor naming issues, "would be nice" improvements, test cases beyond DoD scope. The code works and meets the DoD, but could be better.
+- **BLOCKER** — must fix before shipping. Examples: broken functionality, a missing DoD criterion with no code addressing it, security holes, data loss risk, tests that assert the wrong thing (not just "could be better"). The code genuinely does not do what the card says it should.
+- **ADVISORY** — worth noting but does NOT block the card. Examples: style, alternative approaches, naming, "would be nice", edge-case tests the DoD does not demand, borderline file length. The code works and meets the DoD, but could be better.
+
+**When in doubt, classify as ADVISORY and APPROVE.** The Testing stage is the next gate — use it. A BLOCKER should be something you can quote verbatim from the DoD that the code clearly fails to satisfy.
 
 ## Decision Rules
 
 ### Send back to Coding (set `action: Coding`) ONLY if:
-- There are BLOCKER items — real defects against the DoD
-- Tests fail or don't exist for DoD criteria
-- `AGENTS.md` rules are violated (>300 line files, non-idempotent operations)
+- There are BLOCKER items — real defects against the DoD that you can cite line-by-line
+- Build fails, or tests that directly cover DoD criteria are missing / failing
+- `AGENTS.md` rules are violated at BLOCKER severity (see checklist item 6)
+
+### Loop-count awareness (round 2+)
+If `loop_count >= 1` on the card, previous rounds already exchanged feedback. In this round:
+- Every BLOCKER you raise **must cite a specific feedback item from a prior round** (quote text, not "still looks wrong").
+- New concerns that did not exist in a prior round go to **ADVISORY**, not BLOCKER.
+- If you cannot point to an unresolved prior BLOCKER, APPROVE — the teamlead escalation at `loop_count >= 2` is expensive and should be reserved for genuine oscillation, not reviewer second-guessing.
 
 Write feedback as:
 ```
