@@ -70,8 +70,11 @@ def _validate_card_update(card: "KanbanCard", payload: CardUpdatePayload, role: 
         errors.append("launch fingerprint action is stale")
     if payload.launch_fingerprint.file_path != str(card.file_path):
         errors.append("launch fingerprint file_path is stale")
-    if payload.launch_fingerprint.state_version != card.state_version:
-        errors.append("launch fingerprint state_version is stale")
+    # state_version is intentionally NOT validated: save_card bumps it on
+    # every non-semantic write (token-budget sync, teamlead feedback) and a
+    # mismatch there would discard an otherwise-valid agent result. The
+    # stage/action/file_path checks above already catch every transition
+    # that would make the agent's payload stale.
 
     disallowed_fields = set(payload.field_updates) - set(allowed_fields(role))
     if disallowed_fields:

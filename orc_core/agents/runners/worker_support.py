@@ -14,9 +14,13 @@ DEFAULT_TOKENS_PER_EFFORT = TOKENS_PER_EFFORT_POINT
 MIN_TOKEN_BUDGET = MIN_TOKEN_BUDGET
 
 
-def card_state_fingerprint(card) -> tuple[str, str, str, int]:
+def card_state_fingerprint(card) -> tuple[str, str, str]:
+    # state_version is excluded on purpose: it is bumped by every save_card
+    # (token-budget sync, teamlead feedback notes, autounblock bookkeeping)
+    # even when no semantic field changed. The stage/action/file_path triple
+    # already captures every transition an agent's result could be stale for.
     path = str(card.file_path) if getattr(card, "file_path", None) else ""
-    return (card.stage, card.action, path, int(getattr(card, "state_version", 0)))
+    return (card.stage, card.action, path)
 
 
 def update_card_token_budget(card, board, log_path: Path) -> None:
