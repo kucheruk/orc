@@ -33,6 +33,13 @@ class Integrator(Protocol):
     ) -> bool: ...
 
 
+# Cap on consecutive failed squash-merge attempts before the card is
+# parked in BLOCKED for a human (or teamlead) to resolve. Without a cap
+# a permanent conflict would spin the integrator→finalize→fail loop
+# indefinitely, burning tokens on every integrator re-approval.
+MAX_FINALIZE_RETRIES = 3
+
+
 def finalize_completed_worktree(
     card: CardView,
     worktree: WorktreeSession | None,
@@ -80,11 +87,30 @@ def finalize_completed_worktree(
                 cleanup_fn(worktree, log_path)
         return True
     else:
+        retries = int(getattr(card, "finalize_retries", 0) or 0) + 1
+        card.finalize_retries = retries
         log_event(log_path, "WARN", "integration failed, keeping worktree",
-                  task_id=card.id, worktree=execution_workdir, branch=branch_name)
+                  task_id=card.id, worktree=execution_workdir, branch=branch_name,
+                  finalize_retries=retries, cap=MAX_FINALIZE_RETRIES)
+        if retries >= MAX_FINALIZE_RETRIES:
+            # Permanent-looking failure: stop the retry loop and hand the
+            # card off to a human / teamlead. BLOCKED prevents the
+            # integrator from pulling it again; card.unblock() resets
+            # finalize_retries so the next cycle starts fresh.
+            card.block(
+                reason=(
+                    f"squash-merge to {main_branch} failed "
+                    f"{retries}/{MAX_FINALIZE_RETRIES} times; needs human review"
+                )
+            )
+            publisher.emit("escalate", card.id,
+                           f"{card.id} squash-merge to {main_branch} failed "
+                           f"{retries} times; parked in BLOCKED for review")
+            board.save_card(card)
+            return False
         publisher.emit("escalate", card.id,
-                        f"{card.id} squash-merge to {main_branch} failed; "
-                        f"card held in Handoff for retry")
+                        f"{card.id} squash-merge to {main_branch} failed "
+                        f"({retries}/{MAX_FINALIZE_RETRIES}); held in Handoff for retry")
         # Card is already in STAGE_HANDOFF (it never left). Reset action so
         # the next integrator pull picks it up again instead of treating it
         # as fully Done.

@@ -51,6 +51,11 @@ class KanbanCard:
     # when gating the budget so "not agent's fault" burn does not block a card.
     tokens_discarded: int = 0
     token_budget: int = 0    # 0 = no limit; set from effort_score * multiplier
+    # Count of finalize (squash-merge) attempts that failed while the card
+    # was in Handoff. Capped to bound the integrator→finalize→fail retry
+    # loop for permanent conflicts that an agent cannot resolve; reset
+    # whenever the card is unblocked (treated as a fresh attempt cycle).
+    finalize_retries: int = 0
     # runtime — not serialized
     file_path: Path | None = field(default=None, repr=False)
 
@@ -121,6 +126,7 @@ class KanbanCard:
             self.body += f"\n\n## Human Directive\n{directive}\n"
         self.action = Action.CODING
         self.loop_count = 0
+        self.finalize_retries = 0
         self.touch()
 
     def validate(self) -> list[str]:
