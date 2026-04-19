@@ -122,16 +122,20 @@ class KanbanSessionManager:
         cleanup_stale_parallel_sessions(
             self._distributor.board, self.workdir, self.log_path, self.publisher,
         )
-        # Enforce the Handoff+Done invariant: every card in that state must
-        # be merged to main. If a prior run reached the state but the session
-        # cleanup was skipped (restart, crash), finalize now from the
-        # deterministic orc/<card_id> branch.
+        # recover_stale_git_state MUST run before the orphan Handoff sweep.
+        # A prior ORC kill can leave SQUASH_MSG / MERGE_HEAD / CHERRY_PICK_HEAD
+        # in .git — preflight would then reject every finalize attempt and
+        # flip the cards to Integrating for no reason.
+        self._integrator.recover_stale_git_state()
+        # Enforce the Handoff invariant: every card in Done or Integrating
+        # must be merged to main. If a prior run reached the state but the
+        # session cleanup was skipped (restart, crash), finalize now from
+        # the deterministic orc/<card_id> branch.
         self._finalize_orphan_handoff_done()
 
         done, _ip, total = self._distributor.get_progress()
         self.publisher.emit("system", "", f"Kanban started: {total} cards, {self._pool.max_sessions} agents")
         self._publish_board_state()
-        self._integrator.recover_stale_git_state()
 
         self._pool.start_session(role=ROLE_TEAMLEAD, target=self._run_teamlead)
         self._publish_board_state()
