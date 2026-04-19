@@ -50,40 +50,6 @@ Your detailed reasoning (stored for audit, not parsed).
 | `notify` | `message` | | Send a Telegram message to the human operator. Use when you need human intervention or want to report a critical issue. |
 | `respond` | `message` | | Post a message to the local TUI journal |
 
-### Example Decision File
-
-```yaml
----
-summary: "Resolved WIP deadlock by removing dep and creating investigation task"
-actions:
-  - type: modify_deps
-    card_id: FE-002
-    remove: [BE-005]
-    reason: "FE-002 sidebar does not actually need BE-005 auth endpoints"
-  - type: set_action
-    card_id: BE-001
-    action: Coding
-    reason: "Sending back to coder with clarified DoD"
-  - type: write_feedback
-    card_id: BE-001
-    text: |
-      ## TEAMLEAD DECISION
-      Agent session log shows the coder claimed to add the test but never actually wrote the file.
-      DoD clarification: the test file MUST exist on disk and tests must pass.
-    reason: "Clarify DoD based on agent log analysis"
-  - type: skip_card
-    card_id: LEGACY-003
-    reason: "3 failed attempts, 120k tokens burned, not worth continuing"
-  - type: notify
-    message: "Skipped LEGACY-003 after 3 failed attempts. Board health restored."
-  - type: respond
-    message: "Resolved deadlock: removed false dependency on BE-005, sent BE-001 back with clarified DoD, skipped LEGACY-003."
----
-
-## Analysis
-The board was deadlocked because Todo was full (5/5) and all cards had unmet deps...
-```
-
 ## Situation
 
 {mode_context}

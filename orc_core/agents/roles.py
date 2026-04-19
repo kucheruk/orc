@@ -137,11 +137,7 @@ def format_board_detail(board: "KanbanBoard", token_stats: dict[str, int] | None
         count = len(cards)
 
         if stage == STAGE_DONE:
-            if cards:
-                ids = ", ".join(c.id for c in cards)
-                sections.append(f"### {STAGE_DONE} [{count} cards]\n{ids}")
-            else:
-                sections.append(f"### {STAGE_DONE} [0 cards]")
+            sections.append(f"### {STAGE_DONE} [{count} cards]")
             continue
 
         wip_str = f"{count}/{limit}" if limit < 999 else str(count)
