@@ -62,10 +62,7 @@ def resolve_cycle_with_decomposition(ctx, diagnostic) -> bool:
         source.id,
         f"Auto-unblock cycle {from_id}->{to_id}; decomposition card {decomposition.id}",
     )
-    ctx.notifier.send_telegram(
-        f"🧩 ORC auto-unblock\nCycle `{from_id}->{to_id}` rewired.\n"
-        f"Created/used `{decomposition.id}` to decompose coupling.",
-    )
+    ctx.notifier.notify_cycle_autounblock(from_id, to_id, decomposition.id)
     log_event(
         ctx.log_path,
         "WARN",
@@ -118,9 +115,7 @@ def release_stale_assignments(ctx, suspect_counts: dict[str, int], *, stale_minu
         )
         released += 1
     if released:
-        ctx.notifier.send_telegram(
-            f"🧯 ORC auto-unblock released {released} stale assignment(s)."
-        )
+        ctx.notifier.notify_stale_assignments_released(released)
     return released
 
 

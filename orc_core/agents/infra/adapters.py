@@ -41,8 +41,17 @@ class NotifierAdapter:
     def __init__(self, svc: NotificationService) -> None:
         self._svc = svc
 
-    def send_telegram(self, message: str) -> None:
-        self._svc.send_telegram(message)
+    def notify_card_blocked(self, card_id: str, count: int, reason: str) -> None:
+        self._svc.notify_card_blocked(card_id, count, reason)
+
+    def notify_escalation(self, card_id: str, title: str, stage: str, loop_count: int) -> None:
+        self._svc.notify_escalation(card_id, title, stage, loop_count)
+
+    def notify_cycle_autounblock(self, from_id: str, to_id: str, decomposition_id: str) -> None:
+        self._svc.notify_cycle_autounblock(from_id, to_id, decomposition_id)
+
+    def notify_stale_assignments_released(self, count: int) -> None:
+        self._svc.notify_stale_assignments_released(count)
 
     def notify_completion(self, card, role, old_stage, old_action, old_cos, elapsed) -> None:
         self._svc.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)

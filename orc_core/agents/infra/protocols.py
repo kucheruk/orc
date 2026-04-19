@@ -42,15 +42,17 @@ class RunnerStateManager(Protocol):
 
 
 class RunnerNotifier(Protocol):
-    """Sends telegram notifications (shared base)."""
+    """Emits card-lifecycle notifications (shared base)."""
 
-    def send_telegram(self, message: str) -> None: ...
+    def notify_card_blocked(self, card_id: str, count: int, reason: str) -> None: ...
+    def notify_escalation(self, card_id: str, title: str, stage: str, loop_count: int) -> None: ...
+    def notify_cycle_autounblock(self, from_id: str, to_id: str, decomposition_id: str) -> None: ...
+    def notify_stale_assignments_released(self, count: int) -> None: ...
 
 
-class CompletionNotifier(Protocol):
+class CompletionNotifier(RunnerNotifier, Protocol):
     """Extended notifier with task completion support (worker-only)."""
 
-    def send_telegram(self, message: str) -> None: ...
     def notify_completion(
         self,
         card: KanbanCard,

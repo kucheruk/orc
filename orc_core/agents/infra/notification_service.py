@@ -10,6 +10,12 @@ from ...board.kanban_card import KanbanCard
 from ...board.stage_constants import STAGE_SHORT_NAMES
 from ...board.kanban_notifications import format_completion_message
 from ...git.project_hooks import fire_hooks
+from ...notifications.messages import (
+    format_card_blocked,
+    format_cycle_autounblock,
+    format_escalation,
+    format_stale_assignments_released,
+)
 from ...notifications.notify import send_telegram_message
 
 
@@ -23,6 +29,18 @@ class NotificationService:
 
     def send_telegram(self, message: str) -> None:
         send_telegram_message(message, self._log_path, orc_root=Path(self._workdir))
+
+    def notify_card_blocked(self, card_id: str, count: int, reason: str) -> None:
+        self.send_telegram(format_card_blocked(card_id, count, reason))
+
+    def notify_escalation(self, card_id: str, title: str, stage: str, loop_count: int) -> None:
+        self.send_telegram(format_escalation(card_id, title, stage, loop_count))
+
+    def notify_cycle_autounblock(self, from_id: str, to_id: str, decomposition_id: str) -> None:
+        self.send_telegram(format_cycle_autounblock(from_id, to_id, decomposition_id))
+
+    def notify_stale_assignments_released(self, count: int) -> None:
+        self.send_telegram(format_stale_assignments_released(count))
 
     def notify_completion(
         self,

@@ -36,12 +36,12 @@ class CompletionPublisher(Protocol):
 
 
 class CompletionNotifier(Protocol):
-    """Port for sending completion notifications."""
+    """Port for emitting task-lifecycle notifications."""
     def notify_completion(
         self, card: CardView, role: str,
         old_stage: str, old_action: str, old_cos: str, elapsed: float,
     ) -> None: ...
-    def send_telegram(self, text: str) -> None: ...
+    def notify_card_blocked(self, card_id: str, count: int, reason: str) -> None: ...
 
 
 def process_completed_task(
@@ -111,9 +111,7 @@ def escalate_if_threshold_reached(
                         f"{card.id} marked Blocked after {count} consecutive failures: {error_desc}")
         log_event(log_path, "WARN", "card blocked after repeated failures",
                   task_id=card.id, fail_count=count, error=error_desc)
-        notifier.send_telegram(
-            f"\U0001f6ab {card.id} заблокирована после {count} подряд ошибок: {error_desc}",
-        )
+        notifier.notify_card_blocked(card.id, count, error_desc)
     except (OSError, ConnectionError, TimeoutError, ValueError) as exc:
         log_event(log_path, "ERROR", "failed to block card after repeated failures",
                   task_id=card.id, fail_count=count, error=str(exc))

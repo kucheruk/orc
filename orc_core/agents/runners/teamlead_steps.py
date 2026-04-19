@@ -88,12 +88,7 @@ class TeamleadContext:
         msg = (f"ESCALATION: Task {card.id} ({card.title}) blocked. "
                f"Loop count: {card.loop_count}. Stage: {card.stage}.")
         self.publisher.log_escalate(card.id, msg)
-        self.notifier.send_telegram(
-            f"\U0001f6a8 {card.id} BLOCKED\n"
-            f"  {card.title}\n"
-            f"  Stage: {card.stage}, loops: {card.loop_count}\n"
-            f"  Use /unblock {card.id} <directive> to resume"
-        )
+        self.notifier.notify_escalation(card.id, card.title, card.stage, card.loop_count)
         log_event(self.log_path, "WARN", "escalation", task_id=card.id, detail=msg)
 
 
