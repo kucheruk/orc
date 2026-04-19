@@ -75,7 +75,10 @@ def load_structured_agent_result(path: Path) -> StructuredAgentResultV1:
 def parse_structured_agent_result(data: Any) -> StructuredAgentResultV1:
     if not isinstance(data, dict):
         raise ValueError("Structured result must be a JSON object")
-    schema_version = int(data.get("schema_version", 0))
+    # Prompts do not instruct agents to emit schema_version, so a missing
+    # field means "current schema" (v1). Only an explicit non-1 value — a
+    # forward-incompatible payload — is rejected.
+    schema_version = int(data.get("schema_version", 1))
     if schema_version != 1:
         raise ValueError(f"Unsupported schema_version: {schema_version}")
     payload_kind = _required_text(data, "payload_kind")
