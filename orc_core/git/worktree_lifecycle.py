@@ -13,6 +13,34 @@ from .git_dto import WorktreeSession
 from .git_helpers import is_runtime_artifact, run_git
 
 
+def _list_worktree_branches(workdir: str) -> dict[str, str]:
+    """Return {resolved_worktree_path: short_branch_name} per `git worktree list --porcelain`.
+
+    Detached heads map to `""` so collision detection can distinguish
+    "no branch" from "some other branch". Paths are resolved so callers
+    can match regardless of symlink/normalization differences.
+    """
+    ok, stdout, _, _ = run_git(workdir, ["git", "worktree", "list", "--porcelain"])
+    if not ok:
+        return {}
+    result: dict[str, str] = {}
+    current_path = ""
+    for raw in stdout.splitlines():
+        line = raw.rstrip()
+        if line.startswith("worktree "):
+            current_path = str(Path(line[len("worktree "):].strip()).resolve())
+            result.setdefault(current_path, "")
+        elif line.startswith("branch ") and current_path:
+            ref = line[len("branch "):].strip()
+            if ref.startswith("refs/heads/"):
+                result[current_path] = ref[len("refs/heads/"):]
+            else:
+                result[current_path] = ref
+        elif not line.strip():
+            current_path = ""
+    return result
+
+
 def create_task_worktree(
     *,
     base_workdir: str,
@@ -27,25 +55,31 @@ def create_task_worktree(
     worktree_path = worktree_root / safe_task
 
     if worktree_path.exists():
-        owner_file = worktree_path / ".orc-card-id"
-        if owner_file.exists():
-            owner_id = owner_file.read_text(encoding="utf-8").strip()
-            if owner_id and owner_id != task_id:
-                log_event(log_path, "ERROR", "worktree collision detected",
-                          task_id=task_id, owner_id=owner_id,
-                          safe_name=safe_task, worktree_path=str(worktree_path))
-                raise RuntimeError(
-                    f"Worktree collision: {worktree_path} belongs to '{owner_id}', "
-                    f"not '{task_id}' (both map to safe name '{safe_task}')"
-                )
-        log_event(log_path, "INFO", "task worktree reused",
-                  task_id=task_id, worktree_path=str(worktree_path))
-        return WorktreeSession(
-            base_workdir=base_workdir,
-            worktree_path=str(worktree_path),
-            branch_name=branch_name,
-            task_id=task_id,
-            reused=True,
+        target_key = str(worktree_path.resolve())
+        registered = _list_worktree_branches(base_workdir).get(target_key)
+        if registered == branch_name:
+            log_event(log_path, "INFO", "task worktree reused",
+                      task_id=task_id, worktree_path=str(worktree_path))
+            return WorktreeSession(
+                base_workdir=base_workdir,
+                worktree_path=str(worktree_path),
+                branch_name=branch_name,
+                task_id=task_id,
+                reused=True,
+            )
+        if registered is None:
+            reason = "orphaned on disk"
+        elif registered == "":
+            reason = "parked on a detached HEAD"
+        else:
+            reason = f"registered to branch '{registered}'"
+        log_event(log_path, "ERROR", "worktree collision detected",
+                  task_id=task_id, registered_branch=registered or "",
+                  safe_name=safe_task, worktree_path=str(worktree_path))
+        raise RuntimeError(
+            f"Worktree collision: {worktree_path} is {reason}, not "
+            f"'{branch_name}'; run `git worktree prune` in {base_workdir} "
+            f"or remove the directory manually"
         )
 
     ok, _, stderr, _ = run_git(
@@ -59,10 +93,6 @@ def create_task_worktree(
         )
         if not ok2:
             raise RuntimeError(f"failed to create worktree: {stderr.strip()} / {stderr2.strip()}")
-    try:
-        (worktree_path / ".orc-card-id").write_text(task_id, encoding="utf-8")
-    except OSError:
-        pass
     log_event(
         log_path,
         "INFO",

@@ -98,6 +98,8 @@ def is_runtime_artifact(path: str) -> bool:
         return True
     if p == "nohup.out":
         return True
+    if p == ".orc-card-id" or p.endswith("/.orc-card-id"):
+        return True
     return any(p.startswith(pfx) or f"/{pfx}" in p for pfx in _RUNTIME_ARTIFACT_PREFIXES)
 
 
