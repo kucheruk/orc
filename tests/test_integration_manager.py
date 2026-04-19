@@ -71,9 +71,13 @@ class RecoverStaleGitStateTest(unittest.TestCase):
 
 
 class IntegrationManagerExecuteTest(unittest.TestCase):
-    @patch("orc_core.git.integration_manager.has_commits_ahead_of_branch", return_value=False)
-    def test_has_commits_marks_failure_when_branch_not_ahead(self, _ahead_mock) -> None:
-        mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))
+    def test_has_commits_marks_failure_when_branch_not_ahead(self) -> None:
+        fake_git = MagicMock()
+        fake_git.run.return_value = (True, "0\n", "", 0)  # zero commits ahead
+        mgr = IntegrationManager(
+            workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"),
+            git=fake_git,
+        )
         ctx = IntegrationContext(
             session_id="s1",
             task_id="TASK-1",
@@ -82,16 +86,23 @@ class IntegrationManagerExecuteTest(unittest.TestCase):
             log_path=Path("/tmp/orc.log"),
         )
 
-        has_commits = mgr._has_commits(ctx, "/tmp/wt")
+        has_commits = mgr._has_commits(ctx, "orc/TASK-1")
 
         self.assertFalse(has_commits)
         self.assertEqual(ctx.report.get("status"), "failed")
         self.assertEqual(ctx.report.get("reason"), "no_commits_ahead")
 
-    @patch("orc_core.git.integration_manager.has_code_changes_ahead", return_value=False)
-    @patch("orc_core.git.integration_manager.has_commits_ahead_of_branch", return_value=True)
-    def test_has_commits_fails_when_only_card_changes(self, _ahead_mock, _code_mock) -> None:
-        mgr = IntegrationManager(workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"))
+    def test_has_commits_fails_when_only_card_changes(self) -> None:
+        fake_git = MagicMock()
+        # 1st call: rev-list count → 3 ahead. 2nd call: diff --name-only → empty.
+        fake_git.run.side_effect = [
+            (True, "3\n", "", 0),
+            (True, "", "", 0),
+        ]
+        mgr = IntegrationManager(
+            workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"),
+            git=fake_git,
+        )
         ctx = IntegrationContext(
             session_id="s1",
             task_id="TASK-1",
@@ -100,8 +111,28 @@ class IntegrationManagerExecuteTest(unittest.TestCase):
             log_path=Path("/tmp/orc.log"),
         )
 
-        has_commits = mgr._has_commits(ctx, "/tmp/wt")
+        has_commits = mgr._has_commits(ctx, "orc/TASK-1")
 
         self.assertFalse(has_commits)
         self.assertEqual(ctx.report.get("status"), "failed")
         self.assertEqual(ctx.report.get("reason"), "no_code_changes")
+
+    def test_has_commits_passes_when_code_changes_exist(self) -> None:
+        fake_git = MagicMock()
+        fake_git.run.side_effect = [
+            (True, "3\n", "", 0),
+            (True, "src/foo.py\n", "", 0),
+        ]
+        mgr = IntegrationManager(
+            workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"),
+            git=fake_git,
+        )
+        ctx = IntegrationContext(
+            session_id="s1",
+            task_id="TASK-1",
+            workdir="/tmp",
+            main_branch="main",
+            log_path=Path("/tmp/orc.log"),
+        )
+
+        self.assertTrue(mgr._has_commits(ctx, "orc/TASK-1"))

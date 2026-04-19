@@ -266,22 +266,26 @@ class WorkerAssignmentExecutor:
         update_card_token_budget(card, self._distributor.board, self._log_path)
 
     def _cleanup_after_assignment(self, card, slot, worktree: Optional[WorktreeSession]) -> None:
-        if worktree:
-            if card.action == Action.DONE:
-                finalize_completed_worktree(
-                    card=card,
-                    worktree=worktree,
-                    slot=slot,
-                    board=self._distributor.board,
-                    integrator=self._integrator,
-                    cleanup_fn=cleanup_task_worktree,
-                    log_path=self._log_path,
-                    main_branch=self._main_branch,
-                    publisher=self._publisher,
-                    worktree_lock=self._worktree_lock,
-                )
-            elif card.action == Action.BLOCKED:
-                with self._worktree_lock:
-                    cleanup_task_worktree(worktree, self._log_path)
+        # Finalize Handoff+Done regardless of whether the WorktreeSession
+        # handle survived. An ORC restart between agent decision and cleanup
+        # used to drop the session handle and strand the card in Handoff+Done
+        # forever; now the squash-merge runs off the deterministic branch
+        # name (orc/<card_id>) from the main workdir.
+        if card.action == Action.DONE:
+            finalize_completed_worktree(
+                card=card,
+                worktree=worktree,
+                slot=slot,
+                board=self._distributor.board,
+                integrator=self._integrator,
+                cleanup_fn=cleanup_task_worktree,
+                log_path=self._log_path,
+                main_branch=self._main_branch,
+                publisher=self._publisher,
+                worktree_lock=self._worktree_lock,
+            )
+        elif worktree and card.action == Action.BLOCKED:
+            with self._worktree_lock:
+                cleanup_task_worktree(worktree, self._log_path)
         slot.task = None
         self._distributor.release_card(card.id)

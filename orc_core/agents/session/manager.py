@@ -122,6 +122,11 @@ class KanbanSessionManager:
         cleanup_stale_parallel_sessions(
             self._distributor.board, self.workdir, self.log_path, self.publisher,
         )
+        # Enforce the Handoff+Done invariant: every card in that state must
+        # be merged to main. If a prior run reached the state but the session
+        # cleanup was skipped (restart, crash), finalize now from the
+        # deterministic orc/<card_id> branch.
+        self._finalize_orphan_handoff_done()
 
         done, _ip, total = self._distributor.get_progress()
         self.publisher.emit("system", "", f"Kanban started: {total} cards, {self._pool.max_sessions} agents")
@@ -203,6 +208,40 @@ class KanbanSessionManager:
 
     def _pop_directive(self) -> Optional[str]:
         return self._directives.pop()
+
+    def _finalize_orphan_handoff_done(self) -> None:
+        """Run the same finalize path that live sessions use, but against every
+        card already sitting in 7_Handoff with action=Done — i.e. cards whose
+        integrator decision landed on disk before a prior ORC exit skipped
+        cleanup. With no live WorktreeSession to pass, finalize uses the
+        deterministic branch name ``orc/<card_id>`` and merges from the main
+        workdir.
+        """
+        from ...board.action_constants import Action
+        from ...board.stage_constants import STAGE_HANDOFF
+        from ...git.use_cases.finalize_task_worktree import finalize_completed_worktree
+        from ...git.worktree_lifecycle import cleanup_task_worktree
+
+        board = self._distributor.board
+        stale = [c for c in list(board.cards_in_stage(STAGE_HANDOFF)) if c.action == Action.DONE]
+        if not stale:
+            return
+        # Startup runs serially before any worker session starts, so a fresh
+        # lock is enough — there is no concurrent worktree mutation.
+        local_lock = threading.Lock()
+        for card in stale:
+            finalize_completed_worktree(
+                card=card,
+                worktree=None,
+                slot=None,
+                board=board,
+                integrator=self._integrator,
+                cleanup_fn=cleanup_task_worktree,
+                log_path=self.log_path,
+                main_branch=self.main_branch,
+                publisher=self.publisher,
+                worktree_lock=local_lock,
+            )
 
     def _send_telegram(self, message: str) -> None:
         """Raw telegram send — for legacy paths. Prefer a severity-aware

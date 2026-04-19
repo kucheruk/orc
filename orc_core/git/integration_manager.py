@@ -20,7 +20,6 @@ from ..errors.truncation import (
     TRACEBACK_TRUNCATE,
 )
 from ..infra.io.state_paths import integration_report_path
-from .git_helpers import has_code_changes_ahead, has_commits_ahead_of_branch
 from ..tasks.dto import Task
 from .conflict_resolver import ConflictResolver
 from .ports import ConflictResolverPort, GitRunner, SafeFilesGuardPort
@@ -96,7 +95,15 @@ class IntegrationManager:
         execution_workdir: str,
         merge_expert_fn: Optional[Callable[[], bool]] = None,
         status_fn: Optional[Callable[[str], None]] = None,
+        branch_name: str = "",
     ) -> bool:
+        """Squash-merge a task branch into main.
+
+        ``execution_workdir`` is optional: when empty the caller must supply
+        ``branch_name`` directly. This lets the integration path run even when
+        the WorktreeSession was lost (e.g. after an ORC restart between an
+        agent writing ``action=Done`` and the session cleanup firing).
+        """
         notify = status_fn or (lambda _msg: None)
         ctx = IntegrationContext(
             session_id=session_id,
@@ -109,7 +116,7 @@ class IntegrationManager:
         with self._lock:
             notify(f"Squash-merging {task.task_id} into {self.main_branch}...")
             try:
-                return self._execute(ctx, execution_workdir, task, merge_expert_fn)
+                return self._execute(ctx, execution_workdir, task, merge_expert_fn, branch_name)
             except Exception as exc:
                 ctx.step_error("unexpected_exception",
                                error=str(exc),
@@ -161,15 +168,19 @@ class IntegrationManager:
         execution_workdir: str,
         task: Task,
         merge_expert_fn: Optional[Callable],
+        explicit_branch: str = "",
     ) -> bool:
-        if not self._has_commits(ctx, execution_workdir):
-            return False
-        # Resolve branch name from execution_workdir
-        ok, stdout, _, _ = self._git.run(execution_workdir, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
-        branch_name = stdout.strip() if ok else ""
+        branch_name = (explicit_branch or "").strip()
+        if not branch_name:
+            # Legacy path: a live worktree is available, so derive the branch
+            # from its HEAD.
+            ok, stdout, _, _ = self._git.run(execution_workdir, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
+            branch_name = stdout.strip() if ok else ""
         if not branch_name or branch_name == "HEAD":
             ctx.step_error("branch_resolve_failed", worktree=execution_workdir)
             ctx.save_report("failed", "branch_resolve_failed")
+            return False
+        if not self._has_commits(ctx, branch_name):
             return False
         ctx.report["branch"] = branch_name
         stashed = self._stash_dirty_state(ctx)
@@ -250,14 +261,39 @@ class IntegrationManager:
         ctx.step("preflight_ok")
         return True
 
-    def _has_commits(self, ctx: IntegrationContext, execution_workdir: str) -> bool:
-        if not has_commits_ahead_of_branch(execution_workdir, self.main_branch, self.log_path):
-            ctx.step_error("no_commits_ahead", worktree=execution_workdir)
+    def _has_commits(self, ctx: IntegrationContext, branch_name: str) -> bool:
+        """Check the task branch has code commits vs main.
+
+        Queried from the main workdir against ``{main_branch}..{branch_name}``
+        so the check works whether or not a worktree is checked out on the
+        branch — required for the orphan-recovery path where the
+        WorktreeSession was lost after an ORC restart.
+        """
+        ok, stdout, stderr, _ = self._git.run(
+            self.workdir,
+            ["git", "rev-list", "--count", f"{self.main_branch}..{branch_name}"],
+        )
+        if not ok:
+            ctx.step_error("ahead_count_failed", branch=branch_name, error=stderr[:200])
+            ctx.save_report("failed", "ahead_count_failed")
+            return False
+        try:
+            ahead = int((stdout or "0").strip() or "0")
+        except ValueError:
+            ahead = 0
+        if ahead <= 0:
+            ctx.step_error("no_commits_ahead", branch=branch_name)
             ctx.save_report("failed", "no_commits_ahead")
             return False
-        if not has_code_changes_ahead(execution_workdir, self.main_branch, self.log_path):
+        # Commits exist — require at least one of them to touch code outside tasks/.
+        ok_diff, diff_out, _, _ = self._git.run(
+            self.workdir,
+            ["git", "diff", "--name-only", f"{self.main_branch}..{branch_name}", "--", ".", ":!tasks/"],
+        )
+        changed = [line for line in (diff_out or "").splitlines() if line.strip()] if ok_diff else []
+        if not changed:
             ctx.step_error("no_code_changes",
-                           worktree=execution_workdir,
+                           branch=branch_name,
                            detail="commits exist but only contain card/task file changes")
             ctx.save_report("failed", "no_code_changes")
             return False

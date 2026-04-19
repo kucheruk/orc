@@ -22,12 +22,19 @@ from ...tasks.dto import Task
 
 class Integrator(Protocol):
     """Port for main-branch integration."""
-    def integrate(self, session_id: str, task: Task, execution_workdir: str) -> bool: ...
+    def integrate(
+        self,
+        session_id: str,
+        task: Task,
+        execution_workdir: str,
+        *,
+        branch_name: str = "",
+    ) -> bool: ...
 
 
 def finalize_completed_worktree(
     card: CardView,
-    worktree: WorktreeSession,
+    worktree: WorktreeSession | None,
     slot,
     board: BoardGateway,
     integrator: Integrator,
@@ -37,9 +44,26 @@ def finalize_completed_worktree(
     publisher,
     worktree_lock: threading.Lock,
 ) -> bool:
-    """Integrate worktree into main and clean up. Returns True on success."""
-    task_obj = slot.task or Task(task_id=card.id, text=card.title or card.id, done=True)
-    integrated = integrator.integrate(slot.session_id, task_obj, worktree.worktree_path)
+    """Integrate a task branch into main and clean up. Returns True on success.
+
+    ``worktree`` may be None when the WorktreeSession handle was lost — e.g.
+    after an ORC restart between the agent writing ``action=Done`` and
+    ``_cleanup_after_assignment`` running. In that case the branch name is
+    reconstructed from the card id and the merge proceeds from the main
+    workdir alone; worktree cleanup is skipped because there is no session
+    handle to clean up.
+    """
+    session_id = getattr(slot, "session_id", "") if slot is not None else ""
+    task_obj: Task
+    if slot is not None and getattr(slot, "task", None) is not None:
+        task_obj = slot.task
+    else:
+        task_obj = Task(task_id=card.id, text=card.title or card.id, done=True)
+    execution_workdir = worktree.worktree_path if worktree else ""
+    branch_name = worktree.branch_name if (worktree and worktree.branch_name) else f"orc/{card.id}"
+    integrated = integrator.integrate(
+        session_id, task_obj, execution_workdir, branch_name=branch_name,
+    )
     if integrated:
         # Card must not reach STAGE_DONE before the squash merge lands. The
         # state machine keeps the card in STAGE_HANDOFF with action=DONE until
@@ -47,12 +71,13 @@ def finalize_completed_worktree(
         if card.stage != STAGE_DONE:
             board.move_card(card, STAGE_DONE, reason="integrated into main")
             board.save_card(card)
-        with worktree_lock:
-            cleanup_fn(worktree, log_path)
+        if worktree is not None:
+            with worktree_lock:
+                cleanup_fn(worktree, log_path)
         return True
     else:
         log_event(log_path, "WARN", "integration failed, keeping worktree",
-                  task_id=card.id, worktree=worktree.worktree_path)
+                  task_id=card.id, worktree=execution_workdir, branch=branch_name)
         publisher.emit("escalate", card.id,
                         f"{card.id} squash-merge to {main_branch} failed; "
                         f"card held in Handoff for retry")
