@@ -80,6 +80,15 @@ class WorkerAssignmentExecutor:
             fresh_card = self._distributor.board.card_by_id(card.id)
             if fresh_card is None or fresh_card.action == Action.BLOCKED:
                 return
+            # Pre-launch budget check closes the race between `pick_best`
+            # filtering and another attempt accumulating tokens past the
+            # limit. Without this an exhausted card can be launched again
+            # between pick and engine.execute.
+            self._sync_tokens_and_budget(fresh_card)
+            if check_and_block_budget(
+                fresh_card, self._distributor.board, self._publisher, self._log_path,
+            ):
+                return
             launch_state = card_state_fingerprint(fresh_card)
             git_context = gather_git_context(wd, self._main_branch, self._log_path, git=self._git) if assignment.needs_worktree else ""
             prompt = prompt_builder(role, fresh_card, self._distributor.board, main_branch=self._main_branch, git_context=git_context)
