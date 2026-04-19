@@ -85,3 +85,23 @@ def send_telegram_message(message: str, log_path: Path, *, orc_root: Path | None
     if notifier is None:
         return
     notifier.send(message, log_path)
+
+
+def _notify_mode() -> str:
+    raw = str(os.environ.get("ORC_NOTIFY_MODE", "normal") or "normal").strip().lower()
+    return raw if raw in {"normal", "debug"} else "normal"
+
+
+def send_severity(envelope, log_path: Path, *, orc_root: Path | None = None) -> None:
+    """Deliver a `(Severity, text)` envelope respecting ORC_NOTIFY_MODE.
+
+    Used by call sites outside NotificationService (CLI startup/shutdown,
+    ad-hoc teamlead actions). Info-level messages are dropped in normal mode.
+    """
+    if envelope is None:
+        return
+    from .messages import Severity
+    severity, text = envelope
+    if _notify_mode() != "debug" and severity == Severity.INFO:
+        return
+    send_telegram_message(text, log_path, orc_root=orc_root)

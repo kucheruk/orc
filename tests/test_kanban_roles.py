@@ -106,13 +106,27 @@ class TestHealthModeCompactBoard(unittest.TestCase):
 
     def test_health_prompt_uses_compact_board(self):
         with tempfile.TemporaryDirectory() as tmp:
-            board = self._make_board(Path(tmp))
+            tasks_dir = init_kanban_board(Path(tmp))
+            # Mix one problematic card (Blocked) with a healthy one so we can
+            # assert the problematic filter keeps the former and drops the
+            # latter (health mode).
+            for cid, title, action in [
+                ("HC-B", "Blocked card", "Blocked"),
+                ("HC-OK", "Healthy card", "Product"),
+            ]:
+                card = KanbanCard(
+                    id=cid, title=title, stage="2_Estimate", action=action, body="body",
+                )
+                write_card(card, tasks_dir / "2_Estimate" / f"{cid}.md")
+            board = KanbanBoard(tasks_dir, repo=FsCardRepository())
             prompt = build_teamlead_prompt(
                 mode="health", board=board,
                 diagnostic_info="test alert",
                 decision_path=str(Path(tmp) / ".orc" / "decision.md"),
             )
-            self.assertIn("action=Product", prompt)
+            self.assertIn("HC-B", prompt)
+            self.assertIn("action=Blocked", prompt)
+            self.assertNotIn("HC-OK", prompt)   # healthy cards filtered out
             self.assertNotIn("| Title |", prompt)
 
     def test_arbitration_prompt_still_uses_full_table(self):

@@ -17,5 +17,5 @@ class NotifyHandler:
             raise ValueError("Missing required param: 'message'")
         if ctx.log_path is None:
             raise ValueError("notify action requires log_path (internal error)")
-        send_telegram_message(message, ctx.log_path)
+        send_telegram_message(f"**Teamlead**: {message}", ctx.log_path)
         ctx.publisher.emit("teamlead", "", f"[TL] Telegram sent: {message[:100]}")

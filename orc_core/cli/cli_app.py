@@ -267,9 +267,20 @@ def main() -> int:
             def _run_orchestrator(snapshot_publisher: Callable[[str, MonitorSnapshot | None], None]) -> int:
                 return asyncio.run(manager.run_async(snapshot_publisher))
 
+            from ..notifications.messages import format_orc_shutdown, format_orc_startup
+            from ..notifications.notify import send_severity
+            send_severity(
+                format_orc_startup(workdir, int(getattr(args, "max_sessions", 0) or 0)),
+                log_path, orc_root=Path(workdir),
+            )
+
             app = OrcApp(_run_orchestrator, session_manager=manager)
             result = app.run(mouse=False)
             exit_code = int(result if result is not None else 1)
+            send_severity(
+                format_orc_shutdown(f"exit_code={exit_code}"),
+                log_path, orc_root=Path(workdir),
+            )
             if app.last_error:
                 crash_payload = emit_crash_stdout_payload(
                     entrypoint="orc_core.cli_app:main",

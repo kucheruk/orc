@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """Notification formatting for kanban card lifecycle events."""
 
+from ..notifications.messages import Severity
 from .action_constants import ClassOfService
 from .card_sections import SECTION_NOTES
 from .kanban_card import KanbanCard
@@ -44,10 +45,13 @@ def format_completion_message(
     old_cos: str,
     elapsed: float,
     progress: tuple[int, int, int],
-) -> str | None:
+) -> tuple[Severity, str] | None:
     """Format a rich notification message for a card lifecycle event.
 
-    Returns None if the transition is not notification-worthy.
+    Returns None if the transition is not notification-worthy. Otherwise
+    returns `(severity, text)`: cards landing in 8_Done or flipping to
+    expedite are `NORMAL`; every other stage hop is `INFO` so it only
+    surfaces in debug notify mode.
     """
     mins = elapsed / 60.0
     new_stage = card.stage
@@ -83,4 +87,5 @@ def format_completion_message(
     done, _ip, total = progress
     lines.append(f"\nProgress: {done}/{total}")
 
-    return "\n".join(lines)
+    severity = Severity.NORMAL if (is_done or became_expedite) else Severity.INFO
+    return severity, "\n".join(lines)

@@ -203,7 +203,16 @@ class KanbanSessionManager:
         return self._directives.pop()
 
     def _send_telegram(self, message: str) -> None:
+        """Raw telegram send — for legacy paths. Prefer a severity-aware
+        formatter via NotificationService for new call sites."""
         self._notifications.send_telegram(message)
+
+    def _send_heartbeat_telegram(self, message: str) -> None:
+        """Heartbeat pings are routine — only surface them in debug mode."""
+        from ...notifications.messages import Severity
+        from ...notifications.notify import send_severity
+        send_severity((Severity.INFO, message), self._notifications._log_path,
+                      orc_root=Path(self.workdir))
 
     def _notify_completion(self, card, role, old_stage, old_action, old_cos, elapsed) -> None:
         self._notifications.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
@@ -257,7 +266,7 @@ class KanbanSessionManager:
             f"Workers: {running}\n"
             f"Uptime: {elapsed_str}"
         )
-        self._send_telegram(message)
+        self._send_heartbeat_telegram(message)
 
     def _blocked_by_deps_count(self) -> int:
         board = self._distributor.board

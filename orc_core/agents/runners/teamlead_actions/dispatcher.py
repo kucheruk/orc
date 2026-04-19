@@ -24,6 +24,7 @@ def execute_teamlead_actions(
     decision: TeamleadDecision,
     publisher: "KanbanPublisher",
     log_path: Path,
+    notifier=None,
 ) -> list[str]:
     """Execute parsed actions against the board. Returns list of error strings."""
     errors: list[str] = []
@@ -37,6 +38,7 @@ def execute_teamlead_actions(
             reason=action.reason,
             publisher=publisher,
             log_path=log_path,
+            notifier=notifier,
         )
         try:
             resolve(action.type).execute(ctx)

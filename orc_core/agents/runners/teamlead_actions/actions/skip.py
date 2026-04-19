@@ -27,3 +27,8 @@ class SkipCardHandler:
             reason=f"teamlead skip: {ctx.reason}" if ctx.reason else "teamlead skip",
         )
         ctx.publisher.emit("teamlead", card_id, f"Skipped {card_id} → {STAGE_DONE}: {ctx.reason}")
+        if ctx.notifier is not None:
+            try:
+                ctx.notifier.notify_card_skipped(card_id, ctx.reason or "")
+            except Exception:
+                pass

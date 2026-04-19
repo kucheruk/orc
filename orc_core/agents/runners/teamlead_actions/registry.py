@@ -26,6 +26,7 @@ class ActionContext:
     reason: str
     publisher: "KanbanPublisher"
     log_path: Path | None = None
+    notifier: Any = None  # RunnerNotifier; optional for actions that ping operator
 
 
 class ActionHandler(Protocol):

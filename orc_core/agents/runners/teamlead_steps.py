@@ -70,6 +70,7 @@ class TeamleadContext:
             decision = parse_teamlead_decision(dec_path)
             errors = execute_teamlead_actions(
                 self.distributor.board, decision, self.publisher, self.log_path,
+                notifier=self.notifier,
             )
             if errors:
                 for e in errors:

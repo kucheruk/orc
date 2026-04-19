@@ -53,6 +53,9 @@ _DEFAULT_PROFILES: tuple[KanbanRoleProfile, ...] = (
     KanbanRoleProfile(ROLE_INTEGRATOR, "kanban_integrator.txt", requires_worktree=True, is_delivery=False),
     KanbanRoleProfile(ROLE_TEAMLEAD, "kanban_teamlead.txt"),
     KanbanRoleProfile(ROLE_TEAMLEAD_TRIAGE, "kanban_teamlead_triage.txt"),
+    # Lean variant used only by HealthCheckStep. Routed via build_teamlead_prompt,
+    # not through the pull registry; kept here so TemplateLoader can find it.
+    KanbanRoleProfile("kanban_teamlead_health", "kanban_teamlead_health.txt"),
 )
 
 

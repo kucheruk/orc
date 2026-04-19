@@ -56,6 +56,15 @@ class NotifierAdapter:
     def notify_blocked_accumulation(self, cards: list[tuple[str, str]]) -> None:
         self._svc.notify_blocked_accumulation(cards)
 
+    def notify_card_skipped(self, card_id: str, reason: str = "") -> None:
+        self._svc.notify_card_skipped(card_id, reason)
+
+    def notify_orc_startup(self, workspace: str, max_sessions: int) -> None:
+        self._svc.notify_orc_startup(workspace, max_sessions)
+
+    def notify_orc_shutdown(self, reason: str = "") -> None:
+        self._svc.notify_orc_shutdown(reason)
+
     def notify_completion(self, card, role, old_stage, old_action, old_cos, elapsed) -> None:
         self._svc.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
 

@@ -125,6 +125,7 @@ def format_board_detail(
     token_stats: dict[str, int] | None = None,
     *,
     compact: bool = False,
+    only_problematic: bool = False,
 ) -> str:
     """Format full board inventory for the teamlead prompt.
 
@@ -134,6 +135,10 @@ def format_board_detail(
     Compact mode (health): one terse line per card with only the signals the
     teamlead actually reads — ID, stage/action, loop, tokens, dep counts.
     Drops title/agent/CoS/elapsed to keep the health prompt slim.
+
+    `only_problematic`: in health mode, filter each stage to Blocked /
+    Arbitration / over-budget / over-loop cards. Saves ~1KB/tick on a
+    90-card board where most cards are healthy.
     """
     done_ids = {c.id for c in board.cards if c.stage == STAGE_DONE}
     stats = token_stats or {}
@@ -141,6 +146,8 @@ def format_board_detail(
 
     for stage in STAGES:
         cards = sorted(board.cards_in_stage(stage), key=_card_priority_key)
+        if only_problematic:
+            cards = [c for c in cards if _card_is_problematic(c)]
         limit = board.wip_limit(stage)
         count = len(cards)
 
@@ -206,6 +213,18 @@ def _card_priority_key(card) -> tuple[int, str, float]:
     cos_rank = COS_PRIORITY.get(card.class_of_service, 9)
     deadline = card.deadline if card.class_of_service == ClassOfService.FIXED_DATE else "9999-12-31"
     return (cos_rank, deadline, -card.roi)
+
+
+def _card_is_problematic(card) -> bool:
+    """True when the card needs teamlead attention (blocked / stuck / over budget)."""
+    from ..board.action_constants import Action
+    if card.action in (Action.BLOCKED, Action.ARBITRATION):
+        return True
+    if card.loop_count >= 2:
+        return True
+    if card.token_budget > 0 and card.tokens_spent >= int(card.token_budget * 0.9):
+        return True
+    return False
 
 
 _CARD_PROMPT_MAX_CHARS = 6000  # cap card body in teamlead prompts to save tokens
@@ -323,9 +342,16 @@ def build_teamlead_prompt(
     """
     if loader is None:
         loader = default_template_loader()
-    template = loader.load(ROLE_TEAMLEAD)
+    # Health mode uses a ~40-line template that drops full Kanban rules and
+    # the 11-point guidelines block (available in AGENTS.md). Cuts ~1.2KB of
+    # prompt per tick; see docs/notifications.md Phase 4.
+    template_name = "kanban_teamlead_health" if mode == "health" else ROLE_TEAMLEAD
+    template = loader.load(template_name)
     board_detail = _escape_braces(
-        format_board_detail(board, token_stats=token_stats, compact=(mode == "health"))
+        format_board_detail(
+            board, token_stats=token_stats, compact=(mode == "health"),
+            only_problematic=(mode == "health"),
+        )
     )
     board_summary = format_board_summary(board)
 
