@@ -147,11 +147,15 @@ def detect_circular_deps(
 def detect_stuck_cards(
     cards: list[KanbanCard],
     done_ids: set[str],
-    threshold_minutes: int = 45,
+    threshold_minutes: int = 180,
 ) -> str:
-    """Detect cards stuck in a non-Done stage for too long."""
+    """Detect cards stuck in a non-Done stage for too long.
+
+    The summary intentionally omits elapsed-time so HealthCheckStep's
+    deduplication can suppress repeat alerts about the same set of cards.
+    """
     now = datetime.now(timezone.utc)
-    stuck: list[str] = []
+    stuck: list[tuple[str, str]] = []
     for c in cards:
         if c.assigned_agent:
             continue  # currently being worked on
@@ -165,9 +169,11 @@ def detect_stuck_cards(
                 ts = ts.replace(tzinfo=timezone.utc)
             elapsed_min = (now - ts).total_seconds() / 60
             if elapsed_min > threshold_minutes:
-                stuck.append(f"{c.id} ({c.stage}, {int(elapsed_min)}m idle)")
+                stuck.append((c.id, c.stage))
         except Exception:
             continue
     if stuck:
-        return f"Cards stuck without progress: {', '.join(stuck[:5])}"
+        return "Cards stuck without progress: " + ", ".join(
+            f"{cid} ({stage})" for cid, stage in stuck[:5]
+        )
     return ""
