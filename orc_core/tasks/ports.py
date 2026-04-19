@@ -151,6 +151,8 @@ class ProcessProbe(Protocol):
 
     def is_alive(self, pid: int) -> bool: ...
 
+    def active_children_count(self, pid: int) -> int: ...
+
 
 class ProcessLifecyclePort(Protocol):
     """Port for OS process lifecycle operations — keeps tasks/ and agents/

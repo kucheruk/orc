@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import psutil
-
 from ..ports import ProcessProbe
 
 if TYPE_CHECKING:
@@ -49,16 +47,4 @@ def _get_active_children_count(monitor: "StreamMonitorProtocol") -> int:
     pid = monitor.proc.pid or monitor.init_pid
     if not isinstance(pid, int) or pid <= 0:
         return 0
-    try:
-        parent = psutil.Process(pid)
-        children = parent.children(recursive=True)
-    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-        return 0
-    active_count = 0
-    for child in children:
-        try:
-            if child.status() != psutil.STATUS_ZOMBIE:
-                active_count += 1
-        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-            continue
-    return active_count
+    return _default_probe().active_children_count(pid)
