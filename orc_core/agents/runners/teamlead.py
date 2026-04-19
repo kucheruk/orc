@@ -48,6 +48,7 @@ class KanbanTeamleadRunner:
         state_paths: StatePathsPort,
         directives: DirectiveSource,
         git_integration: GitIntegrationPort,
+        active_tasks_provider,
     ) -> None:
         self._ctx = TeamleadContext(
             workdir=workdir,
@@ -60,6 +61,7 @@ class KanbanTeamleadRunner:
             state_manager=state_manager,
             outcomes=outcomes,
             state_paths=state_paths,
+            active_tasks_provider=active_tasks_provider,
         )
         self._incident_mgr = incident_mgr
         self._slots_lock = slots_lock

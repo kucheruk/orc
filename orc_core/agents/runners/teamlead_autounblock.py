@@ -4,9 +4,7 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
-from pathlib import Path
 
 from ...board.card_sections import SECTION_DESIGN, SECTION_FEEDBACK, SECTION_NOTES, SECTION_PRODUCT
 from ...board.stage_constants import STAGE_DONE
@@ -76,7 +74,7 @@ def resolve_cycle_with_decomposition(ctx, diagnostic) -> bool:
 
 def release_stale_assignments(ctx, suspect_counts: dict[str, int], *, stale_minutes: int = 20, suspect_threshold: int = 2) -> int:
     """Release cards assigned to stale/missing agent sessions."""
-    active_by_session = _active_tasks_by_session(ctx)
+    active_by_session = ctx.active_tasks_provider()
     released = 0
     for card in ctx.distributor.board.cards:
         if card.stage == STAGE_DONE or not card.assigned_agent:
@@ -132,31 +130,6 @@ def _append_feedback(card, text: str) -> None:
         card.body = body.rstrip() + f"\n\n{text}\n"
     else:
         card.body = body.rstrip() + f"\n\n{SECTION_FEEDBACK}\n\n{text}\n"
-
-
-def _active_tasks_by_session(ctx) -> dict[str, str]:
-    base = ctx.state_paths.run_root(ctx.workdir, "").parent
-    parallel_dir = base / "parallel"
-    if not parallel_dir.exists():
-        return {}
-    result: dict[str, str] = {}
-    for session_dir in parallel_dir.iterdir():
-        if not session_dir.is_dir():
-            continue
-        task_path = session_dir / "active-task.json"
-        if not task_path.exists():
-            continue
-        try:
-            payload = json.loads(task_path.read_text(encoding="utf-8"))
-            if payload.get("status") != "active":
-                continue
-            sid = str(payload.get("session_id", "")).split("-", 1)[0] or session_dir.name
-            tid = str(payload.get("task_id", "")).strip()
-            if sid and tid:
-                result[sid] = tid
-        except Exception:
-            continue
-    return result
 
 
 def _minutes_since(iso_ts: str) -> float:

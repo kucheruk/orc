@@ -5,9 +5,9 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Protocol
+from typing import TYPE_CHECKING, Callable, Optional, Protocol
 
 from ...board.kanban_card import KanbanCard
 from ...board.action_constants import Action
@@ -44,6 +44,7 @@ class TeamleadContext:
     state_manager: RunnerStateManager
     outcomes: "TaskOutcomeTracker"
     state_paths: StatePathsPort
+    active_tasks_provider: Callable[[], dict[str, str]] = field(default_factory=dict)
 
     def decision_path(self) -> Path:
         p = Path(self.workdir) / ".orc"

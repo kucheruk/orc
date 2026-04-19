@@ -128,6 +128,26 @@ class SessionPool:
                 for s in self._slots.values()
             )
 
+    def active_tasks_by_session(self) -> dict[str, str]:
+        """Map of session_id -> task_id for slots currently processing a card.
+
+        Replaces the pre-B0 behavior of reading parallel/*/active-task.json
+        files from the runtime state root — the in-memory pool is the
+        authoritative source for "which slot owns which card".
+        """
+        with self._slots_lock:
+            result: dict[str, str] = {}
+            for sid, slot in self._slots.items():
+                if slot.status not in (SlotStatus.RUNNING, SlotStatus.CLOSING):
+                    continue
+                task = slot.task
+                if task is None:
+                    continue
+                task_id = str(getattr(task, "task_id", "") or "").strip()
+                if task_id:
+                    result[sid] = task_id
+            return result
+
     def running_info(self) -> str:
         with self._slots_lock:
             running = [
