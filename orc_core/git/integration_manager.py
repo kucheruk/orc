@@ -269,6 +269,18 @@ class IntegrationManager:
         branch — required for the orphan-recovery path where the
         WorktreeSession was lost after an ORC restart.
         """
+        # Probe the branch ref first. rev-list against a missing ref also
+        # fails, but surfacing "branch_missing" separately lets callers
+        # distinguish "nothing to merge, give up" from "git is in a weird
+        # state, retry later".
+        ok_ref, _, _, _ = self._git.run(
+            self.workdir,
+            ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}"],
+        )
+        if not ok_ref:
+            ctx.step_error("branch_missing", branch=branch_name)
+            ctx.save_report("failed", "branch_missing")
+            return False
         ok, stdout, stderr, _ = self._git.run(
             self.workdir,
             ["git", "rev-list", "--count", f"{self.main_branch}..{branch_name}"],

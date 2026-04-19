@@ -71,20 +71,43 @@ class RecoverStaleGitStateTest(unittest.TestCase):
 
 
 class IntegrationManagerExecuteTest(unittest.TestCase):
-    def test_has_commits_marks_failure_when_branch_not_ahead(self) -> None:
-        fake_git = MagicMock()
-        fake_git.run.return_value = (True, "0\n", "", 0)  # zero commits ahead
-        mgr = IntegrationManager(
-            workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"),
-            git=fake_git,
-        )
-        ctx = IntegrationContext(
+    @staticmethod
+    def _ctx() -> IntegrationContext:
+        return IntegrationContext(
             session_id="s1",
             task_id="TASK-1",
             workdir="/tmp",
             main_branch="main",
             log_path=Path("/tmp/orc.log"),
         )
+
+    def test_has_commits_fails_when_branch_missing(self) -> None:
+        fake_git = MagicMock()
+        # show-ref returns rc=1 when the ref doesn't exist.
+        fake_git.run.return_value = (False, "", "", 1)
+        mgr = IntegrationManager(
+            workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"),
+            git=fake_git,
+        )
+        ctx = self._ctx()
+
+        has_commits = mgr._has_commits(ctx, "orc/TASK-1")
+
+        self.assertFalse(has_commits)
+        self.assertEqual(ctx.report.get("status"), "failed")
+        self.assertEqual(ctx.report.get("reason"), "branch_missing")
+
+    def test_has_commits_marks_failure_when_branch_not_ahead(self) -> None:
+        fake_git = MagicMock()
+        fake_git.run.side_effect = [
+            (True, "", "", 0),       # show-ref: branch exists
+            (True, "0\n", "", 0),    # rev-list --count: zero commits ahead
+        ]
+        mgr = IntegrationManager(
+            workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"),
+            git=fake_git,
+        )
+        ctx = self._ctx()
 
         has_commits = mgr._has_commits(ctx, "orc/TASK-1")
 
@@ -94,22 +117,16 @@ class IntegrationManagerExecuteTest(unittest.TestCase):
 
     def test_has_commits_fails_when_only_card_changes(self) -> None:
         fake_git = MagicMock()
-        # 1st call: rev-list count → 3 ahead. 2nd call: diff --name-only → empty.
         fake_git.run.side_effect = [
-            (True, "3\n", "", 0),
-            (True, "", "", 0),
+            (True, "", "", 0),       # show-ref: exists
+            (True, "3\n", "", 0),    # rev-list count → 3 ahead
+            (True, "", "", 0),       # diff --name-only → empty (only tasks/ changes)
         ]
         mgr = IntegrationManager(
             workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"),
             git=fake_git,
         )
-        ctx = IntegrationContext(
-            session_id="s1",
-            task_id="TASK-1",
-            workdir="/tmp",
-            main_branch="main",
-            log_path=Path("/tmp/orc.log"),
-        )
+        ctx = self._ctx()
 
         has_commits = mgr._has_commits(ctx, "orc/TASK-1")
 
@@ -120,19 +137,14 @@ class IntegrationManagerExecuteTest(unittest.TestCase):
     def test_has_commits_passes_when_code_changes_exist(self) -> None:
         fake_git = MagicMock()
         fake_git.run.side_effect = [
-            (True, "3\n", "", 0),
-            (True, "src/foo.py\n", "", 0),
+            (True, "", "", 0),       # show-ref: exists
+            (True, "3\n", "", 0),    # rev-list count
+            (True, "src/foo.py\n", "", 0),  # diff --name-only
         ]
         mgr = IntegrationManager(
             workdir="/tmp", main_branch="main", log_path=Path("/tmp/orc.log"),
             git=fake_git,
         )
-        ctx = IntegrationContext(
-            session_id="s1",
-            task_id="TASK-1",
-            workdir="/tmp",
-            main_branch="main",
-            log_path=Path("/tmp/orc.log"),
-        )
+        ctx = self._ctx()
 
         self.assertTrue(mgr._has_commits(ctx, "orc/TASK-1"))
