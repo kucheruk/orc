@@ -91,6 +91,8 @@ class KanbanSessionManager:
         self._notifications = notifications
         self._pool = pool
         self._last_heartbeat_at = 0.0
+        self._idle_since: float = 0.0
+        self._last_idle_emit_at: float = 0.0
         self._last_heartbeat_log_offset = self.log_path.stat().st_size if self.log_path.exists() else 0
 
         self._board_events = board_events
@@ -141,7 +143,7 @@ class KanbanSessionManager:
                 publisher=self.publisher,
                 publish_board=self._publish_board_state,
                 run_worker=self._run_worker,
-                on_tick=self._maybe_send_heartbeat,
+                on_tick=self._on_tick,
                 sleep_fn=self.sleep_fn,
             )
         except KeyboardInterrupt:
@@ -206,6 +208,48 @@ class KanbanSessionManager:
         """Raw telegram send — for legacy paths. Prefer a severity-aware
         formatter via NotificationService for new call sites."""
         self._notifications.send_telegram(message)
+
+    def _on_tick(self) -> None:
+        self._maybe_send_heartbeat()
+        self._maybe_emit_idle_window()
+
+    _IDLE_WINDOW_THRESHOLD_SECONDS = 60.0
+    _IDLE_WINDOW_DEBOUNCE_SECONDS = 300.0
+
+    def _maybe_emit_idle_window(self) -> None:
+        """Emit a single WARN event when every worker slot has been idle long
+        enough that a supervisor can safely stop ORC (no attempt mid-flight).
+
+        Lightweight hook for external supervisors (me / Claude / any sidecar)
+        to listen on via ``tail -F orc.log | grep "orc idle window"``. No file
+        writes or IPC — just one log line, debounced so repeated idle ticks
+        don't flood.
+        """
+        running = self._pool.running_info()
+        now = time.time()
+        if running:
+            if self._idle_since:
+                self._idle_since = 0.0
+            return
+        if self._idle_since == 0.0:
+            self._idle_since = now
+            return
+        duration = now - self._idle_since
+        if duration < self._IDLE_WINDOW_THRESHOLD_SECONDS:
+            return
+        if (now - self._last_idle_emit_at) < self._IDLE_WINDOW_DEBOUNCE_SECONDS:
+            return
+        self._last_idle_emit_at = now
+        from ...log import log_event
+        log_event(
+            self.log_path,
+            "WARN",
+            "orc idle window",
+            idle_seconds=int(duration),
+            threshold_seconds=int(self._IDLE_WINDOW_THRESHOLD_SECONDS),
+            pool_running="",
+            hint="supervisor may safely restart ORC now",
+        )
 
     def _send_heartbeat_telegram(self, message: str) -> None:
         """Heartbeat pings are routine — only surface them in debug mode."""
