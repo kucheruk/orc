@@ -68,7 +68,13 @@ def _validate_card_update(card: "KanbanCard", payload: CardUpdatePayload, role: 
         errors.append("launch fingerprint stage is stale")
     if payload.launch_fingerprint.action != card.action:
         errors.append("launch fingerprint action is stale")
-    if payload.launch_fingerprint.file_path != str(card.file_path):
+    # Prompts hand agents the relative form "tasks/{stage}/{id}.md"
+    # (roles.py _build_prompt), so the fingerprint is compared against the
+    # same canonical relative path rather than the card's absolute
+    # file_path, which would always mismatch.
+    expected_path = f"tasks/{card.stage}/{card.id}.md"
+    agent_path = payload.launch_fingerprint.file_path.strip()
+    if agent_path not in (expected_path, str(card.file_path)):
         errors.append("launch fingerprint file_path is stale")
     # state_version is intentionally NOT validated: save_card bumps it on
     # every non-semantic write (token-budget sync, teamlead feedback) and a
