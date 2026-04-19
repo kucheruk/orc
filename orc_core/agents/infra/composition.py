@@ -17,6 +17,7 @@ from ...git.conflict_resolver import ConflictResolver
 from ...git.integration_manager import IntegrationManager
 from ...git.safe_files import SafeFilesGuard
 from ...git.subprocess_git import SubprocessGitRunner
+from ...git.task_adapters import SubprocessGitIntegration
 from ...git.worktree_flow import DEFAULT_MAIN_BRANCH, detect_base_branch
 from ...incident.manager import IncidentManager
 from ...backends.backend import Backend
@@ -71,6 +72,7 @@ def build_session_manager(
     process_lifecycle = SubprocessProcessLifecycle()
     state_writer = FsTaskStateWriter()
     state_paths = FsStatePaths()
+    git_integration = SubprocessGitIntegration()
 
     # Base infrastructure
     board = KanbanBoard(tasks_dir, repo=FsCardRepository())
@@ -132,6 +134,7 @@ def build_session_manager(
         process_lifecycle=process_lifecycle,
         state_writer=state_writer,
         state_paths=state_paths,
+        git_integration=git_integration,
     )
 
     # Protocol adapters (no back-reference to session manager)
@@ -156,6 +159,7 @@ def build_session_manager(
         notifier=notifier_adapter,
         state_manager=state_adapter,
         integrator=integrator,
+        git_integration=git_integration,
     )
 
     # Session controller depends on worker runner as thread target
@@ -189,6 +193,7 @@ def build_session_manager(
         state_manager=state_adapter,
         state_paths=state_paths,
         directives=directive_adapter,
+        git_integration=git_integration,
     )
 
     return KanbanSessionManager(

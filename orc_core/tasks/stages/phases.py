@@ -13,12 +13,6 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from ...git.git_helpers import (
-    attempt_autocommit_fallback as _attempt_autocommit_fallback,
-    git_status_porcelain as _git_status_porcelain,
-    parse_git_porcelain as _parse_git_porcelain,
-    runtime_artifact_paths_from_porcelain_lines as _runtime_artifact_paths_from_porcelain_lines,
-)
 from ..execution.request import LaunchConfig
 from ..status import TaskCompletionStatus, TaskExecutionStatus
 from ...log import log_event
@@ -210,8 +204,9 @@ def run_commit_phase(
     attempt: int,
 ) -> bool:
     """Run commit phase: pre-check → agent → post-check with fallback."""
+    git = request.git_integration
     # Pre-check: skip if tree is clean
-    ok, porcelain = _git_status_porcelain(request.workdir, log_path)
+    ok, porcelain = git.status_porcelain(request.workdir, log_path)
     if ok and not porcelain.strip():
         log_event(log_path, "INFO", "commit phase skipped: clean tree", task_id=task_id)
         _logger.info("[orc] commit phase: skip (clean tree)")
@@ -226,11 +221,11 @@ def run_commit_phase(
         return False
 
     # Post-check: verify git tree is clean after commit
-    ok2, porcelain2 = _git_status_porcelain(request.workdir, log_path)
+    ok2, porcelain2 = git.status_porcelain(request.workdir, log_path)
     if ok2 and porcelain2.strip():
-        tracked, untracked = _parse_git_porcelain(porcelain2)
-        runtime_tracked, non_runtime_tracked = _runtime_artifact_paths_from_porcelain_lines(tracked)
-        runtime_untracked, non_runtime_untracked = _runtime_artifact_paths_from_porcelain_lines(untracked)
+        tracked, untracked = git.parse_porcelain(porcelain2)
+        runtime_tracked, non_runtime_tracked = git.split_runtime_artifacts(tracked)
+        runtime_untracked, non_runtime_untracked = git.split_runtime_artifacts(untracked)
         if runtime_tracked or runtime_untracked:
             log_event(
                 log_path, "WARN",
@@ -254,13 +249,13 @@ def run_commit_phase(
             task_text = str(prompt_vars.get("task_text") or "").strip()
             if request.allow_fallback_commits:
                 _logger.warning("[orc] commit phase: tracked changes remain; attempting fallback commit")
-                if not _attempt_autocommit_fallback(request.workdir, log_path, task_id=task_id, task_text=task_text):
+                if not git.attempt_autocommit_fallback(request.workdir, log_path, task_id, task_text):
                     _logger.error("[orc] commit phase: fallback commit failed")
                     return False
 
-                ok3, porcelain3 = _git_status_porcelain(request.workdir, log_path)
+                ok3, porcelain3 = git.status_porcelain(request.workdir, log_path)
                 if ok3 and porcelain3.strip():
-                    tracked3, untracked3 = _parse_git_porcelain(porcelain3)
+                    tracked3, untracked3 = git.parse_porcelain(porcelain3)
                     if tracked3:
                         log_event(
                             log_path, "ERROR",

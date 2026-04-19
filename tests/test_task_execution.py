@@ -16,6 +16,7 @@ import orc_core.tasks.execution.finalize as task_execution_finalize
 import orc_core.tasks.integration.main_integrator as main_integrator
 import orc_core.tasks.execution.preflight as task_execution_preflight
 from orc_core.git.git_helpers import classify_main_integration_error
+from orc_core.git.task_adapters import SubprocessGitIntegration
 from orc_core.tasks.ports import PreflightResult
 from orc_core.tasks.stages.phases import run_commit_phase
 from tests._fake_lifecycle import FakeLifecycle, FakeStatePaths, FakeStateWriter
@@ -586,7 +587,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(int(state_after.get("restart_count", -1)), 2)
 
     @patch("orc_core.tasks.stages.phases.wait_for_process_exit", return_value="completed")
-    @patch("orc_core.tasks.stages.phases._git_status_porcelain")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.status_porcelain")
     def test_commit_phase_fails_when_tracked_leftovers_and_fallback_disabled(
         self,
         git_status_mock,
@@ -615,8 +616,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertFalse(ok)
 
     @patch("orc_core.tasks.stages.phases.wait_for_process_exit", return_value="completed")
-    @patch("orc_core.tasks.stages.phases._attempt_autocommit_fallback", return_value=True)
-    @patch("orc_core.tasks.stages.phases._git_status_porcelain")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.attempt_autocommit_fallback", return_value=True)
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.status_porcelain")
     def test_commit_phase_uses_fallback_when_enabled_and_succeeds(
         self,
         git_status_mock,
@@ -648,8 +649,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
         fallback_mock.assert_called_once()
 
     @patch("orc_core.tasks.stages.phases.wait_for_process_exit", return_value="completed")
-    @patch("orc_core.tasks.stages.phases._attempt_autocommit_fallback", return_value=False)
-    @patch("orc_core.tasks.stages.phases._git_status_porcelain")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.attempt_autocommit_fallback", return_value=False)
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.status_porcelain")
     def test_commit_phase_fails_when_enabled_fallback_fails(
         self,
         git_status_mock,
@@ -680,7 +681,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         fallback_mock.assert_called_once()
 
     @patch("orc_core.tasks.stages.phases.wait_for_process_exit", return_value="completed")
-    @patch("orc_core.tasks.stages.phases._git_status_porcelain")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.status_porcelain")
     def test_commit_phase_passes_progress_arguments_to_worker_launch(self, git_status_mock, *_mocks) -> None:
         worker = _FakeWorker()
         git_status_mock.side_effect = [(True, " M tracked.py\n"), (True, "")]
@@ -706,7 +707,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertEqual(worker.launch_configs[0].progress_total, 9)
 
     @patch("orc_core.tasks.stages.phases.wait_for_process_exit", return_value="completed")
-    @patch("orc_core.tasks.stages.phases._git_status_porcelain")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.status_porcelain")
     def test_commit_phase_ignores_runtime_artifact_leftovers(self, git_status_mock, *_mocks) -> None:
         worker = _FakeWorker()
         git_status_mock.side_effect = [
@@ -730,7 +731,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
 
         self.assertTrue(ok)
 
-    @patch("orc_core.tasks.stages.phases._git_status_porcelain", return_value=(True, " M tracked.py\n"))
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.status_porcelain", return_value=(True, " M tracked.py\n"))
     def test_commit_phase_launch_failure_returns_false_not_exception(self, *_mocks) -> None:
         worker = _FailingWorker()
 
@@ -766,8 +767,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
         self.assertTrue(isinstance(launch_path, str) and launch_path.endswith(".log"))
         self.assertIn(".orc/run/raw-stream/", launch_path)
 
-    @patch("orc_core.tasks.integration.main_integrator.merge_task_branch_into_main")
-    @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=False)
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.merge_task_branch_into_main")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.has_commits_ahead_of_branch", return_value=False)
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
@@ -783,12 +784,12 @@ class TaskExecutionEngineTest(unittest.TestCase):
             result = engine.execute(request)
 
         self.assertEqual(result.status, "completed")
-        main_integrator.merge_task_branch_into_main.assert_not_called()
+        SubprocessGitIntegration.merge_task_branch_into_main.assert_not_called()
 
     @patch("orc_core.tasks.integration.main_integrator.run_merge_expert_phase", return_value=True)
-    @patch("orc_core.tasks.integration.main_integrator.abort_merge")
-    @patch("orc_core.tasks.integration.main_integrator.merge_task_branch_into_main")
-    @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.abort_merge")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.merge_task_branch_into_main")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
@@ -799,7 +800,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         *_mocks,
     ) -> None:
         mock_preflight.return_value = _fake_preflight(ok=True, error="")
-        main_integrator.merge_task_branch_into_main.side_effect = [
+        SubprocessGitIntegration.merge_task_branch_into_main.side_effect = [
             SimpleNamespace(ok=False, conflict=True, error="conflict"),
             SimpleNamespace(ok=True, conflict=False, error=""),
         ]
@@ -812,7 +813,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
             result = engine.execute(request)
 
         self.assertEqual(result.status, "completed")
-        self.assertEqual(main_integrator.merge_task_branch_into_main.call_count, 2)
+        self.assertEqual(SubprocessGitIntegration.merge_task_branch_into_main.call_count, 2)
         main_integrator.run_merge_expert_phase.assert_called_once()
 
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
@@ -835,8 +836,8 @@ class TaskExecutionEngineTest(unittest.TestCase):
         )
         self.assertEqual(worker.launch_calls, 0)
 
-    @patch("orc_core.tasks.integration.main_integrator.merge_task_branch_into_main")
-    @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.merge_task_branch_into_main")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.has_commits_ahead_of_branch", return_value=True)
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="completed")
@@ -847,7 +848,7 @@ class TaskExecutionEngineTest(unittest.TestCase):
         *_mocks,
     ) -> None:
         mock_preflight.return_value = _fake_preflight(ok=True, error="")
-        main_integrator.merge_task_branch_into_main.return_value = SimpleNamespace(
+        SubprocessGitIntegration.merge_task_branch_into_main.return_value = SimpleNamespace(
             ok=False,
             conflict=False,
             error="checkout main failed: branch is locked",

@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orc_core.tasks.execution.engine import TaskExecutionEngine
-import orc_core.tasks.integration.main_integrator as main_integrator
+from orc_core.git.task_adapters import SubprocessGitIntegration
 import orc_core.tasks.execution.preflight as task_execution_preflight
 from orc_core.tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from orc_core.tasks.execution.request import TaskExecutionRequest
@@ -187,8 +187,8 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.tasks.integration.main_integrator.merge_task_branch_into_main")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.merge_task_branch_into_main")
     @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
@@ -198,7 +198,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         import orc_core.tasks.execution.finalize as task_execution_finalize
 
         mock_preflight.return_value = _fake_preflight(ok=True, error="")
-        main_integrator.merge_task_branch_into_main.return_value = type(
+        SubprocessGitIntegration.merge_task_branch_into_main.return_value = type(
             "Integration",
             (),
             {"ok": False, "conflict": False, "error": "checkout main failed: test"},
@@ -225,8 +225,8 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         self.assertNotIn("[x] TASK-001", base_backlog)
         self.assertEqual(worker.launch_calls, 1)
 
-    @patch("orc_core.tasks.integration.main_integrator.has_commits_ahead_of_branch", return_value=True)
-    @patch("orc_core.tasks.integration.main_integrator.merge_task_branch_into_main")
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.has_commits_ahead_of_branch", return_value=True)
+    @patch("orc_core.git.task_adapters.SubprocessGitIntegration.merge_task_branch_into_main")
     @patch("orc_core.tasks.execution.launch.cleanup_monitor_processes")
     @patch("orc_core.tasks.execution.launch.wait_for_completion", return_value="process_exited")
     @patch("orc_core.notifications.notify.send_telegram_message")
@@ -236,7 +236,7 @@ class TaskExecutionWorktreeStateTest(unittest.TestCase):
         import orc_core.tasks.execution.finalize as task_execution_finalize
 
         mock_preflight.return_value = _fake_preflight(ok=True, error="")
-        main_integrator.merge_task_branch_into_main.return_value = type(
+        SubprocessGitIntegration.merge_task_branch_into_main.return_value = type(
             "Integration",
             (),
             {"ok": True, "conflict": False, "already_integrated": False, "error": ""},

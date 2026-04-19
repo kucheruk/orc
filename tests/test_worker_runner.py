@@ -16,6 +16,15 @@ from orc_core.tasks.execution.request import TaskExecutionResult
 from orc_core.tasks.status import TaskExecutionStatus
 
 
+def _build_git_mock() -> MagicMock:
+    git = MagicMock()
+    git.run_with_log.return_value = (False, "", "", 1)
+    git.run.return_value = (False, "", "", 1)
+    git.status_porcelain.return_value = (True, "")
+    git.parse_porcelain.return_value = ([], [])
+    return git
+
+
 class WorkerRunnerCommitGuardTest(unittest.TestCase):
     def _build_runner(self) -> KanbanWorkerRunner:
         distributor = MagicMock()
@@ -46,6 +55,7 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
             notifier=MagicMock(),
             state_manager=state_manager,
             integrator=MagicMock(),
+            git_integration=_build_git_mock(),
         )
 
     @patch("orc_core.agents.runners.worker_assignment.check_and_block_budget", return_value=False)

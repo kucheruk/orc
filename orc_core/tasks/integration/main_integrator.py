@@ -7,11 +7,9 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from ...git.git_helpers import classify_main_integration_error, has_commits_ahead_of_branch
 from ...log import log_event
 from ...observability import timeline_step
 from ...text_parse import SafeDict
-from ...git.worktree_flow import abort_merge, merge_task_branch_into_main
 from ..stages.phases import run_merge_expert_phase
 from ..execution.request import TaskExecutionResult
 from ..execution.runtime import _ExecutionContext
@@ -29,13 +27,12 @@ def handle_main_integration(
 
     request = ctx.request
     ts_exec = ctx.ts_exec
+    git = request.git_integration
 
     if not request.integrate_to_main:
         return None
 
-    # Resolve task branch name
-    from ...git.worktree_flow import task_branch_name
-    branch_name = task_branch_name(current_task_id)
+    branch_name = git.task_branch_name(current_task_id)
 
     with timeline_step(
         timeline_id=timeline_id,
@@ -45,7 +42,7 @@ def handle_main_integration(
         attempt=restart_count + 1,
         data={"branch": request.main_branch, "task_branch": branch_name},
     ) as ts_integ:
-        if not has_commits_ahead_of_branch(request.workdir, request.main_branch, engine.log_path):
+        if not git.has_commits_ahead_of_branch(request.workdir, request.main_branch, engine.log_path):
             log_event(
                 engine.log_path,
                 "INFO",
@@ -62,7 +59,7 @@ def handle_main_integration(
             ts_integ.reason = "no_commits_ahead"
             return TaskExecutionResult(status=TaskExecutionStatus.COMPLETED, committed=commit_completed)
 
-        integration = merge_task_branch_into_main(
+        integration = git.merge_task_branch_into_main(
             base_workdir=request.base_workdir,
             branch_name=branch_name,
             task_id=current_task_id,
@@ -72,7 +69,7 @@ def handle_main_integration(
         )
         if not integration.ok and integration.conflict:
             # Abort the failed merge before running merge expert
-            abort_merge(request.base_workdir)
+            git.abort_merge(request.base_workdir)
             merge_prompt_vars = SafeDict(
                 task_text=current_task_text,
                 task_id=current_task_id,
@@ -96,7 +93,7 @@ def handle_main_integration(
                 ts_exec.reason = "merge_expert_phase_failed"
                 return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="merge_expert_phase_failed")
             # Retry merge after expert resolution
-            integration = merge_task_branch_into_main(
+            integration = git.merge_task_branch_into_main(
                 base_workdir=request.base_workdir,
                 branch_name=branch_name,
                 task_id=current_task_id,
@@ -105,7 +102,7 @@ def handle_main_integration(
                 main_branch=request.main_branch,
             )
         if not integration.ok:
-            failure_kind = classify_main_integration_error(integration.error)
+            failure_kind = git.classify_main_integration_error(integration.error)
             log_event(
                 engine.log_path,
                 "ERROR",

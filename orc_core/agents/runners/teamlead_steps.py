@@ -13,11 +13,10 @@ from ...board.kanban_card import KanbanCard
 from ...board.action_constants import Action
 from ...board.use_cases.escalate_card import escalate_card
 from ...log import log_event
-from ...tasks.ports import StatePathsPort
+from ...tasks.ports import GitIntegrationPort, StatePathsPort
 from ...tasks.status import TaskExecutionStatus
 from ...tasks.dto import Task
 from ..session.types import SessionSlot
-from ...git.git_helpers import run_git
 from ..infra.protocols import (
     EventPublisher, RunnerLifecycle, RunnerNotifier, RunnerStateManager,
     TaskExecutor, WorkDistributor,
@@ -284,8 +283,9 @@ class AutoCommitStep:
 
     _INTERVAL = 120.0
 
-    def __init__(self) -> None:
+    def __init__(self, git_integration: GitIntegrationPort) -> None:
         self._last_commit: float = 0.0
+        self._git = git_integration
 
     def run(self, ctx: TeamleadContext, slot: Optional[SessionSlot] = None, sid: str = "") -> None:
         now = time.time()
@@ -294,29 +294,27 @@ class AutoCommitStep:
         self._last_commit = now
         try:
             wd = ctx.workdir
-            ok_cherry, out_cherry, _, _ = run_git(wd, ["git", "rev-parse", "--git-path", "CHERRY_PICK_HEAD"])
+            git = self._git
+            ok_cherry, out_cherry, _, _ = git.run(wd, ["git", "rev-parse", "--git-path", "CHERRY_PICK_HEAD"])
             if ok_cherry:
                 cherry_pick_head = (out_cherry or "").strip()
                 if cherry_pick_head and Path(cherry_pick_head).exists():
                     log_event(ctx.log_path, "WARN", "auto-commit skipped: cherry-pick in progress",
                               path=cherry_pick_head)
                     return
-            ok, stdout, _, _ = run_git(wd, ["git", "status", "--porcelain"])
+            ok, stdout, _, _ = git.run(wd, ["git", "status", "--porcelain"])
             if not ok or not stdout.strip():
                 return
-            from ...git.git_helpers import (
-                is_runtime_artifact, sync_commit_message, board_commit_message,
-            )
             changed_paths = [line[3:].strip() for line in stdout.splitlines() if len(line) >= 4]
             task_paths = [p for p in changed_paths if p.startswith("tasks/")]
             other_paths = [
                 p for p in changed_paths
-                if not p.startswith("tasks/") and not is_runtime_artifact(p)
+                if not p.startswith("tasks/") and not git.is_runtime_artifact(p)
             ]
             if task_paths:
                 for tp in task_paths:
-                    run_git(wd, ["git", "add", "--", tp])
-                run_git(wd, ["git", "commit", "-m", board_commit_message()])
+                    git.run(wd, ["git", "add", "--", tp])
+                git.run(wd, ["git", "commit", "-m", git.board_commit_message()])
                 log_event(ctx.log_path, "INFO", "auto-committed board state",
                           task_paths=task_paths[:20])
             if other_paths:
@@ -324,8 +322,8 @@ class AutoCommitStep:
                 # runtime artifacts (.orc/, .cursor/, __pycache__) and any
                 # accidentally-untracked secrets.
                 for op in other_paths:
-                    run_git(wd, ["git", "add", "--", op])
-                run_git(wd, ["git", "commit", "-m", sync_commit_message()])
+                    git.run(wd, ["git", "add", "--", op])
+                git.run(wd, ["git", "commit", "-m", git.sync_commit_message()])
                 log_event(ctx.log_path, "INFO", "auto-committed workspace state",
                           paths=other_paths[:20])
         except Exception as exc:

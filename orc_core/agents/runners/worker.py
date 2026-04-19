@@ -12,6 +12,7 @@ from ...git.integration_manager import IntegrationManager
 from ...log import log_event
 from ...quit_signal import is_quit_after_task_requested
 from ...tasks.completion.outcomes import TaskOutcomeTracker
+from ...tasks.ports import GitIntegrationPort
 from ..infra.protocols import CompletionNotifier, EventPublisher, RunnerLifecycle, RunnerStateManager, TaskExecutor, WorkDistributor
 from ..roles import build_prompt
 from ..session.types import SessionSlot, SlotStatus
@@ -40,6 +41,7 @@ class KanbanWorkerRunner:
         notifier: CompletionNotifier,
         state_manager: RunnerStateManager,
         integrator: IntegrationManager,
+        git_integration: GitIntegrationPort,
     ) -> None:
         self._publisher = publisher
         self._distributor = distributor
@@ -59,6 +61,7 @@ class KanbanWorkerRunner:
             notifier=notifier,
             state_manager=state_manager,
             integrator=integrator,
+            git_integration=git_integration,
         )
         self._log_path = log_path
 

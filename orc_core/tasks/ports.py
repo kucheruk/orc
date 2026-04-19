@@ -211,3 +211,70 @@ class MainIntegrationPreflight(Protocol):
     ) -> PreflightResult: ...
 
     def classify_error(self, error: str) -> str: ...
+
+
+@dataclass(frozen=True)
+class IntegrationOutcome:
+    """Outcome of a branch-into-main merge (neutral to git internals)."""
+
+    ok: bool
+    conflict: bool
+    already_integrated: bool = False
+    error: str = ""
+
+
+class GitIntegrationPort(Protocol):
+    """Bundled port for git operations needed by tasks/ and agents/runners/.
+
+    Gathers the low-level shell primitives (run, run_with_log), porcelain
+    parsing helpers, autocommit, commit-message factories, and main-branch
+    integration operations into one seam. Concrete implementation lives in
+    `git/task_adapters.py::SubprocessGitIntegration`.
+    """
+
+    # ── shell primitives ──────────────────────────────────────────
+    def run(self, workdir: str, args: list[str], *, timeout: float = 30.0) -> tuple[bool, str, str, int]: ...
+
+    def run_with_log(
+        self, workdir: str, log_path: Path, args: list[str], *, label: str
+    ) -> tuple[bool, str, str, int]: ...
+
+    # ── porcelain helpers ─────────────────────────────────────────
+    def status_porcelain(self, workdir: str, log_path: Path) -> tuple[bool, str]: ...
+
+    def parse_porcelain(self, porcelain: str) -> tuple[list[str], list[str]]: ...
+
+    def is_runtime_artifact(self, path: str) -> bool: ...
+
+    def split_runtime_artifacts(self, paths: list[str]) -> tuple[list[str], list[str]]: ...
+
+    # ── autocommit ────────────────────────────────────────────────
+    def attempt_autocommit_fallback(
+        self, workdir: str, log_path: Path, task_id: str, task_text: str
+    ) -> bool: ...
+
+    # ── naming / messages ─────────────────────────────────────────
+    def task_branch_name(self, task_id: str) -> str: ...
+
+    def board_commit_message(self) -> str: ...
+
+    def sync_commit_message(self) -> str: ...
+
+    # ── integration ───────────────────────────────────────────────
+    def has_commits_ahead_of_branch(self, workdir: str, branch: str, log_path: Path) -> bool: ...
+
+    def merge_task_branch_into_main(
+        self,
+        *,
+        base_workdir: str,
+        branch_name: str,
+        task_id: str,
+        task_title: str,
+        log_path: Path,
+        main_branch: str,
+        skip_preflight: bool = False,
+    ) -> IntegrationOutcome: ...
+
+    def abort_merge(self, workdir: str) -> bool: ...
+
+    def classify_main_integration_error(self, error: str) -> str: ...

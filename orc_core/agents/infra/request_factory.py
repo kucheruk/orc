@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from ...board.kanban_distributor import KanbanDistributor
 from ...config import OrcConfig
 from ...backends.backend import Backend
-from ...tasks.ports import MonitorSnapshot, ProcessLifecyclePort, StatePathsPort, TaskStateWriter
+from ...tasks.ports import GitIntegrationPort, MonitorSnapshot, ProcessLifecyclePort, StatePathsPort, TaskStateWriter
 from .request_builder import build_kanban_request
 
 if TYPE_CHECKING:
@@ -37,6 +37,7 @@ class KanbanRequestFactory:
         process_lifecycle: ProcessLifecyclePort,
         state_writer: TaskStateWriter,
         state_paths: StatePathsPort,
+        git_integration: GitIntegrationPort,
     ) -> None:
         self._workdir = workdir
         self._tasks_dir = tasks_dir
@@ -51,6 +52,7 @@ class KanbanRequestFactory:
         self._process_lifecycle = process_lifecycle
         self._state_writer = state_writer
         self._state_paths = state_paths
+        self._git_integration = git_integration
 
     def make(
         self,
@@ -83,6 +85,7 @@ class KanbanRequestFactory:
             process_lifecycle=self._process_lifecycle,
             state_writer=self._state_writer,
             state_paths=self._state_paths,
+            git_integration=self._git_integration,
             agent_env=agent_env,
             snapshot_publisher=_pub,
         )

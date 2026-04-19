@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from ...board.limits_constants import MIN_TOKEN_BUDGET, TOKENS_PER_EFFORT_POINT
-from ...git.git_helpers import attempt_autocommit_fallback, git_run
+from ...tasks.ports import GitIntegrationPort
 
 DEFAULT_TOKENS_PER_EFFORT = TOKENS_PER_EFFORT_POINT
 MIN_TOKEN_BUDGET = MIN_TOKEN_BUDGET
@@ -86,8 +86,10 @@ def verify_and_commit_uncommitted(
     log_path: Path,
     task_id: str,
     task_text: str,
+    *,
+    git: GitIntegrationPort,
 ) -> None:
-    ok, porcelain, _, _ = git_run(
+    ok, porcelain, _, _ = git.run_with_log(
         workdir,
         log_path,
         ["git", "status", "--porcelain"],
@@ -95,8 +97,7 @@ def verify_and_commit_uncommitted(
     )
     if not ok or not porcelain:
         return
-    from ...git.git_helpers import parse_git_porcelain
-    tracked, untracked = parse_git_porcelain(porcelain)
+    tracked, untracked = git.parse_porcelain(porcelain)
     code_dirty = [
         path for path in tracked + untracked
         if not path.startswith("tasks/")
@@ -105,12 +106,18 @@ def verify_and_commit_uncommitted(
         and "__pycache__" not in path
     ]
     if code_dirty:
-        attempt_autocommit_fallback(workdir, log_path, task_id, task_text)
+        git.attempt_autocommit_fallback(workdir, log_path, task_id, task_text)
 
 
-def gather_git_context(workdir: str, main_branch: str, log_path: Path) -> str:
+def gather_git_context(
+    workdir: str,
+    main_branch: str,
+    log_path: Path,
+    *,
+    git: GitIntegrationPort,
+) -> str:
     parts: list[str] = []
-    ok_log, log_out, _, _ = git_run(
+    ok_log, log_out, _, _ = git.run_with_log(
         workdir,
         log_path,
         ["git", "log", "--oneline", f"{main_branch}..HEAD", "--", ".", ":!tasks/"],
@@ -119,7 +126,7 @@ def gather_git_context(workdir: str, main_branch: str, log_path: Path) -> str:
     if ok_log and log_out.strip():
         parts.append(f"### Commits on this branch (vs {main_branch})\n```\n{log_out.strip()}\n```")
 
-    ok_stat, stat_out, _, _ = git_run(
+    ok_stat, stat_out, _, _ = git.run_with_log(
         workdir,
         log_path,
         ["git", "diff", "--stat", main_branch, "--", ".", ":!tasks/"],
@@ -128,7 +135,7 @@ def gather_git_context(workdir: str, main_branch: str, log_path: Path) -> str:
     if ok_stat and stat_out.strip():
         parts.append(f"### Changed files (vs {main_branch})\n```\n{stat_out.strip()}\n```")
 
-    ok_status, status_out, _, _ = git_run(
+    ok_status, status_out, _, _ = git.run_with_log(
         workdir,
         log_path,
         ["git", "status", "--short"],

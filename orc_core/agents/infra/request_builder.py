@@ -11,7 +11,7 @@ from ...config import OrcConfig
 from ...backends.backend import Backend
 from ...infra.io.state_paths import parallel_task_path
 from ...infra.io.state_paths import run_root as state_run_root
-from ...tasks.ports import MonitorSnapshot, ProcessLifecyclePort, StatePathsPort, TaskStateWriter
+from ...tasks.ports import GitIntegrationPort, MonitorSnapshot, ProcessLifecyclePort, StatePathsPort, TaskStateWriter
 from ...tasks.execution.config import ModelConfig, TemplateConfig, TimingConfig
 from ...tasks.execution.request import TaskExecutionRequest
 from ...tasks.dto import Task
@@ -46,6 +46,7 @@ def build_kanban_request(
     process_lifecycle: ProcessLifecyclePort,
     state_writer: TaskStateWriter,
     state_paths: StatePathsPort,
+    git_integration: GitIntegrationPort,
     agent_env: Mapping[str, str] | None = None,
     snapshot_publisher: Optional[Callable[[MonitorSnapshot], None]] = None,
 ) -> TaskExecutionRequest:
@@ -109,4 +110,5 @@ def build_kanban_request(
         process_lifecycle=process_lifecycle,
         state_writer=state_writer,
         state_paths=state_paths,
+        git_integration=git_integration,
     )

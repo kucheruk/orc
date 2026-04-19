@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from ...incident.manager import IncidentManager
-from ...tasks.ports import StatePathsPort
+from ...tasks.ports import GitIntegrationPort, StatePathsPort
 from ...tasks.completion.outcomes import TaskOutcomeTracker
 from ..infra.protocols import (
     DirectiveSource, EventPublisher, RunnerLifecycle, RunnerNotifier,
@@ -47,6 +47,7 @@ class KanbanTeamleadRunner:
         state_manager: RunnerStateManager,
         state_paths: StatePathsPort,
         directives: DirectiveSource,
+        git_integration: GitIntegrationPort,
     ) -> None:
         self._ctx = TeamleadContext(
             workdir=workdir,
@@ -68,7 +69,7 @@ class KanbanTeamleadRunner:
         self._directive_step = DirectiveStep()
         self._health = HealthCheckStep()
         self._auto_unblock = AutoUnblockStep()
-        self._auto_commit = AutoCommitStep()
+        self._auto_commit = AutoCommitStep(git_integration=git_integration)
         self._last_flow_fingerprint: Optional[tuple] = None
         self._idle_cycles = 0
 

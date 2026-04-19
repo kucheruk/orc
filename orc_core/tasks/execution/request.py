@@ -4,11 +4,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Mapping, Optional
 
 from ...tasks.ports import (
+    GitIntegrationPort,
     MonitorSnapshot,
     ProcessLifecyclePort,
     StatePathsPort,
@@ -17,6 +18,11 @@ from ...tasks.ports import (
 from ..dto import Task
 from .config import ModelConfig, TemplateConfig, TimingConfig
 from .stage import TaskStageSpec
+
+
+def _default_git_integration() -> GitIntegrationPort:
+    from ...git.task_adapters import DEFAULT_GIT_INTEGRATION
+    return DEFAULT_GIT_INTEGRATION
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -40,6 +46,7 @@ class TaskExecutionRequest:
     process_lifecycle: ProcessLifecyclePort
     state_writer: TaskStateWriter
     state_paths: StatePathsPort
+    git_integration: GitIntegrationPort = field(default_factory=_default_git_integration)
     progress_in_progress: int = 0
     enforce_stage_artifacts: bool = False
     stage_specs: tuple[TaskStageSpec, ...] = ()

@@ -16,6 +16,7 @@ from ...git.use_cases.finalize_task_worktree import finalize_completed_worktree
 from ...git.worktree_flow import cleanup_task_worktree, create_task_worktree
 from ...log import log_event
 from ...tasks.dto import Task
+from ...tasks.ports import GitIntegrationPort
 from ...tasks.status import TaskExecutionStatus
 from ...tasks.use_cases.process_task_result import (
     escalate_if_threshold_reached,
@@ -49,6 +50,7 @@ class WorkerAssignmentExecutor:
         notifier,
         state_manager,
         integrator,
+        git_integration: GitIntegrationPort,
     ) -> None:
         self._workdir = workdir
         self._log_path = log_path
@@ -62,6 +64,7 @@ class WorkerAssignmentExecutor:
         self._notifier = notifier
         self._state_manager = state_manager
         self._integrator = integrator
+        self._git = git_integration
 
     def execute(self, slot, assignment, *, prompt_builder) -> None:
         card, role, sid = assignment.card, assignment.role, slot.session_id
@@ -78,7 +81,7 @@ class WorkerAssignmentExecutor:
             if fresh_card is None or fresh_card.action == Action.BLOCKED:
                 return
             launch_state = card_state_fingerprint(fresh_card)
-            git_context = gather_git_context(wd, self._main_branch, self._log_path) if assignment.needs_worktree else ""
+            git_context = gather_git_context(wd, self._main_branch, self._log_path, git=self._git) if assignment.needs_worktree else ""
             prompt = prompt_builder(role, fresh_card, self._distributor.board, main_branch=self._main_branch, git_context=git_context)
             task = Task(task_id=card.id, text=card.title or card.id, done=False)
             slot.task = task
@@ -97,7 +100,7 @@ class WorkerAssignmentExecutor:
                 if self._discard_if_stale(card.id, launch_state):
                     return
                 if assignment.needs_worktree and is_delivery_role(role):
-                    verify_and_commit_uncommitted(wd, self._main_branch, self._log_path, card.id, card.title or card.id)
+                    verify_and_commit_uncommitted(wd, self._main_branch, self._log_path, card.id, card.title or card.id, git=self._git)
                 if self._reject_empty_delivery(card, role, assignment.needs_worktree, wd):
                     return
                 errors = process_completed_task(
