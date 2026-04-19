@@ -53,6 +53,9 @@ class NotifierAdapter:
     def notify_stale_assignments_released(self, count: int) -> None:
         self._svc.notify_stale_assignments_released(count)
 
+    def notify_blocked_accumulation(self, cards: list[tuple[str, str]]) -> None:
+        self._svc.notify_blocked_accumulation(cards)
+
     def notify_completion(self, card, role, old_stage, old_action, old_cos, elapsed) -> None:
         self._svc.notify_completion(card, role, old_stage, old_action, old_cos, elapsed)
 

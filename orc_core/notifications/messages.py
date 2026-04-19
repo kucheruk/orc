@@ -32,3 +32,17 @@ def format_cycle_autounblock(from_id: str, to_id: str, decomposition_id: str) ->
 
 def format_stale_assignments_released(count: int) -> str:
     return f"\U0001f9ef ORC auto-unblock released {count} stale assignment(s)."
+
+
+def format_blocked_accumulation(cards: list[tuple[str, str]]) -> str:
+    """Single aggregated alert when multiple cards are stuck in Blocked.
+
+    cards: list of (card_id, stage) pairs.
+    """
+    lines = [f"\U0001f6d1 {len(cards)} card(s) blocked — human review needed:"]
+    for card_id, stage in cards[:10]:
+        lines.append(f"  - {card_id} ({stage})")
+    if len(cards) > 10:
+        lines.append(f"  … and {len(cards) - 10} more")
+    lines.append("Use /unblock <ID> <directive> in TUI to resume each.")
+    return "\n".join(lines)

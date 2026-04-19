@@ -22,7 +22,8 @@ from ...quit_signal import is_quit_after_task_requested
 from ..session.types import SessionSlot, SlotStatus
 from ...incident.domain import Incident
 from .teamlead_steps import (
-    ArbitrationStep, AutoCommitStep, AutoUnblockStep, DirectiveStep, HealthCheckStep, TeamleadContext,
+    ArbitrationStep, AutoCommitStep, AutoUnblockStep, BlockedSweepStep,
+    DirectiveStep, HealthCheckStep, TeamleadContext,
 )
 
 _logger = logging.getLogger(__name__)
@@ -71,6 +72,7 @@ class KanbanTeamleadRunner:
         self._directive_step = DirectiveStep()
         self._health = HealthCheckStep()
         self._auto_unblock = AutoUnblockStep()
+        self._blocked_sweep = BlockedSweepStep()
         self._auto_commit = AutoCommitStep(git_integration=git_integration)
         self._last_flow_fingerprint: Optional[tuple] = None
         self._idle_cycles = 0
@@ -118,6 +120,7 @@ class KanbanTeamleadRunner:
                         continue
 
                 self._auto_unblock.run(self._ctx, slot, sid)
+                self._blocked_sweep.run(self._ctx, slot, sid)
                 self._arbitration.run(self._ctx, slot, sid)
                 self._auto_commit.run(self._ctx)
 

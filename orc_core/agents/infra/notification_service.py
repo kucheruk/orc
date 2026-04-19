@@ -11,6 +11,7 @@ from ...board.stage_constants import STAGE_SHORT_NAMES
 from ...board.kanban_notifications import format_completion_message
 from ...git.project_hooks import fire_hooks
 from ...notifications.messages import (
+    format_blocked_accumulation,
     format_card_blocked,
     format_cycle_autounblock,
     format_escalation,
@@ -41,6 +42,11 @@ class NotificationService:
 
     def notify_stale_assignments_released(self, count: int) -> None:
         self.send_telegram(format_stale_assignments_released(count))
+
+    def notify_blocked_accumulation(self, cards: list[tuple[str, str]]) -> None:
+        if not cards:
+            return
+        self.send_telegram(format_blocked_accumulation(cards))
 
     def notify_completion(
         self,

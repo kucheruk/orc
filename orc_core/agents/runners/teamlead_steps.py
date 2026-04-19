@@ -273,6 +273,54 @@ class AutoUnblockStep:
                       session_id=sid, released=released)
 
 
+class BlockedSweepStep:
+    """Aggregate blocked cards into a single human-review Telegram alert.
+
+    The per-card notify_escalation still fires when each card lands in
+    Blocked, but batch escalations flood the channel. This sweep emits
+    one message whenever the Blocked set changes and contains >1 card,
+    and re-emits only when the set actually changes — not on every tick.
+    """
+    name = "blocked_sweep"
+    _INTERVAL = 600.0
+    _MIN_CARDS = 2
+
+    def __init__(self) -> None:
+        self._last_run: float = 0.0
+        self._last_signature: tuple[str, ...] = ()
+
+    def run(self, ctx: TeamleadContext, slot: SessionSlot, sid: str) -> None:
+        now = time.time()
+        if now - self._last_run < self._INTERVAL:
+            return
+        self._last_run = now
+        blocked: list[tuple[str, str]] = [
+            (card.id, card.stage)
+            for card in ctx.distributor.board.cards
+            if card.action == Action.BLOCKED and not card.is_done
+        ]
+        signature = tuple(sorted(card_id for card_id, _ in blocked))
+        if len(blocked) < self._MIN_CARDS:
+            self._last_signature = signature
+            return
+        if signature == self._last_signature:
+            return
+        self._last_signature = signature
+        ctx.notifier.notify_blocked_accumulation(blocked)
+        ctx.publisher.emit(
+            "teamlead", "",
+            f"Blocked sweep: {len(blocked)} card(s) awaiting human review",
+        )
+        log_event(
+            ctx.log_path,
+            "WARN",
+            "teamlead blocked-sweep aggregated alert",
+            session_id=sid,
+            count=len(blocked),
+            cards=[c for c, _ in blocked[:20]],
+        )
+
+
 class AutoCommitStep:
     """Periodically git-add+commit to keep the base repo clean."""
     name = "auto_commit"
