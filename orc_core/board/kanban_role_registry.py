@@ -119,19 +119,41 @@ class TemplateLoader(Protocol):
 
 
 class FileTemplateLoader:
-    """Load prompt templates from a directory on disk, caching per-role."""
+    """Load prompt templates from a directory on disk, caching per-role.
+
+    When the env var ORC_PROMPT_HOT_RELOAD=1 is set, each load() checks
+    the file mtime and re-reads if the prompt has been edited since the
+    last load. Default behavior keeps the cache stable for the lifetime
+    of the process (prompts don't change mid-run in production).
+    """
 
     def __init__(self, prompts_dir: Path) -> None:
         self._dir = prompts_dir
-        self._cache: dict[str, str] = {}
+        self._cache: dict[str, tuple[float, str]] = {}
+
+    def _hot_reload_enabled(self) -> bool:
+        import os
+        return os.environ.get("ORC_PROMPT_HOT_RELOAD", "").strip() in ("1", "true", "True")
 
     def load(self, role: str) -> str:
-        cached = self._cache.get(role)
-        if cached is not None:
-            return cached
         filename = role_prompt_filename(role)
-        template = (self._dir / filename).read_text(encoding="utf-8")
-        self._cache[role] = template
+        path = self._dir / filename
+        cached = self._cache.get(role)
+        if cached is not None and not self._hot_reload_enabled():
+            return cached[1]
+        if cached is not None and self._hot_reload_enabled():
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                return cached[1]
+            if mtime <= cached[0]:
+                return cached[1]
+        template = path.read_text(encoding="utf-8")
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        self._cache[role] = (mtime, template)
         return template
 
     def clear_cache(self) -> None:
