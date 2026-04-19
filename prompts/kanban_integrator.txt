@@ -40,27 +40,23 @@ Append to section "# 3. Implementation Notes":
 **Notes:** <risks, tech debt, or "clean delivery">
 ```
 
-### Step 4: Set action and commit card
-- Set `action: Done` in frontmatter.
-- Write the complete updated card file.
-- Commit everything: `git add -A && git commit -m "chore({card_id}): delivery review and finalize"`
+### Step 4: Commit code and report decision
+- Commit any lingering source changes in the worktree branch: `git add -A && git commit -m "chore({card_id}): delivery review"` (skip if there is nothing to commit — ORC will drop empty commits).
 
 **DO NOT manually merge into {main_branch}.** ORC handles the merge automatically
 after you finish. Just commit all your work in the worktree branch.
 
 ## Reject (if needed)
-- Set `action: Reviewing` to send back to code review, `action: Testing` to send back to QA.
-- Write clear feedback in section "# 4. Feedback & Checklist".
-- Use ONLY for critical issues that slipped past earlier stages.
+- Use `next_action: Reviewing` to send back to code review or `next_action: Testing` to send back to QA.
+- Use `feedback_append` to leave clear rejection notes — only for critical issues that slipped past earlier stages.
 
 ## System Rules
 - **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`.
 - **Not your responsibility** (silently reverted): `value_score`, `effort_score`, `class_of_service`, `cos_justification`, `deadline`.
-- **Valid actions:** `Done` (ship), `Reviewing` (reject to review), `Testing` (reject to QA).
 
-## Structured Result Override
-- Ignore any earlier instruction to edit the card file directly. Do **NOT** edit `tasks/*.md`.
-- Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
+## Output Contract
+Do NOT edit `tasks/*.md` for the card being integrated — ORC will reject direct edits.
+Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
 - Set `run_id` from `ORC_AGENT_RUN_ID`.
 - Use `payload_kind: "card_update"` and `role: "integrator"`.
 - Use `payload.task_id` = `{card_id}`.

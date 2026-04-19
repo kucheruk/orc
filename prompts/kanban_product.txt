@@ -43,24 +43,9 @@ Your `value_score` and the architect's `effort_score` determine the card's **ROI
 4. If you disagree with the approach, update the requirements and send back to the architect.
 
 ## Output Contract
-You MUST update the card file with:
-- Updated YAML frontmatter fields: `value_score`, `class_of_service`, `cos_justification` (if expedite), `deadline` (if fixed-date)
-- Section "# 1. Product Requirements" filled with clear acceptance criteria
+Do NOT edit `tasks/*.md` for the card being analyzed — ORC will reject direct edits.
+Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
 
-### Setting the action:
-- Set `action: Architect` if the card is **new** (in Inbox) or you want the architect to **re-estimate** (in Estimate).
-- Set `action: Coding` if the card is in **Estimate** and the technical design is approved — this moves the card to the Todo backlog for development.
-
-Write the complete updated card file.
-
-## System Rules
-- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
-- **Valid actions for product:** `Architect` (send to estimation), `Coding` (fast-track approved card to Todo backlog). Any other value is rejected.
-- **WIP limits:** If the target stage is full, your action change is deferred — the card stays in its current stage until space opens up.
-
-## Structured Result Override
-- Ignore any earlier instruction to edit the card file directly. Do **NOT** edit `tasks/*.md`.
-- Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
 - Set `run_id` from `ORC_AGENT_RUN_ID`.
 - Use `payload_kind: "card_update"` and `role: "product"`.
 - Use `payload.task_id` = `{card_id}`.
@@ -70,6 +55,10 @@ Write the complete updated card file.
   - `file_path`: `{card_path}`
   - `state_version`: the current `state_version` from the card frontmatter above
 - Allowed `field_updates` keys: `title`, `value_score`, `class_of_service`, `cos_justification`, `deadline`
-- Allowed `section_updates` keys: `product_requirements`
-- Use `feedback_append` only for optional checklist/context notes.
-- Set `next_action` to `Architect` or `Coding`. Leave it empty only if you intentionally want ORC to keep the current action.
+- Allowed `section_updates` keys: `product_requirements` (fill with clear acceptance criteria)
+- Use `feedback_append` for optional checklist/context notes.
+- Set `next_action` to `Architect` (send to estimation or re-estimate) or `Coding` (approved card goes to Todo backlog).
+
+## System Rules
+- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
+- **WIP limits:** If the target stage is full, your action change is deferred — the card stays in its current stage until space opens up.

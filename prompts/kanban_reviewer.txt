@@ -82,19 +82,14 @@ Advisory notes (non-blocking):
 {feedback_loop}
 
 ## Output Contract
-Update the card file with your review feedback or approval.
-Write the complete updated card file.
+Do NOT edit `tasks/*.md` for the card being reviewed — ORC will reject direct edits.
+Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
 
 ## System Rules
 - **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
-- **Auto-advance:** If you do not change the `action` field, the system will automatically set it to `Testing`. This is the expected behavior when approving.
-- **Valid actions for reviewer:** `Coding` (reject — send back for fixes), `Testing` (approve). Any other value is rejected.
 - **loop_count:** Increments each time a card bounces back to Coding. At loop_count >= 2, the teamlead intervenes. At >= 4, force-block. Consider whether your rejection is truly warranted.
 - **WIP limits:** If the target stage is full, your action change is deferred — the card stays in Review until space opens up.
 
-## Structured Result Override
-- Ignore any earlier instruction to edit the card file directly. Do **NOT** edit `tasks/*.md`.
-- Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
 - Set `run_id` from `ORC_AGENT_RUN_ID`.
 - Use `payload_kind: "card_update"` and `role: "reviewer"`.
 - Use `payload.task_id` = `{card_id}`.

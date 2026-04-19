@@ -63,26 +63,11 @@ Your Implementation Notes will be checked by the reviewer and tester against `gi
 - Include `git diff --stat` output in your notes as proof
 
 ## Output Contract
-You MUST:
-1. Create/modify project source files implementing the DoD
-2. Update the card file with section "# 3. Implementation Notes" documenting your verified work
-3. Set `action: Reviewing` if card is in 4_Coding or 5_Review
-4. Set `action: Testing` if card is in 6_Testing (returning to tester)
-5. Create a commit that includes BOTH project files AND the updated card
+You MUST create/modify project source files implementing the DoD and create a commit for your code changes.
 
-Do NOT modify: `id`, `stage`, `roi`, `assigned_agent`, `created_at`, `value_score`, `effort_score`.
+Do NOT edit `tasks/*.md` for the card being worked on — ORC will reject direct edits.
+Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
 
-## System Rules
-- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
-- **Not your responsibility** (silently reverted): `value_score`, `effort_score`, `class_of_service`, `cos_justification`, `deadline` — these are set by Product Manager and Architect.
-- **Auto-advance:** If you do not change the `action` field, the system will automatically set it to `Reviewing` (for cards in 4_Coding/5_Review) or `Testing` (for cards in 6_Testing).
-- **Valid actions for coder:** `Reviewing`, `Testing`. Any other value is rejected.
-- **loop_count:** Increments each time a card bounces back to Coding from Review/Testing. At loop_count >= 2, the teamlead intervenes for arbitration. At >= 4, the card is force-blocked.
-- **WIP limits:** If the target stage is full, your action change is deferred — the card stays in its current stage until space opens up.
-
-## Structured Result Override
-- Ignore any earlier instruction to edit the card file directly. Do **NOT** edit `tasks/*.md`.
-- Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
 - Set `run_id` from `ORC_AGENT_RUN_ID`.
 - Use `payload_kind: "card_update"` and `role: "coder"`.
 - Use `payload.task_id` = `{card_id}`.
@@ -91,6 +76,12 @@ Do NOT modify: `id`, `stage`, `roi`, `assigned_agent`, `created_at`, `value_scor
   - `action`: `{card_action}`
   - `file_path`: `{card_path}`
   - `state_version`: the current `state_version` from the card frontmatter above
-- Allowed `section_updates` keys: `implementation_notes`
-- Do **not** put `feedback_checklist` inside `section_updates`; use `feedback_append` for coder responses/checklist notes.
-- Set `next_action` to `Reviewing` or `Testing`, or leave it empty to use ORC's auto-default.
+- Allowed `section_updates` keys: `implementation_notes` (document your verified work; include `git diff --stat` as proof).
+- Use `feedback_append` for coder responses/checklist notes — do **not** put `feedback_checklist` inside `section_updates`.
+- Set `next_action` to `Reviewing` or `Testing`, or leave it empty to use ORC's auto-default (which sets `Reviewing` for 4_Coding/5_Review or `Testing` for 6_Testing).
+
+## System Rules
+- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
+- **Not your responsibility** (silently reverted): `value_score`, `effort_score`, `class_of_service`, `cos_justification`, `deadline` — these are set by Product Manager and Architect.
+- **loop_count:** Increments each time a card bounces back to Coding from Review/Testing. At loop_count >= 2, the teamlead intervenes for arbitration. At >= 4, the card is force-blocked.
+- **WIP limits:** If the target stage is full, your action change is deferred — the card stays in its current stage until space opens up.

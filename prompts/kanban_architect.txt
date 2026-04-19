@@ -54,22 +54,9 @@ File: `{card_path}`
    **Anti-anchoring warning**: Do NOT cap your own effort estimate at 68-70 to avoid triggering decomposition. Estimate honestly; if the honest number is >70 and the work is one coherent topic, splitting by size is the correct action.
 
 ## Output Contract
-You MUST update the card file with:
-- Updated YAML frontmatter: `effort_score`, `dependencies` (if any)
-- Section "# 2. Technical Design & DoD" with technical plan and checklist
-- Set `action: Product` in frontmatter (so Product can prioritize it for Todo)
+Do NOT edit `tasks/*.md` for the card being analyzed — ORC will reject direct edits.
+Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
 
-Write the complete updated card file.
-
-## System Rules
-- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
-- **Not your responsibility** (silently reverted): `value_score`, `class_of_service`, `cos_justification`, `deadline` — these are set by the Product Manager.
-- **Valid actions for architect:** `Product` (send back for prioritization) or `Blocked` (only for the decomposed-parent case in step 6a / 6b).
-- **WIP limits:** If Todo is full, the card stays in Estimate until space opens up.
-
-## Structured Result Override
-- Ignore any earlier instruction to edit the card file directly. Do **NOT** edit `tasks/*.md`.
-- Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
 - Set `run_id` from `ORC_AGENT_RUN_ID`.
 - Use `payload_kind: "card_update"` and `role: "architect"`.
 - Use `payload.task_id` = `{card_id}`.
@@ -79,6 +66,13 @@ Write the complete updated card file.
   - `file_path`: `{card_path}`
   - `state_version`: the current `state_version` from the card frontmatter above
 - Allowed `field_updates` keys: `effort_score`, `dependencies`
-- Allowed `section_updates` keys: `technical_design`
-- Use `feedback_append` only for optional checklist/context notes.
-- Set `next_action` to `Product` or `Blocked`. Leave it empty only if you intentionally want ORC to keep the current action.
+- Allowed `section_updates` keys: `technical_design` (put the full "# 2. Technical Design & DoD" body here)
+- Use `feedback_append` for optional checklist/context notes.
+- Set `next_action` to `Product` (send back for prioritization) or `Blocked` (only for the decomposed-parent case from step 6a / 6b).
+
+Creating brand-new sub-card files in `tasks/2_Estimate/` during decomposition is expected and remains on-disk work — the override above only forbids editing the card you were handed.
+
+## System Rules
+- **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
+- **Not your responsibility** (silently reverted): `value_score`, `class_of_service`, `cos_justification`, `deadline` — these are set by the Product Manager.
+- **WIP limits:** If Todo is full, the card stays in Estimate until space opens up.
