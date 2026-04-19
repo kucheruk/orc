@@ -13,7 +13,7 @@ from ...board.kanban_role_registry import is_delivery_role
 from ...git.git_dto import WorktreeSession
 from ...git.git_helpers import has_code_changes_ahead, has_commits_ahead_of_branch
 from ...git.use_cases.finalize_task_worktree import finalize_completed_worktree
-from ...git.worktree_flow import cleanup_task_worktree, create_task_worktree
+from ...git.worktree_lifecycle import cleanup_task_worktree, create_task_worktree
 from ...log import log_event
 from ...tasks.dto import Task
 from ...tasks.ports import GitIntegrationPort

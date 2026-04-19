@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Callable
 
 from ..board.action_constants import COS_PRIORITY, ClassOfService
 from ..board.kanban_card import SECTION_FEEDBACK
-from ..git.worktree_flow import DEFAULT_MAIN_BRANCH
+from ..git.branch_resolver import DEFAULT_MAIN_BRANCH
 from ..board.board_summary import format_board_summary
 from ..board.stage_constants import STAGES, STAGE_DONE
 from ..board.kanban_role_registry import (

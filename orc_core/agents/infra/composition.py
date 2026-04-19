@@ -18,7 +18,7 @@ from ...git.integration_manager import IntegrationManager
 from ...git.safe_files import SafeFilesGuard
 from ...git.subprocess_git import SubprocessGitRunner
 from ...git.task_adapters import SubprocessGitIntegration
-from ...git.worktree_flow import DEFAULT_MAIN_BRANCH, detect_base_branch
+from ...git.branch_resolver import DEFAULT_MAIN_BRANCH, detect_base_branch
 from ...incident.manager import IncidentManager
 from ...backends.backend import Backend
 from ...infra.io.state_paths_adapter import FsStatePaths

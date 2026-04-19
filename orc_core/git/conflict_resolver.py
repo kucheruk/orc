@@ -13,7 +13,7 @@ from ..errors.truncation import CONFLICT_ERROR_TRUNCATE, ERROR_TRUNCATE, REASON_
 if TYPE_CHECKING:
     from .integration_manager import IntegrationContext
 
-from .worktree_flow import run_git
+from .git_helpers import run_git
 
 
 class ConflictResolver:

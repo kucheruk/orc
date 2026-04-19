@@ -26,11 +26,8 @@ from .conflict_resolver import ConflictResolver
 from .ports import ConflictResolverPort, GitRunner, SafeFilesGuardPort
 from .safe_files import SafeFilesGuard
 from .subprocess_git import SubprocessGitRunner
-from .worktree_flow import (
-    abort_merge,
-    merge_task_branch_into_main,
-    preflight_main_integration,
-)
+from .branch_merger import abort_merge, merge_task_branch_into_main
+from .integration_preflight import preflight_main_integration
 
 
 @dataclass

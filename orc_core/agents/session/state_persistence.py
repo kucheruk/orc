@@ -81,7 +81,8 @@ def cleanup_done_worktrees(
 ) -> None:
     """Remove worktrees for cards that no longer need them (Done or Blocked)."""
     from ...git.git_dto import WorktreeSession
-    from ...git.worktree_flow import _safe_name, cleanup_task_worktree, task_branch_name
+    from ...git.branch_resolver import _safe_name, task_branch_name
+    from ...git.worktree_lifecycle import cleanup_task_worktree
     from ...infra.io.state_paths import worktrees_root
 
     wt_root = worktrees_root(workdir)

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ..log import log_event
 from ..errors.truncation import ERROR_TRUNCATE
-from .worktree_flow import run_git
+from .git_helpers import run_git
 
 _logger = logging.getLogger(__name__)
 

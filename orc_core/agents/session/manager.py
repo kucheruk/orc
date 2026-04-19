@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ...git.integration_manager import IntegrationManager
-from ...git.worktree_flow import DEFAULT_MAIN_BRANCH
+from ...git.branch_resolver import DEFAULT_MAIN_BRANCH
 from ...board.kanban_distributor import KanbanDistributor
 from ...board.stage_constants import STAGE_INBOX
 from ...config import OrcConfig

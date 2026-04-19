@@ -39,7 +39,7 @@ from ..tasks.ports import MonitorSnapshot
 from ..tasks.execution.engine import TaskExecutionEngine
 from .tui_app import OrcApp
 from .ui import ui_error, ui_info, ui_warn
-from ..git.worktree_flow import detect_base_branch
+from ..git.branch_resolver import detect_base_branch
 from ..infra.io.state_paths import app_log_path, lock_path as state_lock_path
 
 

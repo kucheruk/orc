@@ -7,8 +7,7 @@ Provides concrete, subprocess-backed implementations of:
 - MainIntegrationPreflight (`SubprocessMainIntegrationPreflight`)
 - GitIntegrationPort (`SubprocessGitIntegration`) — bundles every
   git-touching helper that `tasks/` and `agents/runners/` need, so
-  those layers no longer import `git.git_helpers` / `git.worktree_flow`
-  directly.
+  those layers no longer import `git.*` submodules directly.
 """
 from __future__ import annotations
 
@@ -16,6 +15,8 @@ from pathlib import Path
 from typing import Optional
 
 from ..tasks.ports import GitIntegrationPort, IntegrationOutcome, PreflightResult
+from .branch_merger import abort_merge, merge_task_branch_into_main
+from .branch_resolver import task_branch_name
 from .git_helpers import (
     attempt_autocommit_fallback,
     board_commit_message,
@@ -30,12 +31,7 @@ from .git_helpers import (
     runtime_artifact_paths_from_porcelain_lines,
     sync_commit_message,
 )
-from .worktree_flow import (
-    abort_merge,
-    merge_task_branch_into_main,
-    preflight_main_integration,
-    task_branch_name,
-)
+from .integration_preflight import preflight_main_integration
 
 
 class SubprocessGitDiffProbe:
