@@ -162,6 +162,50 @@ class WorkerCardResultProcessingTest(unittest.TestCase):
             self.assertEqual(updated.stage, "7_Handoff")
             self.assertEqual(updated.action, "Done")
 
+    def test_falls_back_to_prior_attempt_when_current_missing(self):
+        """cursor-agent in --resume mode keeps writing to attempt-1; ORC must
+        still pick it up after incrementing the attempt counter."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="W-1", stage="4_Coding", action="Coding"))
+            board.refresh(force=True)
+            card = board.card_by_id("W-1")
+            results_dir = Path(tmp) / "results"
+            results_dir.mkdir(parents=True, exist_ok=True)
+            # Agent wrote attempt-1 on first session; ORC now expects attempt-3.
+            attempt_1 = results_dir / "W-1__4_Coding__attempt-1.json"
+            attempt_1.write_text(json.dumps({
+                "schema_version": 1,
+                "payload_kind": "card_update",
+                "role": "coder",
+                "run_id": build_result_run_id(task_id="W-1", stage_id="4_Coding", attempt=1),
+                "summary": "done",
+                "payload": {
+                    "task_id": "W-1",
+                    "launch_fingerprint": {
+                        "stage": card.stage,
+                        "action": card.action,
+                        "file_path": str(card.file_path),
+                        "state_version": card.state_version,
+                    },
+                    "next_action": "Reviewing",
+                    "section_updates": {"implementation_notes": "attempt-1 wrote this"},
+                },
+            }), encoding="utf-8")
+
+            expected_missing = results_dir / "W-1__4_Coding__attempt-3.json"
+            errors = process_worker_card_result(
+                board, card, "coder",
+                agent_result_file=str(expected_missing),
+                agent_run_id=build_result_run_id(task_id="W-1", stage_id="4_Coding", attempt=3),
+                outcomes=TaskOutcomeTracker(),
+            )
+
+            self.assertEqual(errors, [])
+            updated = board.card_by_id("W-1")
+            self.assertEqual(updated.stage, "5_Review")
+            self.assertIn("attempt-1 wrote this", updated.body)
+
     def test_missing_or_invalid_result_fails_fast(self):
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, board = _make_board(tmp)
