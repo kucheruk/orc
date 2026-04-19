@@ -33,21 +33,17 @@ def ensure_repo_hooks(workdir: str, *, writer: TaskStateWriter) -> Tuple[Path, P
 
     before_path = cursor_hooks_dir / "orc_before_submit.py"
     stop_path = cursor_hooks_dir / "orc_stop.py"
-    hook_lib_path = cursor_hooks_dir / "orc_hook_lib.py"
 
     orc_root = Path(__file__).resolve().parents[3]
     hook_scripts_dir = orc_root / "orc_core" / "hook_scripts"
     replacements = {"__ORC_ROOT__": repr(str(orc_root))}
     before_script = _render_hook_script(hook_scripts_dir / "orc_before_submit.py", replacements)
     stop_script = _render_hook_script(hook_scripts_dir / "orc_stop.py", replacements)
-    hook_lib_script = _render_hook_script(hook_scripts_dir / "orc_hook_lib.py", replacements)
 
     _write_if_changed(before_path, before_script, writer=writer)
     _write_if_changed(stop_path, stop_script, writer=writer)
-    _write_if_changed(hook_lib_path, hook_lib_script, writer=writer)
     before_path.chmod(0o755)
     stop_path.chmod(0o755)
-    hook_lib_path.chmod(0o755)
     return before_path, stop_path
 
 
