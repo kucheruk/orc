@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from orc_core.board.action_constants import Action
 from orc_core.board.state_machine import FORWARD_MOVES
 
 from ..registry import ActionContext, register_action
@@ -20,7 +21,20 @@ class SetActionHandler:
         if card is None:
             raise ValueError(f"Card not found: {card_id}")
         old = card.action
-        card.action = action_str
+        # When teamlead transitions a Blocked card to anything non-Blocked,
+        # route through KanbanCard.unblock so the cleanup invariants run:
+        # strip accumulated "## Block Reason" sections, reset loop_count /
+        # finalize_retries, and offset tokens_discarded to match tokens_spent
+        # so the recovered card isn't immediately re-blocked by the budget
+        # check on the very next pick_best. Bypassing unblock (as the old
+        # direct card.action = action_str did) leaves all that state stale
+        # and turns teamlead arbitration into a no-op — observed as
+        # AUDIT-001-C bouncing Blocked → Arbitration → Blocked every ~60s.
+        if old == Action.BLOCKED and action_str != Action.BLOCKED:
+            card.unblock()
+            card.action = action_str
+        else:
+            card.action = action_str
         if card.assigned_agent:
             ctx.board.release_agent(card)
         ctx.board.save_card(card, old_action=old, role="teamlead")
