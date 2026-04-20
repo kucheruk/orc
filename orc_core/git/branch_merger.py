@@ -214,16 +214,58 @@ def merge_task_branch_into_main(
     if not ok_merge and not has_conflict:
         return IntegrationResult(ok=False, conflict=False, error=merge_error)
     if has_conflict:
-        log_event(
-            log_path,
-            "WARN",
-            "merge conflict while integrating task branch",
-            task_id=task_id,
-            branch=branch_name,
-            main_branch=main_branch,
-            error=merge_error[:500],
+        # Conflicts confined to tasks/ are board-state churn, not real
+        # integration disagreement: the worktree's AutoCommitStep writes
+        # tasks/*.md continuously (card-state telemetry) while main's
+        # AutoCommitStep writes the exact same files in parallel from
+        # unrelated cards. The merge-commit that lands on main explicitly
+        # drops tasks/ changes (see the `git checkout HEAD -- tasks/`
+        # block below), so carrying these conflicts into the
+        # merge-expert path burns an LLM turn and a retry cycle for zero
+        # benefit — the conflict files would be discarded anyway.
+        #
+        # Observed live on jeeves 2026-04-20: QA-001-A hit this path
+        # with 6 conflicts all in tasks/ (other cards' frontmatter). No
+        # merge_expert_fn was wired, so the card auto-blocked after
+        # 3 retries despite the only real obstacle being board-state
+        # churn. Deal with the known-noisy case in-line and leave the
+        # conflict=True return strictly for real code-level merges.
+        ok_list, conflict_paths_raw, _, _ = run_git(
+            base_workdir, ["git", "diff", "--name-only", "--diff-filter=U"]
         )
-        return IntegrationResult(ok=False, conflict=True, error=merge_error)
+        conflict_paths = (
+            [p for p in conflict_paths_raw.strip().splitlines() if p.strip()]
+            if ok_list else []
+        )
+        non_tasks = [p for p in conflict_paths if not p.startswith("tasks/")]
+        if conflict_paths and not non_tasks:
+            # Every conflict is in tasks/. Accept HEAD's version across
+            # the entire subtree (exactly what the post-merge reset
+            # does on the happy path) and let the commit continue.
+            run_git(base_workdir, ["git", "rm", "-rf", "--cached", "--quiet", "--ignore-unmatch", "tasks/"])
+            run_git(base_workdir, ["git", "checkout", "HEAD", "--", "tasks/"])
+            run_git(base_workdir, ["git", "clean", "-fdx", "--", "tasks/"])
+            log_event(
+                log_path,
+                "INFO",
+                "merge conflict confined to tasks/ — auto-resolved to HEAD",
+                task_id=task_id,
+                branch=branch_name,
+                resolved_paths=conflict_paths[:20],
+            )
+            # Fall through to the commit block below.
+        else:
+            log_event(
+                log_path,
+                "WARN",
+                "merge conflict while integrating task branch",
+                task_id=task_id,
+                branch=branch_name,
+                main_branch=main_branch,
+                error=merge_error[:500],
+                non_tasks_conflicts=non_tasks[:20],
+            )
+            return IntegrationResult(ok=False, conflict=True, error=merge_error)
 
     tasks_dir = os.path.join(base_workdir, "tasks")
     if os.path.isdir(tasks_dir):

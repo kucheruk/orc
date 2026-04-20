@@ -397,6 +397,10 @@ class MergeTaskBranchTest(unittest.TestCase):
             (True, "some diff\n", "", 0),
             (False, "", "CONFLICT (content): Merge conflict in src/app.py", 1),
             (True, "src/app.py\n", "", 0),
+            # Extra call: post-conflict listing for tasks-only auto-resolve
+            # decision. src/app.py is outside tasks/, so the branch bails
+            # to conflict=True as before.
+            (True, "src/app.py\n", "", 0),
         ])
         result = branch_merger.merge_task_branch_into_main(
             base_workdir="/tmp/repo",
