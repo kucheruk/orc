@@ -128,7 +128,17 @@ class ArbitrationStep:
             return
         self._last_attempt[card.id] = (state_fp, now)
         prev_arb = ctx.outcomes.get_arbitrated_loop(card.id)
-        if card.loop_count <= prev_arb:
+        # arbitrated_at_loop guards "same-loop bounceback" — a coder-loop
+        # card that already got arbitrated at its current loop_count and
+        # hasn't bounced further shouldn't be re-arbitrated until it loops
+        # again. But a Blocked card is a *different* class of signal:
+        # budget exhaustion, integration failure, escalation threshold.
+        # Its loop_count is often 0 because the block happened off the
+        # loop path. Without this exemption, a card that landed in Blocked
+        # after a previous arbitration (prev_arb >= loop_count) is
+        # released every teamlead tick without ever getting a decision,
+        # and stays Blocked forever.
+        if card.action != Action.BLOCKED and card.loop_count <= prev_arb:
             ctx.distributor.release_card(card.id)
             return
         needs_esc = ctx.distributor.needs_escalation(card)
