@@ -38,7 +38,17 @@ from .check_reporter import _force_close_active_tools_if_needed
 PROCESS_EXIT_GRACE_SECONDS = 3.0
 DONE_BACKLOG_IDLE_GRACE_SECONDS = 20.0
 PID_MISSING_GRACE_SECONDS = 1.0
-TOOL_DIGESTION_GRACE_SECONDS = 180.0
+# Grace for "active tool call but no live descendant processes". Must
+# exceed the worst-case wall time of a long-running project tool (dotnet
+# test on a real solution, pytest on a slow suite, cargo build from
+# cold, etc.) — otherwise the stall fires mid-test, the agent is killed,
+# the task restarts, each stall counts against max_restarts, and the
+# card eventually lands in Blocked for a reason that is purely a
+# misconfigured watchdog. The descendant-process probe is also unreliable
+# for subprocesses that detach from the agent's process group (macOS
+# dotnet's MSBuild worker nodes do this), so the silence-based fallback
+# needs to be lenient enough that those tools can complete.
+TOOL_DIGESTION_GRACE_SECONDS = 900.0
 TOKENS_STUCK_NOTICE_SECONDS = 15 * 60
 TOKENS_STUCK_NOTICE_LABEL = "15m"
 
