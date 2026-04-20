@@ -271,6 +271,20 @@ class WorkerAssignmentExecutor:
         # used to drop the session handle and strand the card in Handoff+Done
         # forever; now the squash-merge runs off the deterministic branch
         # name (orc/<card_id>) from the main workdir.
+        #
+        # Re-fetch from the board: apply_card_update_result mutates the card
+        # returned by board.card_by_id(card.id), then calls board.refresh()
+        # which does self._cards[:] = fresh_instances — that swaps the
+        # in-memory list out from under us, so the `card` reference we
+        # received from the assignment becomes a detached stale instance
+        # still showing the pre-attempt action (Integrating). Without this
+        # re-fetch the integrator's "done" transition never triggered
+        # finalize_completed_worktree, so the squash-merge into master
+        # was silently skipped and the card sat at Handoff+Done with its
+        # branch still unmerged.
+        fresh = self._distributor.board.card_by_id(card.id)
+        if fresh is not None:
+            card = fresh
         if card.action == Action.DONE:
             finalize_completed_worktree(
                 card=card,

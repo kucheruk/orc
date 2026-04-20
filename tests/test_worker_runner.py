@@ -93,7 +93,12 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
         card.action = "Coding"
         card.state_version = 3
         card.file_path = Path("/tmp/base/tasks/4_Coding/TASK-1.md")
-        runner._distributor.board.card_by_id.side_effect = [card, card]
+        # card_by_id call sites: pre-launch fresh_card, _discard_if_stale,
+        # _mark_attempt_discarded, and the cleanup re-fetch added to catch
+        # post-refresh mutation done by apply_card_update_result. Feed the
+        # same card for every call — the real count is an internal detail.
+        runner._distributor.board.card_by_id.return_value = card
+        runner._distributor.board.card_by_id.side_effect = None
         assignment = WorkAssignment(card=card, role="coder", needs_worktree=True)
 
         runner.execute_assignment(slot, assignment)
@@ -142,7 +147,12 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
             state_version=3,
             file_path=Path("/tmp/base/tasks/5_Review/TASK-1.md"),
         )
-        runner._distributor.board.card_by_id.side_effect = [fresh_card, changed_card, changed_card]
+        # Pre-launch returns fresh_card; subsequent calls (stale-launch
+        # guard, _mark_attempt_discarded, cleanup re-fetch) all see the
+        # post-change state. side_effect exhausts once so stretch it.
+        runner._distributor.board.card_by_id.side_effect = (
+            [fresh_card] + [changed_card] * 10
+        )
         assignment = WorkAssignment(card=fresh_card, role="coder", needs_worktree=True)
 
         runner.execute_assignment(slot, assignment)
