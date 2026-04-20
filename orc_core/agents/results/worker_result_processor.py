@@ -37,6 +37,7 @@ def process_worker_card_result(
         return ["missing structured result run_id"]
 
     result_path = _resolve_existing_result_path(Path(agent_result_file))
+    result: StructuredAgentResultV1 | None = None
     if result_path is None:
         # Agent completed and the caller has already verified non-empty
         # delivery (verify_and_commit_uncommitted + _reject_empty_delivery
@@ -80,7 +81,19 @@ def process_worker_card_result(
                     f"result task_id {payload_task_id!r} does not match card {card.id!r}"
                 ]
         except Exception as exc:
-            return [f"invalid structured result: {exc}"]
+            # File exists but can't be parsed/validated — in practice this
+            # is the heredoc JSON escape failing on a literal backtick,
+            # newline, or control character that the agent embedded in
+            # `implementation_notes`. Same trade-off as the missing-file
+            # branch: the delivery is already committed on disk, so we
+            # prefer advancing via synthesis over discarding 30–40k
+            # tokens of real work for a metadata-escape bug.
+            _logger.warning(
+                "Malformed agent result at %s (%s) for %s — synthesizing "
+                "fallback and advancing on committed delivery.",
+                result_path, exc, card.id,
+            )
+            result = _synthesize_card_update_fallback(card, role, agent_run_id)
 
     if outcomes.has_applied_result(result.run_id):
         return []

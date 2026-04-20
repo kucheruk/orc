@@ -242,10 +242,14 @@ class WorkerCardResultProcessingTest(unittest.TestCase):
                             "synthesized result must be recorded so repeat "
                             "attempts are idempotent")
 
-    def test_invalid_result_content_still_fails_fast(self):
-        """Synthesis only covers 'agent forgot to write'. A file that
-        exists but is malformed is an explicit corruption signal — keep
-        the hard rejection."""
+    def test_malformed_result_content_also_synthesizes(self):
+        """Agents writing the result via a heredoc sometimes embed a
+        control character (backtick, newline, tab) inside
+        implementation_notes that breaks the JSON. The delivery itself
+        is already committed on disk by the time we reach this check, so
+        discarding 30–40k tokens for a metadata-escape bug is the wrong
+        trade-off. Treat malformed-but-exists the same as missing:
+        synthesize and advance."""
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, board = _make_board(tmp)
             _add_card(tasks_dir, KanbanCard(id="X-2", stage="4_Coding", action="Coding"))
@@ -255,13 +259,19 @@ class WorkerCardResultProcessingTest(unittest.TestCase):
 
             bad_file = Path(tmp) / "bad.json"
             bad_file.write_text("{not-json", encoding="utf-8")
-            invalid = process_worker_card_result(
+            errors = process_worker_card_result(
                 board, card, "coder",
                 agent_result_file=str(bad_file),
                 agent_run_id="X-2:4_Coding:attempt-1",
                 outcomes=tracker,
             )
-            self.assertTrue(invalid)
+            self.assertEqual(errors, [],
+                             f"malformed-JSON fallback must not error; got {errors!r}")
+            board.refresh(force=True)
+            advanced = board.card_by_id("X-2")
+            self.assertEqual(advanced.stage, "5_Review",
+                             "coder finishing 4_Coding should still land in "
+                             "5_Review even if the JSON is malformed")
 
 
 if __name__ == "__main__":
