@@ -71,20 +71,58 @@ def accumulate_card_tokens(card, board, workdir: str) -> None:
         board.save_card(card)
 
 
+#: Hard ceiling on auto-growth — budget can grow up to this multiple of
+#: the effort-based baseline before the card is considered truly runaway.
+#: Budget exhaustion should be a silent auto-recovery (just grow and keep
+#: working) until this cap, only then is it a real incident the operator
+#: needs to see.
+MAX_BUDGET_GROWTH_MULTIPLIER = 3
+
+
 def check_and_block_budget(card, board, publisher, log_path: Path, notifier=None) -> bool:
     if not card.is_budget_exhausted:
         return False
+
     from ...log import log_event
     from ...signals import SignalKind, emit_signal
 
-    reason = f"token budget exhausted: {card.tokens_spent}/{card.token_budget}"
+    effort = int(getattr(card, "effort_score", 0) or 0)
+    baseline = max(effort * DEFAULT_TOKENS_PER_EFFORT, DEFAULT_TOKENS_PER_EFFORT)
+    hard_cap = baseline * MAX_BUDGET_GROWTH_MULTIPLIER
+    tokens_net = int(getattr(card, "tokens_spent_net", 0) or 0)
+
+    if tokens_net < hard_cap:
+        # Soft-growth path: the card spent more than its current budget
+        # but is still within the reasonable envelope for its effort
+        # estimate. Treat budget exhaustion as "needs more runway", not
+        # "emergency block". Grow the budget in place and keep working.
+        extra = max(baseline, card.token_budget)
+        previous = card.token_budget
+        card.token_budget = int(max(previous + extra, tokens_net + extra))
+        board.save_card(card)
+        log_event(
+            log_path,
+            "INFO",
+            "token budget grown in place to avoid block",
+            task_id=card.id,
+            previous=previous,
+            budget=card.token_budget,
+            tokens_spent_net=tokens_net,
+            hard_cap=hard_cap,
+        )
+        return False
+
+    # Beyond the hard cap — genuine runaway. Block and surface to the operator.
+    reason = f"token budget exhausted: net={tokens_net} exceeded hard cap {hard_cap}"
     log_event(
         log_path,
         "WARN",
-        "card blocked: token budget exhausted",
+        "card blocked: token budget exhausted beyond hard cap",
         task_id=card.id,
         tokens_spent=card.tokens_spent,
+        tokens_spent_net=tokens_net,
         token_budget=card.token_budget,
+        hard_cap=hard_cap,
     )
     emit_signal(
         SignalKind.CARD_BLOCKED,
@@ -95,19 +133,16 @@ def check_and_block_budget(card, board, publisher, log_path: Path, notifier=None
             "tokens_discarded": int(getattr(card, "tokens_discarded", 0) or 0),
             "token_budget": card.token_budget,
             "stage": card.stage,
+            "hard_cap": hard_cap,
         },
     )
     publisher.emit("escalate", card.id, f"{card.id} BLOCKED: {reason}")
     card.block(reason)
     board.save_card(card)
-    # Notify the human via Telegram — budget exhaustion is a terminal
-    # block that needs an operator decision (skip / bump budget / rewrite
-    # the card), identical in severity to the repeated-failure escalation
-    # path which already notifies.
     if notifier is not None:
         try:
             notifier.notify_card_blocked(card.id, 1, reason)
-        except Exception:  # notifier is best-effort
+        except Exception:
             pass
     return True
 

@@ -16,9 +16,15 @@ DEFAULT_WIP_LIMITS: dict[str, int] = {
     STAGE_HANDOFF: 2,
 }
 
-# Loop-count thresholds — used in code AND referenced in prompts
-LOOP_THRESHOLD = 2            # teamlead arbitration
-ESCALATION_THRESHOLD = 4      # force-block / escalation
+# Loop-count thresholds — used in code AND referenced in prompts.
+#
+# Arbitration/blocking are emergency paths, not routine flow. A card that
+# bounces once (reviewer asks for a fix, coder ships it) is a normal
+# feedback cycle, not an incident — teamlead must not be pulled in.
+# Only when the pipeline visibly can't make progress (4 bounces) do we
+# escalate to arbitration; past that (8) we force-block for a human.
+LOOP_THRESHOLD = 4            # teamlead arbitration — genuine stuck
+ESCALATION_THRESHOLD = 8      # force-block / escalation — unrecoverable
 
 # Effort-score thresholds
 DECOMPOSITION_EFFORT_THRESHOLD = 70   # architect must split above this
