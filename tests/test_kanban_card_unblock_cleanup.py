@@ -78,6 +78,26 @@ class TestUnblockStripsBlockReason(unittest.TestCase):
         self.assertEqual(card.loop_count, 0)
         self.assertEqual(card.finalize_retries, 0)
 
+    def test_token_accounting_reset_prevents_ping_pong_block(self):
+        """Without this reset, a card whose previous attempt exhausted its
+        token_budget would re-exhaust the budget check (tokens_spent_net >=
+        token_budget) on the next pick_best and bounce right back to
+        Blocked — teamlead arbitration would unblock, ORC would re-block,
+        indefinitely. Observed on AUDIT-001-C: budget auto-grew to 190K
+        chasing a 258K actual spend, never recovered."""
+        card = self._card_with_body("# section\n\n## Block Reason\nstale\n")
+        card.tokens_spent = 258652
+        card.tokens_discarded = 0
+        card.token_budget = 190000  # auto-grown by teamlead
+        card.unblock()
+        self.assertEqual(card.tokens_spent, 0)
+        self.assertEqual(card.tokens_discarded, 0)
+        self.assertEqual(card.token_budget, 0,
+                         "token_budget must be reset to 0 so "
+                         "update_card_token_budget reconstructs it from "
+                         "current effort_score on the next assignment")
+        self.assertFalse(card.is_budget_exhausted)
+
 
 if __name__ == "__main__":
     unittest.main()

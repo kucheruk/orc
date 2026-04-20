@@ -151,6 +151,17 @@ class KanbanCard:
         self.action = Action.CODING
         self.loop_count = 0
         self.finalize_retries = 0
+        # Reset the token accounting so the recovered attempt gets a
+        # fresh budget window. Without this the historical tokens_spent
+        # (from the attempt that triggered the original block) would
+        # immediately re-exhaust the budget check on the next pick_best
+        # filter and the card would ping-pong Blocked → unblocked → re-
+        # Blocked without ever reaching a worker. update_card_token_budget
+        # repopulates token_budget from the current effort_score on the
+        # next assignment.
+        self.tokens_spent = 0
+        self.tokens_discarded = 0
+        self.token_budget = 0
         self.touch()
 
     def validate(self) -> list[str]:
