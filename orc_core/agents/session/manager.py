@@ -445,12 +445,21 @@ def _manager_loop(
             else:
                 publisher.emit("system", "", "All agents finished, exiting")
                 return EXIT_OK
-        elif not pool.has_active():
+        else:
+            # Respawn individual CLOSED slots on every tick, not only when
+            # the whole pool is idle. Previously restart_idle was gated by
+            # `not pool.has_active()`, so if one worker was still running
+            # (e.g. a long integrator) while the other two exited cleanly
+            # after finishing tasks, the two dead slots stayed CLOSED
+            # forever and the Todo queue sat untouched even though
+            # max-sessions slots were nominally available. Net effect on
+            # jeeves 2026-04-20: 5 cards in 3_Todo with no coder picking
+            # them up for 10+ minutes, deadlock warnings flooding the
+            # board while 2/3 worker budget went unused.
             if distributor.has_remaining_work():
                 pool.restart_idle(target=run_worker)
-                if pool.has_active():
-                    continue
-            return EXIT_OK
+            if not pool.has_active():
+                return EXIT_OK
         sleep_fn(MANAGER_POLL_SECONDS)
 
 
