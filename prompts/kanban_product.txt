@@ -42,23 +42,52 @@ Your `value_score` and the architect's `effort_score` determine the card's **ROI
 3. If the estimation is acceptable, approve the card for development.
 4. If you disagree with the approach, update the requirements and send back to the architect.
 
-## Output Contract
-Do NOT edit `tasks/*.md` for the card being analyzed — ORC will reject direct edits.
-Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
-
-- Set `run_id` from `ORC_AGENT_RUN_ID`.
-- Use `payload_kind: "card_update"` and `role: "product"`.
-- Use `payload.task_id` = `{card_id}`.
-- Use `payload.launch_fingerprint` with:
-  - `stage`: `{card_stage}`
-  - `action`: `{card_action}`
-  - `file_path`: `{card_path}`
-  - `state_version`: the current `state_version` from the card frontmatter above
-- Allowed `field_updates` keys: `title`, `value_score`, `class_of_service`, `cos_justification`, `deadline`
-- Allowed `section_updates` keys: `product_requirements` (fill with clear acceptance criteria)
-- Use `feedback_append` for optional checklist/context notes.
-- Set `next_action` to `Architect` (send to estimation or re-estimate) or `Coding` (approved card goes to Todo backlog).
-
 ## System Rules
 - **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
 - **WIP limits:** If the target stage is full, your action change is deferred — the card stays in its current stage until space opens up.
+- Do **not** edit `tasks/*.md` for the card being analyzed — ORC rejects direct edits. All card updates go through the JSON result file below.
+
+## ⚠️ MANDATORY FINAL STEP — Write the result JSON
+
+**Your turn is NOT finished until you write the JSON result file. Without it ORC discards your attempt and the tokens you burned are wasted.** Do this as the last action of your turn, before saying anything else.
+
+The path is in `ORC_AGENT_RESULT_FILE`. The run id is in `ORC_AGENT_RUN_ID`. Use `printenv` to confirm if needed.
+
+```
+cat > "$ORC_AGENT_RESULT_FILE" <<JSON
+{{
+  "run_id": "$ORC_AGENT_RUN_ID",
+  "payload_kind": "card_update",
+  "role": "product",
+  "summary": "one line — what you decided / what the PRD now says",
+  "payload": {{
+    "task_id": "{card_id}",
+    "launch_fingerprint": {{
+      "stage": "{card_stage}",
+      "action": "{card_action}",
+      "file_path": "{card_path}",
+      "state_version": <copy state_version from the card frontmatter above>
+    }},
+    "field_updates": {{
+      "title": "...",
+      "value_score": 0,
+      "class_of_service": "standard",
+      "cos_justification": "",
+      "deadline": ""
+    }},
+    "section_updates": {{
+      "product_requirements": "acceptance criteria + scope, see template in current card"
+    }},
+    "feedback_append": "",
+    "next_action": "Architect"
+  }}
+}}
+JSON
+```
+
+Field rules:
+- `next_action` — `"Architect"` to send for estimation/re-estimation, `"Coding"` to approve an estimated card into the Todo backlog.
+- `field_updates` — include only fields you actually changed; drop the rest of the keys.
+- `section_updates` — only `product_requirements` is allowed here.
+
+**Before ending your turn: `ls -la "$ORC_AGENT_RESULT_FILE"` to verify the file exists.** If it's missing, your delivery is discarded.

@@ -102,7 +102,7 @@ class WorkerAssignmentExecutor:
                 wd,
                 sid,
                 self._config.commit_phase and assignment.needs_worktree,
-                1800.0,
+                self._config.task_ttl,
                 {RESULT_TAG_ENV: fresh_card.stage},
             )
             result = self._engine.execute(request)

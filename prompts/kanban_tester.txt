@@ -75,23 +75,43 @@ Write feedback as:
 
 {feedback_loop}
 
-## Output Contract
-Do NOT edit `tasks/*.md` for the card being tested — ORC will reject direct edits.
-Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
-
 ## System Rules
 - **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
 - **loop_count:** Increments each time a card bounces back to Coding. At loop_count >= 2, the teamlead intervenes. At >= 4, force-block. Consider whether the failure is truly a DoD gap.
 - **WIP limits:** If the Handoff stage is full, your `Integrating` action is deferred — the card stays in Testing until space opens up.
+- Do **not** edit `tasks/*.md` for the card being tested — ORC rejects direct edits. QA notes land in the JSON below.
 
-## Structured Result Details
-- Set `run_id` from `ORC_AGENT_RUN_ID`.
-- Use `payload_kind: "card_update"` and `role: "tester"`.
-- Use `payload.task_id` = `{card_id}`.
-- Use `payload.launch_fingerprint` with:
-  - `stage`: `{card_stage}`
-  - `action`: `{card_action}`
-  - `file_path`: `{card_path}`
-  - `state_version`: the current `state_version` from the card frontmatter above
-- Put all QA notes in `feedback_append`.
-- Set `next_action` to `Coding`, `Reviewing`, or `Integrating`, or leave it empty to use ORC's auto-default.
+## ⚠️ MANDATORY FINAL STEP — Write the result JSON
+
+**Your turn is NOT finished until you write the JSON result file. Without it ORC discards your attempt and the tokens you burned are wasted.** Do this as the last action of your turn, before saying anything else.
+
+The path is in `ORC_AGENT_RESULT_FILE`. The run id is in `ORC_AGENT_RUN_ID`.
+
+```
+cat > "$ORC_AGENT_RESULT_FILE" <<JSON
+{{
+  "run_id": "$ORC_AGENT_RUN_ID",
+  "payload_kind": "card_update",
+  "role": "tester",
+  "summary": "one line — pass / coding bounce / review bounce + key QA finding",
+  "payload": {{
+    "task_id": "{card_id}",
+    "launch_fingerprint": {{
+      "stage": "{card_stage}",
+      "action": "{card_action}",
+      "file_path": "{card_path}",
+      "state_version": <copy state_version from the card frontmatter above>
+    }},
+    "feedback_append": "QA notes — tests run, results, DoD-gap findings if any",
+    "next_action": ""
+  }}
+}}
+JSON
+```
+
+Field rules:
+- `next_action` — leave `""` for ORC default (`Integrating` on pass). Set `"Coding"` for DoD-gap bounces, `"Reviewing"` if you think review missed something.
+- `feedback_append` — all QA output. Include which tests ran, their verdicts, and which DoD items are verified.
+- No `section_updates` / `field_updates` — testers don't edit the PRD or fields.
+
+**Before ending your turn: `ls -la "$ORC_AGENT_RESULT_FILE"` to verify the file exists.** If it's missing, your delivery is discarded.

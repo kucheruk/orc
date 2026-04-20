@@ -60,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--commit-ttl", type=float, default=_d.commit_ttl, help="Max seconds for commit phase")
     ap.add_argument("--poll", type=float, default=_d.poll, help="Poll interval for task completion")
     ap.add_argument("--stall-timeout", type=float, default=_d.stall_timeout, help="Seconds without output before stall")
-    ap.add_argument("--task-ttl", type=float, default=6 * 3600, help="Max seconds per task before abort")
+    ap.add_argument("--task-ttl", type=float, default=_d.task_ttl, help="Max seconds per task before abort")
     ap.add_argument("--max-restarts", type=int, default=_d.max_restarts, help="Max restarts for a task")
     ap.add_argument("--report-interval", type=float, default=_d.report_interval, help="Seconds between stats reports")
     ap.add_argument("--summary-lines", type=int, default=_d.summary_lines, help="Lines in Telegram summary")

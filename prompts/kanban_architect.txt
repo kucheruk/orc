@@ -53,26 +53,50 @@ File: `{card_path}`
 
    **Anti-anchoring warning**: Do NOT cap your own effort estimate at 68-70 to avoid triggering decomposition. Estimate honestly; if the honest number is >70 and the work is one coherent topic, splitting by size is the correct action.
 
-## Output Contract
-Do NOT edit `tasks/*.md` for the card being analyzed — ORC will reject direct edits.
-Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
-
-- Set `run_id` from `ORC_AGENT_RUN_ID`.
-- Use `payload_kind: "card_update"` and `role: "architect"`.
-- Use `payload.task_id` = `{card_id}`.
-- Use `payload.launch_fingerprint` with:
-  - `stage`: `{card_stage}`
-  - `action`: `{card_action}`
-  - `file_path`: `{card_path}`
-  - `state_version`: the current `state_version` from the card frontmatter above
-- Allowed `field_updates` keys: `effort_score`, `dependencies`
-- Allowed `section_updates` keys: `technical_design` (put the full "# 2. Technical Design & DoD" body here)
-- Use `feedback_append` for optional checklist/context notes.
-- Set `next_action` to `Product` (send back for prioritization) or `Blocked` (only for the decomposed-parent case from step 6a / 6b).
-
-Creating brand-new sub-card files in `tasks/2_Estimate/` during decomposition is expected and remains on-disk work — the override above only forbids editing the card you were handed.
-
 ## System Rules
 - **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
 - **Not your responsibility** (silently reverted): `value_score`, `class_of_service`, `cos_justification`, `deadline` — these are set by the Product Manager.
 - **WIP limits:** If Todo is full, the card stays in Estimate until space opens up.
+- Do **not** edit the card file you were handed (`tasks/*.md`) — ORC rejects direct edits. Creating brand-new sub-card files in `tasks/2_Estimate/` during decomposition is expected and allowed.
+
+## ⚠️ MANDATORY FINAL STEP — Write the result JSON
+
+**Your turn is NOT finished until you write the JSON result file. Without it ORC discards your attempt and the tokens you burned are wasted.** Do this as the last action of your turn, before saying anything else.
+
+The path is in `ORC_AGENT_RESULT_FILE`. The run id is in `ORC_AGENT_RUN_ID`. Use `printenv` to confirm if needed.
+
+```
+cat > "$ORC_AGENT_RESULT_FILE" <<JSON
+{{
+  "run_id": "$ORC_AGENT_RUN_ID",
+  "payload_kind": "card_update",
+  "role": "architect",
+  "summary": "one line — effort, dependencies, decomposition decision",
+  "payload": {{
+    "task_id": "{card_id}",
+    "launch_fingerprint": {{
+      "stage": "{card_stage}",
+      "action": "{card_action}",
+      "file_path": "{card_path}",
+      "state_version": <copy state_version from the card frontmatter above>
+    }},
+    "field_updates": {{
+      "effort_score": <honest estimate 1-100>,
+      "dependencies": ["DEP-1", "DEP-2"]
+    }},
+    "section_updates": {{
+      "technical_design": "full # 2. Technical Design & DoD body with design, DoD checklist, risks"
+    }},
+    "feedback_append": "",
+    "next_action": "Product"
+  }}
+}}
+JSON
+```
+
+Field rules:
+- `next_action` — `"Product"` to send back for prioritization, `"Blocked"` ONLY when the parent card was decomposed into sub-cards per step 6a/6b.
+- `field_updates` — include only keys you changed; drop the others.
+- `section_updates` — only `technical_design` is allowed here.
+
+**Before ending your turn: `ls -la "$ORC_AGENT_RESULT_FILE"` to verify the file exists.** If it's missing, your delivery is discarded.

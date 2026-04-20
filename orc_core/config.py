@@ -29,6 +29,13 @@ class OrcConfig:
     nudge_text: str = "continue"
     commit_stall_timeout: float = 300.0
     commit_ttl: float = 1800.0
+    # Per-attempt wall-clock ceiling. 30 min cut real cards off mid-work
+    # (PERF-001 profiling project-by-project dotnet test runs routinely
+    # needs ~12 min of test wall time plus LLM-think time, AUDIT-001-C
+    # accumulated ~20 min of code work). 1 hour is the new baseline —
+    # still bounded, still catches runaways, but fits realistic .NET
+    # solution test cycles plus a real retry budget.
+    task_ttl: float = 3600.0
     agent_output_log_path: str = ""
 
     @classmethod
@@ -49,5 +56,6 @@ class OrcConfig:
             nudge_text=str(getattr(args, "nudge_text", defaults.nudge_text)),
             commit_stall_timeout=float(getattr(args, "commit_stall_timeout", defaults.commit_stall_timeout)),
             commit_ttl=float(getattr(args, "commit_ttl", defaults.commit_ttl)),
+            task_ttl=float(getattr(args, "task_ttl", defaults.task_ttl)),
             agent_output_log_path=str(getattr(args, "agent_output_log_path", defaults.agent_output_log_path) or ""),
         )

@@ -7,11 +7,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ...board.limits_constants import MIN_TOKEN_BUDGET, TOKENS_PER_EFFORT_POINT
+from ...board.limits_constants import TOKENS_PER_EFFORT_POINT
 from ...tasks.ports import GitIntegrationPort
 
 DEFAULT_TOKENS_PER_EFFORT = TOKENS_PER_EFFORT_POINT
-MIN_TOKEN_BUDGET = MIN_TOKEN_BUDGET
 
 
 def card_state_fingerprint(card) -> tuple[str, str, str]:
@@ -24,10 +23,18 @@ def card_state_fingerprint(card) -> tuple[str, str, str]:
 
 
 def update_card_token_budget(card, board, log_path: Path) -> None:
+    # An unestimated card (effort_score <= 0) has no sizing signal, so any
+    # floor-based token budget is a guess that cuts real work off. Keep
+    # its budget at 0 (== no cap) until the architect assigns a real
+    # effort_score; at that point the enforced budget kicks in. The old
+    # MIN_TOKEN_BUDGET=40000 floor routinely cut off coders mid-attempt
+    # on zero-effort cards and parked them in Blocked even though the
+    # attempt had produced a live commit (see AUDIT-001-C burn: 184548
+    # tokens on a 40000 floor before teamlead arbitration recovered it).
     expected = (
         card.effort_score * DEFAULT_TOKENS_PER_EFFORT
         if card.effort_score > 0
-        else MIN_TOKEN_BUDGET
+        else 0
     )
     if card.token_budget == expected:
         return

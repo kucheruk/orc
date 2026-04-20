@@ -99,22 +99,43 @@ Advisory notes (non-blocking):
 
 {feedback_loop}
 
-## Output Contract
-Do NOT edit `tasks/*.md` for the card being reviewed — ORC will reject direct edits.
-Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
-
 ## System Rules
 - **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`. Changes to these are silently reverted by the system.
 - **loop_count:** Increments each time a card bounces back to Coding. At loop_count >= 2, the teamlead intervenes. At >= 4, force-block. Consider whether your rejection is truly warranted.
 - **WIP limits:** If the target stage is full, your action change is deferred — the card stays in Review until space opens up.
+- Do **not** edit `tasks/*.md` for the card being reviewed — ORC rejects direct edits. Feedback lands in the JSON below.
 
-- Set `run_id` from `ORC_AGENT_RUN_ID`.
-- Use `payload_kind: "card_update"` and `role: "reviewer"`.
-- Use `payload.task_id` = `{card_id}`.
-- Use `payload.launch_fingerprint` with:
-  - `stage`: `{card_stage}`
-  - `action`: `{card_action}`
-  - `file_path`: `{card_path}`
-  - `state_version`: the current `state_version` from the card frontmatter above
-- Put all review notes in `feedback_append`.
-- Set `next_action` to `Coding` or `Testing`, or leave it empty to use ORC's auto-default.
+## ⚠️ MANDATORY FINAL STEP — Write the result JSON
+
+**Your turn is NOT finished until you write the JSON result file. Without it ORC discards your attempt and the tokens you burned are wasted.** Do this as the last action of your turn, before saying anything else.
+
+The path is in `ORC_AGENT_RESULT_FILE`. The run id is in `ORC_AGENT_RUN_ID`.
+
+```
+cat > "$ORC_AGENT_RESULT_FILE" <<JSON
+{{
+  "run_id": "$ORC_AGENT_RUN_ID",
+  "payload_kind": "card_update",
+  "role": "reviewer",
+  "summary": "one line — pass / reject + key finding",
+  "payload": {{
+    "task_id": "{card_id}",
+    "launch_fingerprint": {{
+      "stage": "{card_stage}",
+      "action": "{card_action}",
+      "file_path": "{card_path}",
+      "state_version": <copy state_version from the card frontmatter above>
+    }},
+    "feedback_append": "review notes — concrete, item-level, [BLOCKER]/[FAIL]/[OK] tags",
+    "next_action": ""
+  }}
+}}
+JSON
+```
+
+Field rules:
+- `next_action` — leave `""` for ORC default (`Testing` on pass), or set `"Coding"` to send back with blocker items.
+- `feedback_append` — put ALL review output here. This is what the coder reads if you reject.
+- No `section_updates` / `field_updates` — reviewers don't edit the PRD or fields.
+
+**Before ending your turn: `ls -la "$ORC_AGENT_RESULT_FILE"` to verify the file exists.** If it's missing, your delivery is discarded.

@@ -53,18 +53,43 @@ after you finish. Just commit all your work in the worktree branch.
 ## System Rules
 - **Protected fields** (do NOT modify): `id`, `stage`, `roi`, `assigned_agent`, `created_at`.
 - **Not your responsibility** (silently reverted): `value_score`, `effort_score`, `class_of_service`, `cos_justification`, `deadline`.
+- Do **not** edit `tasks/*.md` for the card being integrated — ORC rejects direct edits. Integration notes land in the JSON below.
 
-## Output Contract
-Do NOT edit `tasks/*.md` for the card being integrated — ORC will reject direct edits.
-Write your final JSON result to the path from `ORC_AGENT_RESULT_FILE`.
-- Set `run_id` from `ORC_AGENT_RUN_ID`.
-- Use `payload_kind: "card_update"` and `role: "integrator"`.
-- Use `payload.task_id` = `{card_id}`.
-- Use `payload.launch_fingerprint` with:
-  - `stage`: `{card_stage}`
-  - `action`: `{card_action}`
-  - `file_path`: `{card_path}`
-  - `state_version`: the current `state_version` from the card frontmatter above
-- Allowed `section_updates` keys: `implementation_notes`
-- Use `feedback_append` for reject/pass notes and integration checklist context.
-- Set `next_action` to `Done`, `Reviewing`, or `Testing`, or leave it empty to use ORC's auto-default.
+## ⚠️ MANDATORY FINAL STEP — Write the result JSON
+
+**Your turn is NOT finished until you write the JSON result file. Without it ORC discards your attempt and the squash-merge into main never runs — the tokens you burned are wasted.** Do this as the last action of your turn, before saying anything else.
+
+The path is in `ORC_AGENT_RESULT_FILE`. The run id is in `ORC_AGENT_RUN_ID`.
+
+```
+cat > "$ORC_AGENT_RESULT_FILE" <<JSON
+{{
+  "run_id": "$ORC_AGENT_RUN_ID",
+  "payload_kind": "card_update",
+  "role": "integrator",
+  "summary": "one line — accepted for integration / rejected with reason",
+  "payload": {{
+    "task_id": "{card_id}",
+    "launch_fingerprint": {{
+      "stage": "{card_stage}",
+      "action": "{card_action}",
+      "file_path": "{card_path}",
+      "state_version": <copy state_version from the card frontmatter above>
+    }},
+    "section_updates": {{
+      "implementation_notes": "final integration summary (optional — only if you made any last commit)"
+    }},
+    "feedback_append": "integration checklist / reject context if sending back",
+    "next_action": ""
+  }}
+}}
+JSON
+```
+
+Field rules:
+- `next_action` — leave `""` for ORC default (`Done` on success). Set `"Reviewing"` or `"Testing"` ONLY to send back for a critical issue earlier stages missed.
+- `section_updates.implementation_notes` — optional; only if you added something substantive on top of earlier stages.
+- `feedback_append` — reject context, or checklist confirmation of integration readiness.
+- Do NOT run `git push` or merge into `{main_branch}` manually — ORC handles the squash-merge after this file lands on disk.
+
+**Before ending your turn: `ls -la "$ORC_AGENT_RESULT_FILE"` to verify the file exists.** If it's missing, your delivery is discarded and the card stays in Handoff unmerged.

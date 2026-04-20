@@ -46,7 +46,7 @@ class WorkerRunnerCommitGuardTest(unittest.TestCase):
             engine=engine,
             distributor=distributor,
             publisher=publisher,
-            config=Namespace(commit_phase=True),
+            config=Namespace(commit_phase=True, task_ttl=3600.0),
             main_branch="main",
             slots_lock=threading.Lock(),
             worktree_lock=threading.Lock(),
