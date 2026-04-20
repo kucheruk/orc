@@ -51,6 +51,45 @@ __all__ = [
 _DEFAULT_REGISTRY: StagePullRegistry = default_registry()
 
 
+def _demote_dep_broken_todo(board: "KanbanBoard") -> None:
+    """Send Todo cards whose dependencies became unmet back to Estimate.
+
+    A card can legitimately enter 3_Todo (dependencies met at the time
+    of promotion) and later see its dependency graph change — the most
+    common cause is a downstream parent being decomposed into subcards
+    by the architect, which rewires the dep edge from the (now archived)
+    parent to a fresh subcard still sitting in Estimate.
+
+    Pre-fix the card just sat in Todo with action=Coding, pull's
+    check_deps filtered it out so no coder ever picked it up, and the
+    slot still counted against the Todo WIP limit. In the worst case
+    seen on jeeves 2026-04-20, all 5 Todo slots were occupied by
+    dep-broken cards simultaneously — two worker slots went idle with
+    no work to pull even though 18 Estimate cards needed
+    Product/Architect runs. The teamlead.health_check DEADLOCK alert
+    also referenced the same broken state every minute without any
+    recovery path.
+
+    Demoting the card back to Estimate frees the Todo slot for real
+    ready work, returns the card to the right scoring pool (its
+    effective-ROI contribution via downstream_roi still counts there),
+    and _auto_promote_estimate will re-promote it naturally once the
+    new upstream subcard finishes.
+    """
+    for card in list(board.cards_with_action(STAGE_TODO, Action.CODING)):
+        if board.has_unmet_dependencies(card):
+            board.move_card(
+                card,
+                STAGE_ESTIMATE,
+                allow_backward=True,
+                reason="pull: deps broken after dependency rewire, returning to Estimate",
+            )
+            _pull_logger.info(
+                "Demoted %s from Todo to Estimate (deps became unmet after promotion)",
+                card.id,
+            )
+
+
 def find_next_work(
     board: "KanbanBoard",
     *,
@@ -59,6 +98,7 @@ def find_next_work(
     """Run pre-flight sweeps, then scan the registry for the next assignment."""
     _auto_archive_decomposed_parents(board)
     _reset_orphaned_exhausted_budgets(board)
+    _demote_dep_broken_todo(board)
     _auto_promote_estimate(board)
     return (registry or _DEFAULT_REGISTRY).find_next(board)
 

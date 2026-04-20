@@ -381,6 +381,57 @@ class TestAutoArchiveDecomposedParents(unittest.TestCase):
 
             self.assertEqual(board.card_by_id("OLD-001").stage, "8_Done")
 
+    def test_dep_broken_todo_card_is_demoted_to_estimate(self):
+        """Cards in 3_Todo/Coding whose deps became unmet after a
+        dependency rewire must be sent back to 2_Estimate so the Todo
+        slot is free for ready cards. Without this, all Todo slots can
+        fill with unpickable cards and worker slots sit idle even when
+        the Estimate queue has Product/Architect work waiting
+        (jeeves 2026-04-20 scenario).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            # UPSTREAM sits in Estimate — its dep chain isn't ready yet.
+            _add(td, KanbanCard(id="UPSTREAM", stage="2_Estimate", action="Product"))
+            # DOWNSTREAM was promoted to Todo earlier (when UPSTREAM was
+            # Done), but a subsequent decomposition rewired its dep back
+            # onto UPSTREAM. Now it sits in Todo with unmet deps.
+            _add(td, KanbanCard(
+                id="DOWNSTREAM", stage="3_Todo", action="Coding",
+                dependencies=["UPSTREAM"],
+            ))
+            board = KanbanBoard(td, repo=FsCardRepository())
+
+            find_next_work(board)
+
+            demoted = board.card_by_id("DOWNSTREAM")
+            self.assertEqual(demoted.stage, "2_Estimate",
+                             "dep-broken Todo card must be demoted back to Estimate")
+            self.assertEqual(demoted.action, "Coding",
+                             "action preserved so _auto_promote_estimate can repromote once deps clear")
+
+    def test_todo_card_with_met_deps_is_not_demoted(self):
+        """Must not demote cards whose deps are genuinely ready.
+        A card with met deps either stays in Todo or gets picked up
+        by a coder (advancing forward) — but must never slide back
+        to Estimate."""
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            _add(td, KanbanCard(id="UP-OK", stage="8_Done", action="Done"))
+            _add(td, KanbanCard(
+                id="READY", stage="3_Todo", action="Coding",
+                dependencies=["UP-OK"],
+            ))
+            board = KanbanBoard(td, repo=FsCardRepository())
+
+            find_next_work(board)
+
+            # Card should NOT have regressed to Estimate; may have advanced
+            # to Coding if a coder slot picked it up during find_next_work.
+            final = board.card_by_id("READY")
+            self.assertNotEqual(final.stage, "2_Estimate",
+                                "met-deps card must never regress to Estimate")
+
 
 if __name__ == "__main__":
     unittest.main()
