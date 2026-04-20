@@ -403,6 +403,28 @@ class AutoCommitStep:
                     log_event(ctx.log_path, "WARN", "auto-commit skipped: cherry-pick in progress",
                               path=cherry_pick_head)
                     return
+            # Same guard for in-progress merges (MERGE_HEAD) and squashes
+            # (SQUASH_MSG) — committing a dirty tree that still has
+            # unresolved conflicts would write <<<<<<< markers straight
+            # into main (jeeves 2026-04-20: MGR-001-A.md frontmatter).
+            for marker in ("MERGE_HEAD", "SQUASH_MSG", "REBASE_HEAD"):
+                ok_m, out_m, _, _ = git.run(wd, ["git", "rev-parse", "--git-path", marker])
+                if ok_m:
+                    marker_path = (out_m or "").strip()
+                    if marker_path and Path(marker_path).exists():
+                        log_event(ctx.log_path, "WARN", f"auto-commit skipped: {marker.lower()} present",
+                                  path=marker_path)
+                        return
+            # Last line of defence: scan the working tree for unresolved
+            # conflict files regardless of git's internal state. A merge
+            # expert that wrote a bogus commit (see conflict_resolver
+            # defence) or a stray manual edit could leave conflict
+            # markers without any of the in-progress marker files.
+            ok_u, unresolved, _, _ = git.run(wd, ["git", "diff", "--name-only", "--diff-filter=U"])
+            if ok_u and (unresolved or "").strip():
+                log_event(ctx.log_path, "WARN", "auto-commit skipped: unresolved conflict files present",
+                          files=unresolved.strip().splitlines()[:20])
+                return
             ok, stdout, _, _ = git.run(wd, ["git", "status", "--porcelain"])
             if not ok or not stdout.strip():
                 return

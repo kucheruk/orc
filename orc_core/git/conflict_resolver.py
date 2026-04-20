@@ -204,6 +204,36 @@ class ConflictResolver:
                 ctx.save_report("failed", "merge_expert_did_not_commit_squash")
                 return False
 
+        # Scan HEAD tree for raw conflict markers. The merge expert or a
+        # later auto-commit can happily create a commit whose file content
+        # still contains `<<<<<<< HEAD` / `>>>>>>> master` — once that
+        # lands on the branch there is no merge state to detect and every
+        # subsequent read of the file pulls in malformed YAML/code.
+        # Observed on jeeves 2026-04-20: MGR-001-A.md was committed into
+        # 5_Review with conflict markers inside its frontmatter, coexisting
+        # with a clean 8_Done/ copy from the final integrator run. The
+        # sibling in main-repo pickup of the bad commit corrupted the
+        # card's stage chain until a human reset it by hand.
+        ok_scan, scan_out, _, _ = run_git(
+            self.workdir,
+            ["git", "grep", "-lE", r"^(<{7} |={7}$|>{7} )", "HEAD"],
+        )
+        leftover = scan_out.strip().splitlines() if scan_out else []
+        if ok_scan and leftover:
+            ctx.step_error(
+                "conflict_markers_in_committed_tree",
+                files=leftover[:20],
+            )
+            # Reset the bad commit so abort_fn cleanly returns to pre-merge
+            # state. abort_fn tries `git reset --merge` first, which
+            # handles an in-progress merge, then `git cherry-pick --abort`,
+            # then hard-reset preserving safe files — any of these rolls
+            # back the committed-but-conflicted HEAD.
+            run_git(self.workdir, ["git", "reset", "--hard", "HEAD~1"])
+            abort_fn(ctx)
+            ctx.save_report("failed", "conflict_markers_in_committed_tree")
+            return False
+
         ok, stdout, _, _ = run_git(self.workdir, ["git", "log", "--oneline", "-1"])
         ctx.step("merge_ok_after_merge_expert", head=stdout.strip()[:80])
         ctx.save_report("completed", "merge_ok_after_merge_expert")
