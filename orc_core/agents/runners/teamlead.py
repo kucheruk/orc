@@ -50,6 +50,7 @@ class KanbanTeamleadRunner:
         directives: DirectiveSource,
         git_integration: GitIntegrationPort,
         active_tasks_provider,
+        known_sessions_provider=None,
     ) -> None:
         self._ctx = TeamleadContext(
             workdir=workdir,
@@ -63,6 +64,7 @@ class KanbanTeamleadRunner:
             outcomes=outcomes,
             state_paths=state_paths,
             active_tasks_provider=active_tasks_provider,
+            known_sessions_provider=known_sessions_provider or (lambda: set()),
         )
         self._incident_mgr = incident_mgr
         self._slots_lock = slots_lock

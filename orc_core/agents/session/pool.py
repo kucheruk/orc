@@ -148,6 +148,24 @@ class SessionPool:
                     result[sid] = task_id
             return result
 
+    def known_session_ids(self) -> set[str]:
+        """Return every session_id that currently exists in the pool, regardless of status.
+
+        Used by auto-unblock to distinguish two different stale-assignment
+        cases:
+        - assigned_agent is a session that no longer exists at all
+          (prior ORC crashed / was restarted, leaving a dangling
+          assigned_agent='s2' on disk) — safe to release immediately.
+        - assigned_agent is a session that exists and is doing something
+          else — honor the stale-minutes buffer before releasing, so a
+          temporarily slow agent is not prematurely unassigned.
+
+        active_tasks_by_session() alone cannot tell these apart, because
+        IDLE slots and slots between tasks do not appear there either.
+        """
+        with self._slots_lock:
+            return set(self._slots.keys())
+
     def running_info(self) -> str:
         with self._slots_lock:
             running = [

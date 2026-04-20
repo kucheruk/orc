@@ -195,6 +195,7 @@ def build_session_manager(
         directives=directive_adapter,
         git_integration=git_integration,
         active_tasks_provider=pool.active_tasks_by_session,
+        known_sessions_provider=pool.known_session_ids,
     )
 
     return KanbanSessionManager(

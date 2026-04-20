@@ -73,8 +73,27 @@ def resolve_cycle_with_decomposition(ctx, diagnostic) -> bool:
 
 
 def release_stale_assignments(ctx, suspect_counts: dict[str, int], *, stale_minutes: int = 20, suspect_threshold: int = 2) -> int:
-    """Release cards assigned to stale/missing agent sessions."""
+    """Release cards assigned to stale/missing agent sessions.
+
+    Two distinct "stale" cases are handled separately:
+
+    1. **Missing session** — `card.assigned_agent` is a session ID that
+       no longer exists in the pool at all. This happens after a hard
+       restart (previous ORC crashed / was SIGKILL'd) — the on-disk
+       `assigned_agent: s2` is a dangling reference to a dead agent.
+       Nothing will ever pick the card up unless the assignment is
+       released. Waiting `stale_minutes` (default 20) in this case is
+       pure dead time and blocks the pipeline for no reason. We release
+       immediately.
+
+    2. **Session exists but is working on something else** — the agent
+       is alive; maybe it's slow, maybe a bounce arrived and the runtime
+       task hasn't caught up yet. Keep the `stale_minutes` buffer plus
+       the two-cycle suspect_threshold to avoid prematurely yanking
+       work from a temporarily busy agent.
+    """
     active_by_session = ctx.active_tasks_provider()
+    known_sessions = ctx.known_sessions_provider() if hasattr(ctx, "known_sessions_provider") else set(active_by_session.keys())
     released = 0
     for card in ctx.distributor.board.cards:
         if card.stage == STAGE_DONE or not card.assigned_agent:
@@ -82,26 +101,44 @@ def release_stale_assignments(ctx, suspect_counts: dict[str, int], *, stale_minu
             continue
         assigned = card.assigned_agent
         active_task = active_by_session.get(assigned, "")
-        stale = _minutes_since(card.updated_at) >= stale_minutes
         same_task_running = active_task == card.id
-        if not stale or same_task_running:
+        if same_task_running:
             suspect_counts.pop(card.id, None)
             continue
-        suspect_counts[card.id] = suspect_counts.get(card.id, 0) + 1
-        if suspect_counts[card.id] < suspect_threshold:
-            continue
-        suspect_counts.pop(card.id, None)
+
+        session_missing = assigned not in known_sessions
+        if session_missing:
+            # Dangling assignment — no live session owns this card.
+            # Skip the stale-minutes buffer and the suspect_threshold:
+            # there is no ambiguity to be cautious about, only waste.
+            suspect_counts.pop(card.id, None)
+            reason_note = (
+                f"Released dangling assignment `{assigned}` — session no longer exists in the pool "
+                f"(most likely a prior ORC restart). Releasing immediately to unblock pipeline."
+            )
+            log_reason = "missing_session"
+        else:
+            stale = _minutes_since(card.updated_at) >= stale_minutes
+            if not stale:
+                suspect_counts.pop(card.id, None)
+                continue
+            suspect_counts[card.id] = suspect_counts.get(card.id, 0) + 1
+            if suspect_counts[card.id] < suspect_threshold:
+                continue
+            suspect_counts.pop(card.id, None)
+            reason_note = (
+                f"Released stale assignment `{assigned}` after {stale_minutes}+ minutes without matching runtime task.\n"
+                f"Runtime session task: `{active_task or 'none'}`."
+            )
+            log_reason = "stale_buffer_expired"
+
         ctx.distributor.board.release_agent(card)
-        note = (
-            "## TEAMLEAD AUTO-UNBLOCK\n"
-            f"Released stale assignment `{assigned}` after {stale_minutes}+ minutes without matching runtime task.\n"
-            f"Runtime session task: `{active_task or 'none'}`."
-        )
+        note = "## TEAMLEAD AUTO-UNBLOCK\n" + reason_note
         _append_feedback(card, note)
         ctx.publisher.emit(
             "teamlead",
             card.id,
-            f"Released stale assignment for {card.id} from {assigned} (active={active_task or 'none'})",
+            f"Released stale assignment for {card.id} from {assigned} (active={active_task or 'none'}, reason={log_reason})",
         )
         log_event(
             ctx.log_path,
@@ -110,6 +147,7 @@ def release_stale_assignments(ctx, suspect_counts: dict[str, int], *, stale_minu
             card_id=card.id,
             assigned_agent=assigned,
             runtime_task=active_task,
+            reason=log_reason,
         )
         released += 1
     if released:

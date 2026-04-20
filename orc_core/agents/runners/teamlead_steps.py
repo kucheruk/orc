@@ -45,6 +45,7 @@ class TeamleadContext:
     outcomes: "TaskOutcomeTracker"
     state_paths: StatePathsPort
     active_tasks_provider: Callable[[], dict[str, str]] = field(default_factory=dict)
+    known_sessions_provider: Callable[[], set[str]] = field(default_factory=set)
 
     def decision_path(self) -> Path:
         p = Path(self.workdir) / ".orc"
