@@ -264,22 +264,35 @@ def run_stage_loop(engine: "TaskExecutionEngine", ctx: _ExecutionContext, resume
                 return TaskExecutionResult(status=TaskExecutionStatus.FAILED, reason="max_restarts_exceeded")
             log_event(log_path, "WARN", "restarting task", task_id=task_id, restart_count=restart_count, reason=result)
             reason_text = restart_policy.reason_text(result)
-            continue_vars = SafeDict(
-                task_text=task_text,
-                task_id=task_id,
-                backlog=request.backlog_arg,
-                workspace=request.workdir,
-                stage_id=stage_id,
-                stage_index=stage_index + 1,
-                stage_total=len(stage_specs),
-                stage_is_final=stage_is_final,
-                reason=reason_text,
-                restart_count=restart_count,
-                max_restarts=request.timing.max_restarts,
-            )
-            prompt = request.templates.continue_template.format_map(continue_vars)
-            prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}__r{restart_count}")
-            resume_prompt_text = prompt
+            # Only rewrite prompt_path when continue_template is a real nudge.
+            # request_builder hard-codes continue_template="" for kanban runs,
+            # so a naive format_map("", ...) yields an empty prompt file — the
+            # next agent invocation would then crash with "No prompt provided
+            # for print mode", each such crash counting against max_restarts
+            # and eventually flipping the card to Blocked for a reason that
+            # was entirely internal to ORC. Keep the original prompt_path so
+            # the restart re-runs the same coder/reviewer/etc. prompt.
+            if (request.templates.continue_template or "").strip():
+                continue_vars = SafeDict(
+                    task_text=task_text,
+                    task_id=task_id,
+                    backlog=request.backlog_arg,
+                    workspace=request.workdir,
+                    stage_id=stage_id,
+                    stage_index=stage_index + 1,
+                    stage_total=len(stage_specs),
+                    stage_is_final=stage_is_final,
+                    reason=reason_text,
+                    restart_count=restart_count,
+                    max_restarts=request.timing.max_restarts,
+                )
+                prompt = request.templates.continue_template.format_map(continue_vars)
+                prompt_path = _write_prompt_file(request.run_root, prompt, f"{tag}__r{restart_count}")
+                resume_prompt_text = prompt
+            else:
+                # prompt_path still points at the original fully-rendered prompt
+                # written at the top of this stage iteration; leave it alone.
+                resume_prompt_text = None
             stage_resume_id = None  # fresh prompt, don't resume stale conversation
             delay = restart_policy.backoff_seconds(restart_count)
             log_event(log_path, "INFO", "restart backoff", task_id=task_id, restart_count=restart_count, delay_seconds=delay)
