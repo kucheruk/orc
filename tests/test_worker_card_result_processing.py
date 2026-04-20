@@ -405,6 +405,59 @@ class WorkerCardResultProcessingTest(unittest.TestCase):
                              "coder finishing 4_Coding should still land in "
                              "5_Review even if the JSON is malformed")
 
+    def test_agent_cannot_block_card_with_unmet_dependencies(self):
+        """Deps-gated cards are system-gated, not human-gated. An agent
+        returning next_action=Blocked on a card with unmet deps would
+        manufacture a false escalation (jeeves 2026-04-20: NOTIF-004-B
+        and QA-003-A both sat in Blocked/Inbox/Estimate with no human-
+        actionable issue, only a system waiting on upstream cards).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="DEP-UPSTREAM", stage="3_Todo", action="Coding"))
+            _add_card(tasks_dir, KanbanCard(
+                id="DEPS-GATED", stage="1_Inbox", action="Product",
+                dependencies=["DEP-UPSTREAM"],
+            ))
+            board.refresh(force=True)
+            card = board.card_by_id("DEPS-GATED")
+            result_file, run_id = _write_result(Path(tmp), {
+                "schema_version": 1,
+                "payload_kind": "card_update",
+                "role": "product",
+                "run_id": build_result_run_id(task_id="DEPS-GATED", stage_id="1_Inbox", attempt=1),
+                "summary": "trying to block",
+                "payload": {
+                    "task_id": "DEPS-GATED",
+                    "launch_fingerprint": {
+                        "stage": card.stage,
+                        "action": card.action,
+                        "file_path": str(card.file_path),
+                        "state_version": card.state_version,
+                    },
+                    "next_action": "Blocked",
+                    "field_updates": {},
+                    "section_updates": {},
+                    "feedback_append": "",
+                },
+            })
+            tracker = TaskOutcomeTracker()
+
+            errors = process_worker_card_result(
+                board, card, "product",
+                agent_result_file=result_file,
+                agent_run_id=run_id,
+                outcomes=tracker,
+            )
+
+            # Expect the update to be rejected with a deps-gated error
+            # and the card's action to remain untouched.
+            self.assertTrue(errors, "deps-gated Blocked transition must raise an error")
+            self.assertTrue(any("unmet dependencies" in e for e in errors), f"expected deps-gated rejection, got: {errors!r}")
+            board.refresh(force=True)
+            unchanged = board.card_by_id("DEPS-GATED")
+            self.assertEqual(unchanged.action, "Product",
+                             "card with unmet deps must not be flipped to Blocked by an agent")
 
 if __name__ == "__main__":
     unittest.main()

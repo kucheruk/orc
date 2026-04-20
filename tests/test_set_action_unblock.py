@@ -107,6 +107,68 @@ class TestSetActionUnblocksCleanly(unittest.TestCase):
             self.assertIn("Block Reason", fresh.body)
             self.assertEqual(fresh.loop_count, 5)
 
+    def test_reject_block_on_card_with_unmet_dependencies(self):
+        """Teamlead must not flip a deps-gated card to Blocked. The card
+        is already system-gated (pull refuses until deps are Done), and
+        Blocked is reserved for human-actionable issues — otherwise
+        operators get paged about cards they cannot productively unblock
+        (jeeves 2026-04-20: NOTIF-004-B with unmet NOTIF-004-A, and
+        QA-003-A with unmet QA-001-C/QA-002-C).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = self._board(tmp)
+            upstream = KanbanCard(id="DEP-UP", stage="3_Todo", action=Action.CODING)
+            gated = KanbanCard(
+                id="DEPS-GATED", stage="2_Estimate", action="Product",
+                dependencies=["DEP-UP"],
+            )
+            _write(tasks_dir / "3_Todo" / "DEP-UP.md", upstream)
+            _write(tasks_dir / "2_Estimate" / "DEPS-GATED.md", gated)
+            board.refresh(force=True)
+
+            ctx = ActionContext(
+                board=board,
+                params={"card_id": "DEPS-GATED", "action": "Blocked"},
+                reason="teamlead thought it was stuck",
+                publisher=MagicMock(),
+            )
+
+            with self.assertRaises(ValueError) as raised:
+                SetActionHandler().execute(ctx)
+            self.assertIn("unmet dependencies", str(raised.exception))
+
+            board.refresh(force=True)
+            unchanged = board.card_by_id("DEPS-GATED")
+            self.assertEqual(unchanged.action, "Product",
+                             "deps-gated card must not be flipped to Blocked by teamlead")
+
+    def test_block_allowed_when_dependencies_are_done(self):
+        """Legit human-escalation path still works: if all deps are Done,
+        teamlead may genuinely raise a block for human review."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = self._board(tmp)
+            dep = KanbanCard(id="DEP-OK", stage="8_Done", action=Action.DONE)
+            card = KanbanCard(
+                id="NEEDS-HUMAN", stage="4_Coding", action=Action.CODING,
+                dependencies=["DEP-OK"],
+            )
+            _write(tasks_dir / "8_Done" / "DEP-OK.md", dep)
+            _write(tasks_dir / "4_Coding" / "NEEDS-HUMAN.md", card)
+            board.refresh(force=True)
+
+            ctx = ActionContext(
+                board=board,
+                params={"card_id": "NEEDS-HUMAN", "action": "Blocked"},
+                reason="design issue needs owner",
+                publisher=MagicMock(),
+            )
+            SetActionHandler().execute(ctx)
+
+            board.refresh(force=True)
+            blocked = board.card_by_id("NEEDS-HUMAN")
+            self.assertEqual(blocked.action, Action.BLOCKED,
+                             "deps-met card should accept a legit Blocked directive")
+
     def test_non_blocked_transition_untouched(self):
         """Coding → Reviewing should NOT call unblock — no historical spend
         is written off, no sections touched."""

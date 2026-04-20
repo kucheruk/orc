@@ -34,7 +34,7 @@ def apply_card_update_result(
         current = board.card_by_id(card.id)
         if current is None:
             return [f"Card not found: {card.id}"]
-        errors = _validate_card_update(current, payload, role)
+        errors = _validate_card_update(current, payload, role, board=board)
         if errors:
             return errors
 
@@ -60,7 +60,7 @@ def apply_card_update_result(
         return []
 
 
-def _validate_card_update(card: "KanbanCard", payload: CardUpdatePayload, role: str) -> list[str]:
+def _validate_card_update(card: "KanbanCard", payload: CardUpdatePayload, role: str, *, board: "KanbanBoard" = None) -> list[str]:
     errors: list[str] = []
     if payload.task_id != card.id:
         errors.append(f"result task_id {payload.task_id} does not match {card.id}")
@@ -99,6 +99,28 @@ def _validate_card_update(card: "KanbanCard", payload: CardUpdatePayload, role: 
         valid_actions = VALID_TRANSITIONS.get(role, {}).get(card.action, set())
         if valid_actions and next_action not in valid_actions:
             errors.append(f"invalid transition for {role}: {card.action} -> {next_action}")
+
+        # Reject agent-driven transitions to Blocked when the card has
+        # unmet dependencies — "waiting on deps" is a system-gated state
+        # (pull strategies already refuse to pick up a card until its
+        # deps are Done), not a human-gated one. An agent flipping such
+        # a card to Blocked manufactures a false escalation: the human
+        # reviewer cannot do anything except unblock and wait for the
+        # same deps the system was already waiting on, and the card's
+        # body accumulates Block-Reason paragraphs that burn tokens on
+        # every subsequent agent invocation that reads it.
+        #
+        # The two cards caught by this on jeeves 2026-04-20 were
+        # NOTIF-004-B (1_Inbox, deps NOTIF-004-A still in Coding) and
+        # QA-003-A (2_Estimate, deps QA-001-C/QA-002-C still in
+        # Estimate). Both were re-routed through the Blocked-sweep
+        # human-review path even though there was nothing a human
+        # could productively do.
+        if next_action == Action.BLOCKED and board is not None and board.has_unmet_dependencies(card):
+            errors.append(
+                f"cannot set action=Blocked on {card.id}: card has unmet dependencies "
+                "and is already system-gated; block is for human-actionable issues only"
+            )
     return errors
 
 
