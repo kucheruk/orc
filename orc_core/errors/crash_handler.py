@@ -157,6 +157,39 @@ def install_crash_handlers(
             signal.signal(sig, _signal_handler)
         except Exception:
             continue
+
+    # SIGUSR1 — headless equivalent of the TUI 'q' hotkey: toggles
+    # "finish current attempts, then quit" mode. Every running role
+    # agent keeps running, but the teamlead and worker loops observe
+    # is_quit_after_task_requested() between iterations and bail out
+    # after their current card attempt finishes, then the orchestrator
+    # exits cleanly. Sending it again clears the flag (idempotent).
+    # Usage from an external supervisor:
+    #     kill -USR1 <orc_pid>
+    def _quit_after_task_handler(_signum, _frame) -> None:
+        try:
+            from ..quit_signal import toggle_quit_after_task
+        except Exception:
+            return
+        try:
+            now_on = toggle_quit_after_task()
+        except Exception:
+            return
+        try:
+            log_event(
+                log_path, "WARN",
+                "quit-after-task toggled via SIGUSR1",
+                requested=bool(now_on),
+            )
+        except Exception:
+            pass
+
+    usr1 = getattr(signal, "SIGUSR1", None)
+    if usr1 is not None:
+        try:
+            signal.signal(usr1, _quit_after_task_handler)
+        except Exception:
+            pass
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         _cfg.fault_handler_stream = log_path.open("a", encoding="utf-8", errors="replace")
