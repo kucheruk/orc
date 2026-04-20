@@ -95,14 +95,35 @@ def process_worker_card_result(
             )
             result = _synthesize_card_update_fallback(card, role, agent_run_id)
 
-    if outcomes.has_applied_result(result.run_id):
+    # Idempotence is keyed on (run_id, launch_fingerprint.state_version)
+    # rather than run_id alone. restart_count (and therefore the attempt
+    # number inside run_id) resets to 1 every time a card re-enters a
+    # stage in a fresh session, so the naked run_id
+    # `TASK:STAGE:attempt-1` is identical on the first entry and on
+    # every subsequent loopback into the same stage. A card that loops
+    # tester↔coder↔reviewer↔tester would therefore hit the idempotence
+    # guard on every return to Testing and the advance would silently
+    # no-op, pinning the card at (stage, action) forever while each
+    # tick burned a full tester invocation. state_version is monotonic
+    # per card across all saves, so folding it into the dedup key gives
+    # each entry a distinct fingerprint. Within the same entry
+    # (including mid-attempt ORC restart re-reading the same result
+    # file) the state_version is unchanged, so legitimate duplicate
+    # applications still no-op.
+    dedup_key = _idempotence_key(result)
+    if outcomes.has_applied_result(dedup_key):
         return []
 
     errors = apply_card_update_result(board, card, role, result)
     if errors:
         return errors
-    outcomes.record_applied_result(result.run_id)
+    outcomes.record_applied_result(dedup_key)
     return []
+
+
+def _idempotence_key(result: StructuredAgentResultV1) -> str:
+    sv = int(getattr(result.payload.launch_fingerprint, "state_version", 0) or 0)
+    return f"{result.run_id}:fp-sv{sv}"
 
 
 def _synthesize_card_update_fallback(
@@ -118,6 +139,10 @@ def _synthesize_card_update_fallback(
     agent, and that is OK: the caller has already confirmed that the
     delivery is non-empty, so advancing the card through its default
     next-action path is the correct recovery.
+
+    The launch_fingerprint carries the card's current state_version so
+    that _idempotence_key differentiates this synthesis from a prior
+    entry's synthesis (see comment in process_worker_card_result).
     """
     fingerprint = LaunchFingerprint(
         stage=str(getattr(card, "stage", "") or ""),

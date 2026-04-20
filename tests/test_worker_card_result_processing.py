@@ -238,9 +238,141 @@ class WorkerCardResultProcessingTest(unittest.TestCase):
             self.assertEqual(advanced.stage, "5_Review",
                              "coder finishing 4_Coding with synthesized "
                              "result should land in 5_Review")
-            self.assertTrue(tracker.has_applied_result("X-1:4_Coding:attempt-1"),
-                            "synthesized result must be recorded so repeat "
-                            "attempts are idempotent")
+            recorded = [rid for rid in tracker.state_snapshot()["applied_result_runs"]
+                        if rid.startswith("X-1:4_Coding:attempt-1")]
+            self.assertEqual(len(recorded), 1,
+                             "synthesized result must be recorded so repeat "
+                             "attempts within the same entry are idempotent; "
+                             f"got {recorded!r}")
+            self.assertIn(":fp-sv", recorded[0],
+                          "dedup key must carry a state_version suffix from "
+                          "launch_fingerprint so repeat entries into the "
+                          "same stage are not shadowed by idempotence")
+
+    def test_reentry_to_same_stage_advances_under_synthesis(self):
+        """A card that re-enters 6_Testing after a tester->coder loopback
+        gets a fresh tester attempt. cursor-agent's gpt-5.3-codex still
+        omits the result file; ORC's synthesis fallback must advance the
+        card even though `TASK:6_Testing:attempt-1` was already applied
+        on the original entry. Without the state_version-derived nonce on
+        the synthesized run_id the idempotence guard no-ops the advance
+        and the card sits at 6_Testing/Testing forever, burning one full
+        tester invocation per tick (observed 2026-04-20 on jeeves for
+        ASSIST-002-C, ASSIST-003-C, NOTIF-003-B)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="X-R", stage="6_Testing", action="Testing"))
+            board.refresh(force=True)
+            card = board.card_by_id("X-R")
+            tracker = TaskOutcomeTracker()
+
+            # First entry — tester synthesises, card advances to Handoff.
+            errors = process_worker_card_result(
+                board, card, "tester",
+                agent_result_file=str(Path(tmp) / "missing-1.json"),
+                agent_run_id="X-R:6_Testing:attempt-1",
+                outcomes=tracker,
+            )
+            self.assertEqual(errors, [])
+            board.refresh(force=True)
+            self.assertEqual(board.card_by_id("X-R").stage, "7_Handoff")
+
+            # Simulate full round-trip: integrator loops back to reviewer,
+            # reviewer loops back to coder, coder loops back to tester,
+            # card re-enters 6_Testing/Testing with bumped state_version.
+            re_card = board.card_by_id("X-R")
+            re_card.stage = "6_Testing"
+            re_card.action = "Testing"
+            board.save_card(re_card)
+            board.refresh(force=True)
+            re_card = board.card_by_id("X-R")
+
+            # Second entry, same "attempt-1" run_id because restart_count
+            # resets to 0 on each fresh stage session.
+            errors = process_worker_card_result(
+                board, re_card, "tester",
+                agent_result_file=str(Path(tmp) / "missing-2.json"),
+                agent_run_id="X-R:6_Testing:attempt-1",
+                outcomes=tracker,
+            )
+            self.assertEqual(errors, [],
+                             f"re-entry synthesis must not error; got {errors!r}")
+            board.refresh(force=True)
+            re_advanced = board.card_by_id("X-R")
+            self.assertEqual(re_advanced.stage, "7_Handoff",
+                             "re-entry with synthesis must advance again — "
+                             "otherwise the card is pinned at Testing and "
+                             "every tick burns a full tester invocation")
+
+    def test_apply_preserves_orig_reference_across_refresh(self):
+        """Regression for the apply→refresh→stale-save chain that wiped
+        tester-to-coder transitions on jeeves. worker_assignment captures
+        `card` at assignment time and keeps calling save_card on that same
+        reference after apply_card_update_result returns. If refresh
+        replaces the in-memory card instance, the captured reference turns
+        into an orphan frozen at the pre-apply (stage, action, file_path),
+        and the subsequent accumulate_card_tokens save writes that stale
+        state back onto disk — recreating the old stage directory's copy
+        with a newer updated_at, which then wins _dedup_cards and deletes
+        the post-apply copy. This test exercises exactly that sequence:
+        the orig `card` reference must reflect the post-apply stage, so
+        any save on it targets the correct file_path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="O-1", stage="6_Testing", action="Testing"))
+            board.refresh(force=True)
+            orig_card = board.card_by_id("O-1")  # captured like worker_assignment does
+
+            result_file, run_id = _write_result(Path(tmp), {
+                "schema_version": 1,
+                "payload_kind": "card_update",
+                "role": "tester",
+                "run_id": build_result_run_id(task_id="O-1", stage_id="6_Testing", attempt=1),
+                "summary": "bounce",
+                "payload": {
+                    "task_id": "O-1",
+                    "launch_fingerprint": {
+                        "stage": orig_card.stage,
+                        "action": orig_card.action,
+                        "file_path": str(orig_card.file_path),
+                        "state_version": orig_card.state_version,
+                    },
+                    "next_action": "Coding",
+                    "field_updates": {},
+                    "section_updates": {},
+                    "feedback_append": "- [ ] feedback",
+                },
+            })
+
+            errors = process_worker_card_result(
+                board, orig_card, "tester",
+                agent_result_file=result_file, agent_run_id=run_id,
+                outcomes=TaskOutcomeTracker(),
+            )
+            self.assertEqual(errors, [])
+
+            # orig_card must reflect the post-apply state — this is what
+            # worker_assignment sees when it calls save_card on it from
+            # _sync_tokens_and_budget.
+            self.assertEqual(orig_card.stage, "4_Coding",
+                             "orig reference must see the post-apply stage")
+            self.assertEqual(orig_card.action, "Coding")
+            self.assertEqual(orig_card.file_path,
+                             tasks_dir / "4_Coding" / "O-1.md",
+                             "orig reference's file_path must track the move")
+
+            # Simulating the post-apply save that used to wipe the move:
+            # accumulate_card_tokens bumps tokens_spent and calls save_card.
+            # With the in-place refresh this writes to the NEW path.
+            orig_card.tokens_spent = 12345
+            board.save_card(orig_card)
+            self.assertTrue((tasks_dir / "4_Coding" / "O-1.md").exists(),
+                            "save on orig reference must target 4_Coding, "
+                            "not recreate the stale 6_Testing copy")
+            self.assertFalse((tasks_dir / "6_Testing" / "O-1.md").exists(),
+                             "the stale 6_Testing path must stay empty — "
+                             "recreating it would trigger _dedup_cards on "
+                             "the next refresh and wipe the post-apply copy")
 
     def test_malformed_result_content_also_synthesizes(self):
         """Agents writing the result via a heredoc sometimes embed a
