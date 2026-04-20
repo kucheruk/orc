@@ -227,7 +227,26 @@ def merge_task_branch_into_main(
 
     tasks_dir = os.path.join(base_workdir, "tasks")
     if os.path.isdir(tasks_dir):
+        # `git checkout HEAD -- tasks/` only reverts modifications to
+        # tracked files. Newly-added files brought in by the squash
+        # merge (common when the worktree was created at a moment when
+        # the tasks/ layout differed from current main — e.g. another
+        # card had moved from 6_Testing to 7_Handoff and the stale
+        # copy still lives on the worktree branch) stay staged and
+        # land in main. Observed on jeeves 2026-04-20: EMP-002's
+        # integrator merge added a stale 7_Handoff/NOTIF-002-C-B.md
+        # containing three concatenated frontmatter blocks, creating
+        # a duplicate card alongside the real 5_Review copy.
+        #
+        # Reset the whole tasks/ subtree to HEAD: `git rm -rf --cached`
+        # drops every added/modified tasks/ path from the merge index,
+        # `git checkout HEAD -- tasks/` restores the files from HEAD,
+        # and `git clean -fdx tasks/` wipes any untracked leftovers
+        # from the worktree merge that were never staged. The net is
+        # that tasks/ after the merge is byte-identical to main HEAD.
+        run_git(base_workdir, ["git", "rm", "-rf", "--cached", "--quiet", "--ignore-unmatch", "tasks/"])
         run_git(base_workdir, ["git", "checkout", "HEAD", "--", "tasks/"])
+        run_git(base_workdir, ["git", "clean", "-fdx", "--", "tasks/"])
         log_event(log_path, "INFO", "excluded tasks/ from squash merge",
                   task_id=task_id, branch=branch_name)
 
