@@ -181,14 +181,19 @@ class TestTeamlead(unittest.TestCase):
             self.assertIsNotNone(card)
             self.assertEqual(card.id, "L-1")
 
-    def test_finds_blocked_card(self):
+    def test_blocked_cards_are_not_arbitrated(self):
+        """Blocked is a terminal state for human intervention —
+        arbitrating it via the teamlead AI just burns tokens on the same
+        "needs human" decision every tick. blocked_sweep still alerts
+        the operator; AI arbitration doesn't run for blocked cards."""
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
             _add(td, KanbanCard(id="B-1", stage="5_Review", action="Blocked"))
             board = KanbanBoard(td, repo=FsCardRepository())
             card = find_teamlead_work(board)
-            self.assertIsNotNone(card)
-            self.assertEqual(card.id, "B-1")
+            self.assertIsNone(card,
+                              "find_teamlead_work must not surface blocked "
+                              "cards for AI arbitration")
 
     def test_no_teamlead_work(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -207,7 +212,10 @@ class TestTeamlead(unittest.TestCase):
             self.assertIsNotNone(card)
             self.assertEqual(card.id, "A-1")
 
-    def test_blocked_takes_priority_over_arbitration(self):
+    def test_arbitration_requested_picked_over_blocked(self):
+        """When a card explicitly asks for arbitration and another is
+        blocked, the arbitration-requested card wins — blocked cards
+        sit out of the teamlead work queue entirely."""
         with tempfile.TemporaryDirectory() as tmp:
             td, _ = _setup(tmp)
             _add(td, KanbanCard(id="A-1", stage="4_Coding", action="Arbitration", loop_count=1))
@@ -215,7 +223,7 @@ class TestTeamlead(unittest.TestCase):
             board = KanbanBoard(td, repo=FsCardRepository())
             card = find_teamlead_work(board)
             self.assertIsNotNone(card)
-            self.assertEqual(card.id, "B-1")
+            self.assertEqual(card.id, "A-1")
 
 
 class TestWorktreeFlag(unittest.TestCase):

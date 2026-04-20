@@ -160,11 +160,19 @@ def _auto_promote_estimate(board: "KanbanBoard") -> None:
 def find_teamlead_work(board: "KanbanBoard", loop_threshold: int = 2) -> Optional["KanbanCard"]:
     """Find a card that needs teamlead arbitration.
 
-    Priority: blocked > arbitration-requested > high loop_count.
+    Priority: arbitration-requested > high loop_count.
+
+    BLOCKED cards are intentionally **not** arbitrated. Block is a
+    terminal state that needs operator action — a runaway card, a real
+    integration conflict, a DoD that doesn't match reality. Re-running
+    the arbitration AI on the same blocked card every tick just burns
+    tokens while the AI keeps concluding "needs human" and setting
+    action=Blocked, producing a silent infinite loop. Budget-related
+    blocks don't happen any more (check_and_block_budget grows the
+    budget in place up to a hard cap), and the blocked_sweep step still
+    emits a batched telegram alert so the operator sees the set and
+    decides manually.
     """
-    blocked = board.blocked_cards()
-    if blocked:
-        return blocked[0]
     arbitration = board.arbitration_cards()
     if arbitration:
         from .card_prioritizer import build_downstream_roi_map
