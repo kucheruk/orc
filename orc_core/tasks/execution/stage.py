@@ -15,6 +15,13 @@ class TaskStageSpec:
     stage_id: str
     model: str
     prompt_template: str
+    # True when prompt_template is already fully rendered by the caller
+    # (e.g. teamlead/worker/incident prompts). Stage loop must skip the
+    # second format_map pass in that case, otherwise any `{...}` pattern
+    # inside the substituted content (card bodies with C#-style `{obj.Prop}`,
+    # traceback lines with `{stderr.strip()}` literals, etc.) would be
+    # reinterpreted as a template placeholder and crash the stage.
+    is_pre_rendered: bool = False
 
 
 @dataclass(frozen=True)

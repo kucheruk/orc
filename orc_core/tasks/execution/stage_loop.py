@@ -45,7 +45,12 @@ def prepare_stages(ctx: _ExecutionContext) -> None:
     request = ctx.request
     stage_specs = list(request.stage_specs)
     if not stage_specs:
-        stage_specs = [TaskStageSpec(stage_id="implementation", model=request.models.model, prompt_template=request.templates.prompt_template)]
+        stage_specs = [TaskStageSpec(
+            stage_id="implementation",
+            model=request.models.model,
+            prompt_template=request.templates.prompt_template,
+            is_pre_rendered=True,
+        )]
     ctx.stage_specs = stage_specs
     ctx.artifact_bundle = build_stage_artifact_bundle(workdir=request.workdir, task_id=ctx.task_id)
     ctx.enforce_stage_artifacts = bool(request.enforce_stage_artifacts) and bool(request.stage_specs)
@@ -74,18 +79,21 @@ def run_stage_loop(engine: "TaskExecutionEngine", ctx: _ExecutionContext, resume
         stage_id = (stage_spec.stage_id or f"stage_{stage_index + 1}").strip()
         stage_model = (stage_spec.model or request.models.model).strip() or request.models.model
         stage_is_final = stage_index == (len(stage_specs) - 1)
-        prompt_vars = SafeDict(
-            task_text=task_text,
-            task_id=task_id,
-            backlog=request.backlog_arg,
-            workspace=request.workdir,
-            stage_id=stage_id,
-            stage_index=stage_index + 1,
-            stage_total=len(stage_specs),
-            stage_is_final=stage_is_final,
-            **artifact_prompt_vars,
-        )
-        prompt = stage_spec.prompt_template.format_map(prompt_vars)
+        if stage_spec.is_pre_rendered:
+            prompt = stage_spec.prompt_template
+        else:
+            prompt_vars = SafeDict(
+                task_text=task_text,
+                task_id=task_id,
+                backlog=request.backlog_arg,
+                workspace=request.workdir,
+                stage_id=stage_id,
+                stage_index=stage_index + 1,
+                stage_total=len(stage_specs),
+                stage_is_final=stage_is_final,
+                **artifact_prompt_vars,
+            )
+            prompt = stage_spec.prompt_template.format_map(prompt_vars)
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", task_text)[:60]
         tag = f"{ts}__{safe_name}__{stage_id}"
