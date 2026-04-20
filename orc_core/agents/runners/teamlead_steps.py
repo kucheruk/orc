@@ -219,7 +219,12 @@ class HealthCheckStep:
     _MAX_INTERVAL = 1800.0
 
     def __init__(self) -> None:
-        self._last_check: float = 0.0
+        # Seed with current time so the first check fires after _BASE_INTERVAL,
+        # not on the very first teamlead iteration. A fresh ORC start has no
+        # work-attempt history, so detect_stuck_cards on ancient updated_at
+        # timestamps would mis-flag backlog cards as stuck and burn a full
+        # teamlead AI invocation on a spurious "deadlock" diagnostic.
+        self._last_check: float = time.time()
         self._consecutive: int = 0
         self._last_diagnostic: str = ""
 

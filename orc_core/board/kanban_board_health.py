@@ -144,12 +144,20 @@ def detect_circular_deps(
                 )
     return None
 
+_ACTIVE_STUCK_STAGES = frozenset({STAGE_CODING, STAGE_REVIEW, STAGE_TESTING, STAGE_HANDOFF})
+
+
 def detect_stuck_cards(
     cards: list[KanbanCard],
     done_ids: set[str],
     threshold_minutes: int = 180,
 ) -> str:
-    """Detect cards stuck in a non-Done stage for too long.
+    """Detect cards stuck in an active work stage for too long.
+
+    Only scans Coding/Review/Testing/Handoff. Cards in Estimate/Todo sit in
+    the backlog by design — a long updated_at there means low priority or
+    queued behind WIP, not a "stuck" pathology, and that class of waiting
+    is covered by detect_wip_deadlock + distributor.diagnose_no_work.
 
     The summary intentionally omits elapsed-time so HealthCheckStep's
     deduplication can suppress repeat alerts about the same set of cards.
@@ -157,6 +165,8 @@ def detect_stuck_cards(
     now = datetime.now(timezone.utc)
     stuck: list[tuple[str, str]] = []
     for c in cards:
+        if c.stage not in _ACTIVE_STUCK_STAGES:
+            continue
         if c.assigned_agent:
             continue  # currently being worked on
         if not c.updated_at:
