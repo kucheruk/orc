@@ -85,6 +85,19 @@ class KanbanTeamleadRunner:
         incident: Optional[Incident] = None
         try:
             while self._ctx.lifecycle.should_continue(slot):
+                # Graceful-shutdown early exit before spinning up another
+                # arbitration/health/auto-commit tick. Otherwise an idle
+                # teamlead between ticks would still run a full
+                # directive/anomaly/health/arbitration/auto-commit cycle
+                # after SIGUSR1 arrives, and arbitration can in turn
+                # invoke the teamlead LLM subprocess — that's how
+                # graceful-exit dragged on for ~12 minutes on jeeves
+                # 2026-04-20 while the TL agent kept running new bash
+                # commands during shutdown. Existing post-step checks
+                # below still cover the mid-iteration signal case.
+                if is_quit_after_task_requested() and incident is None:
+                    self._ctx.publisher.emit("system", "", f"{sid} teamlead exiting (quit-after-task, idle)")
+                    break
                 self._ctx.distributor.refresh()
                 self._ctx.distributor.board._apply_deferred_moves()
 

@@ -71,6 +71,20 @@ class KanbanWorkerRunner:
         try:
             idle_reason_logged = ""
             while self._lifecycle.should_continue(slot):
+                # Graceful-shutdown check BEFORE picking a new task. If
+                # quit-after-task was requested while this worker was
+                # idle (between tasks), pre-fix the worker would still
+                # walk into pick_worker_task, grab a new assignment,
+                # and spawn a fresh agent subprocess — directly
+                # contradicting the "finish what you have, then exit"
+                # contract and making SIGUSR1 graceful shutdowns
+                # indefinite. Checking here means an idle worker exits
+                # immediately on quit signal; a worker that just
+                # finished execute_assignment below also hits this
+                # check on the next loop iteration and exits.
+                if is_quit_after_task_requested():
+                    self._publisher.emit("system", "", f"{sid} exiting before new pick (quit-after-task)")
+                    break
                 self._distributor.refresh()
                 assignment = self._distributor.pick_worker_task(sid)
                 if assignment is None:
