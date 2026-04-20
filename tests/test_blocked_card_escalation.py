@@ -30,7 +30,7 @@ def _add_card(tasks_dir: Path, board: KanbanBoard, card: KanbanCard) -> KanbanCa
 
 
 class BlockedCardEscalationTest(unittest.TestCase):
-    def test_mark_task_blocked_moves_terminal_card_back_to_handoff(self) -> None:
+    def test_mark_task_blocked_keeps_card_in_current_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, board = _setup_board(tmp)
             _add_card(tasks_dir, board, KanbanCard(id="JOB-001", stage="8_Done", action="Done"))
@@ -39,10 +39,10 @@ class BlockedCardEscalationTest(unittest.TestCase):
             mark_task_blocked(card, board, reason="human attention")
 
             updated = board.card_by_id("JOB-001")
-            self.assertEqual(updated.stage, "7_Handoff")
+            self.assertEqual(updated.stage, "8_Done")
             self.assertEqual(updated.action, "Blocked")
 
-    def test_repeated_failures_block_and_move_card_to_handoff(self) -> None:
+    def test_repeated_failures_block_card_in_place(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, board = _setup_board(tmp)
             _add_card(tasks_dir, board, KanbanCard(id="AUTH-003", stage="6_Testing", action="Testing"))
@@ -64,7 +64,23 @@ class BlockedCardEscalationTest(unittest.TestCase):
 
             self.assertTrue(blocked)
             updated = board.card_by_id("AUTH-003")
-            self.assertEqual(updated.stage, "7_Handoff")
+            self.assertEqual(updated.stage, "6_Testing")
+            self.assertEqual(updated.action, "Blocked")
+
+    def test_escalate_pre_coding_card_does_not_leapfrog_to_handoff(self) -> None:
+        """Regression: a card in 2_Estimate bouncing between Product and
+        Architect because of an unmet dependency must NOT be force-moved
+        into 7_Handoff on escalation (jeeves QA-003-B incident).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _setup_board(tmp)
+            _add_card(tasks_dir, board, KanbanCard(id="QA-003-B", stage="2_Estimate", action="Product"))
+            card = board.card_by_id("QA-003-B")
+
+            mark_task_blocked(card, board, reason="dependency unmet")
+
+            updated = board.card_by_id("QA-003-B")
+            self.assertEqual(updated.stage, "2_Estimate")
             self.assertEqual(updated.action, "Blocked")
 
 
