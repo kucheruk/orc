@@ -33,20 +33,58 @@ class CompletionHandler(Protocol):
 
 
 class ModelUnavailableHandler:
+    """Retry "Cannot use this model" with exponential backoff.
+
+    `agent --list-models` flaps between "Available models: ..." and "No
+    models available for this account" on the cursor service even within
+    the same minute — the error surfaces when the wrapper's session-level
+    model cache is cold against a throttled / partially-degraded cursor
+    backend. The previous behavior (hard-fail on first occurrence) treated
+    a transient server glitch as a permanent configuration error and
+    dumped the task's attempt.
+
+    Going through the normal restart path means this flap consumes the
+    shared restart budget (request.timing.max_restarts, default 2), and
+    we pre-sleep the attempt so the next retry is spaced far enough apart
+    for a transient cursor degradation to clear.
+    """
+
+    _INITIAL_BACKOFF_SECONDS = 20.0
+    _BACKOFF_MULTIPLIER = 2.0
+    _MAX_BACKOFF_SECONDS = 120.0
+
     def handle(self, *, task_id, stage_model, restart_count, request, log_path,
                timeline_id, attempt_number, ts_attempt, ts_exec, **kw) -> CompletionAction:
-        log_event(log_path, "ERROR", "agent model unavailable; stopping without restart",
-                  task_id=task_id, model=stage_model)
-        _logger.error(
-            "❌ Выбранная модель недоступна для `agent`. "
-            "Проверьте `agent --list-models` и укажите доступную модель через `--model`."
+        delay = min(
+            self._INITIAL_BACKOFF_SECONDS * (self._BACKOFF_MULTIPLIER ** max(restart_count, 0)),
+            self._MAX_BACKOFF_SECONDS,
         )
-        ts_attempt.result = "failed"
-        ts_attempt.reason = "model_unavailable"
-        ts_exec.result = "failed"
-        ts_exec.reason = "model_unavailable"
-        return CompletionAction("return", TaskExecutionResult(
-            status=TaskExecutionStatus.FAILED, reason="model_unavailable"))
+        log_event(log_path, "WARN",
+                  "agent model unavailable; will retry after backoff",
+                  task_id=task_id, model=stage_model,
+                  restart_count=restart_count,
+                  max_restarts=request.timing.max_restarts,
+                  delay_seconds=delay)
+        _logger.warning(
+            "⚠️ cursor вернул 'Cannot use this model: %s' (restart %d/%d). "
+            "Пауза %.0fs — обычно это транзиентный glitch cursor backend.",
+            stage_model, restart_count + 1, request.timing.max_restarts, delay,
+        )
+        timeline_instant(
+            timeline_id=timeline_id, task_id=task_id,
+            step="model_unavailable_backoff",
+            location="orc_core/completion/handlers.py",
+            attempt=attempt_number,
+            result="continue", reason="model_unavailable_retry",
+            data={"delay_seconds": delay, "restart_count": restart_count},
+        )
+        # Sleep here so the outer stage_loop's subsequent short
+        # RestartPolicy backoff lands on top of this longer pause.
+        import time as _time
+        _time.sleep(delay)
+        ts_attempt.result = "restart"
+        ts_attempt.reason = "model_unavailable_retry"
+        return CompletionAction("continue")
 
 
 class WaitingForInputHandler:

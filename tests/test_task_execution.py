@@ -220,10 +220,17 @@ class TaskExecutionEngineTest(unittest.TestCase):
             state_paths=FakeStatePaths(root),
         )
 
+    @patch("orc_core.tasks.completion.handlers._time.sleep" if False else "time.sleep")
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion")
-    def test_model_unavailable_fails_without_restart(self, wait_for_completion, *_mocks) -> None:
+    def test_model_unavailable_retries_up_to_max_restarts(self, wait_for_completion, *_mocks) -> None:
+        """cursor flaps "Cannot use this model" intermittently when the
+        backend is throttled. Prior behavior was to hard-fail on the first
+        occurrence, treating a transient server glitch as a permanent
+        config error. Now we feed the normal restart loop so max_restarts
+        bounds the retry budget; each retry gets an exponential backoff
+        inside the handler (mocked out via time.sleep here)."""
         wait_for_completion.return_value = "model_unavailable"
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
@@ -232,8 +239,9 @@ class TaskExecutionEngineTest(unittest.TestCase):
             result = engine.execute(self._request(tmpdir, max_restarts=2))
 
         self.assertEqual(result.status, "failed")
-        self.assertEqual(result.reason, "model_unavailable")
-        self.assertEqual(worker.launch_calls, 1)
+        self.assertEqual(result.reason, "max_restarts_exceeded")
+        # max_restarts=2 → initial attempt + 2 retries = 3 launches.
+        self.assertEqual(worker.launch_calls, 3)
 
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
@@ -929,11 +937,16 @@ class TaskExecutionEngineTest(unittest.TestCase):
             ],
         )
 
+    @patch("time.sleep")
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
     @patch("orc_core.tasks.execution.launch.wait_for_completion")
-    def test_execute_stops_sdlc_pipeline_when_middle_stage_fails(self, wait_for_completion, *_mocks) -> None:
-        wait_for_completion.side_effect = ["completed", "model_unavailable"]
+    def test_execute_stops_sdlc_pipeline_when_model_unavailable_exhausts_retries(self, wait_for_completion, *_mocks) -> None:
+        # The second stage keeps hitting model_unavailable for as long as
+        # max_restarts allows; after the budget is exhausted the SDLC
+        # pipeline fails as max_restarts_exceeded and the remaining stages
+        # never run.
+        wait_for_completion.side_effect = ["completed"] + ["model_unavailable"] * 10
         worker = _FakeWorker()
         engine = TaskExecutionEngine(worker=worker, log_path=Path("/tmp/orc.log"))
         stages = (
@@ -945,11 +958,13 @@ class TaskExecutionEngineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact_bundle = build_stage_artifact_bundle(workdir=tmpdir, task_id="TASK-001")
             artifact_bundle.plan.write_text("plan", encoding="utf-8")
-            result = engine.execute(self._request(tmpdir, stage_specs=stages))
+            result = engine.execute(self._request(tmpdir, stage_specs=stages, max_restarts=2))
 
         self.assertEqual(result.status, "failed")
-        self.assertEqual(result.reason, "model_unavailable")
-        self.assertEqual(worker.launch_calls, 2)
+        self.assertEqual(result.reason, "max_restarts_exceeded")
+        # stage 1 completed (1 launch) + stage 2 attempted 3 times before
+        # exhausting max_restarts=2 = 4 total launches. Stage 3 never runs.
+        self.assertEqual(worker.launch_calls, 4)
 
     @patch("orc_core.tasks.execution.stage_loop.update_task_restart_count")
     @patch("orc_core.tasks.execution.resume.write_task_file")
