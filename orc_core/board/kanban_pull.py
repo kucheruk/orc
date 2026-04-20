@@ -51,6 +51,13 @@ __all__ = [
 _DEFAULT_REGISTRY: StagePullRegistry = default_registry()
 
 
+def demote_dep_broken_todo(board: "KanbanBoard") -> None:
+    """Public wrapper — teamlead also calls this each tick so the
+    invariant holds even when workers are busy and never invoke
+    find_next_work for long stretches."""
+    _demote_dep_broken_todo(board)
+
+
 def _demote_dep_broken_todo(board: "KanbanBoard") -> None:
     """Send Todo cards whose dependencies became unmet back to Estimate.
 

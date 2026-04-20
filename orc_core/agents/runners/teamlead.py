@@ -100,6 +100,15 @@ class KanbanTeamleadRunner:
                     break
                 self._ctx.distributor.refresh()
                 self._ctx.distributor.board._apply_deferred_moves()
+                # Demote dep-broken Todo cards every tick. The same sweep
+                # runs inside find_next_work for workers, but when all
+                # worker slots are busy no one calls find_next_work for
+                # long stretches and the Todo queue fills with unpickable
+                # cards (jeeves 2026-04-20: DEADLOCK alert firing every
+                # minute while 5 dep-broken cards held every Todo slot).
+                # Teamlead is the board invariant keeper — it owns this.
+                from ...board.kanban_pull import demote_dep_broken_todo
+                demote_dep_broken_todo(self._ctx.distributor.board)
 
                 if incident is not None:
                     incident = self._incident_mgr.process_incident(slot, incident)
