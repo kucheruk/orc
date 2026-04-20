@@ -13,8 +13,26 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+import re
+
 from .action_constants import Action, ClassOfService
 from .stage_constants import STAGE_INBOX, STAGE_ORDER
+
+
+def _strip_sections(body: str, heading: str) -> str:
+    """Remove every `## <heading>` block from a card body.
+
+    A section runs from the `## <heading>` line until the next H2 heading or
+    end of text. Returns the body with those blocks (and their trailing
+    blank lines) excised. Trailing whitespace on the final result is
+    normalized to a single newline.
+    """
+    pattern = re.compile(
+        r"\n*##\s+" + re.escape(heading) + r"\s*\n.*?(?=\n##\s|\Z)",
+        re.DOTALL,
+    )
+    cleaned = pattern.sub("", body or "")
+    return cleaned.rstrip() + "\n" if cleaned.strip() else cleaned
 
 # Fields agents are NOT allowed to change (Python-only)
 PROTECTED_FIELDS: frozenset[str] = frozenset({
@@ -122,6 +140,12 @@ class KanbanCard:
         self.touch()
 
     def unblock(self, directive: str = "") -> None:
+        # Strip any prior `## Block Reason` sections: once the card is
+        # unblocked the historical reason is resolved, and leaving stale
+        # copies in the body bloats every subsequent coder/reviewer prompt
+        # — each block/unblock cycle would otherwise accumulate more text
+        # that the agent has to pay tokens to read past.
+        self.body = _strip_sections(self.body, "Block Reason")
         if directive:
             self.body += f"\n\n## Human Directive\n{directive}\n"
         self.action = Action.CODING
