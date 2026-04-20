@@ -415,7 +415,7 @@ class AutoCommitStep:
             if task_paths:
                 for tp in task_paths:
                     git.run(wd, ["git", "add", "--", tp])
-                git.run(wd, ["git", "commit", "-m", git.board_commit_message()])
+                self._commit_or_amend(wd, git, ctx, git.board_commit_message())
                 log_event(ctx.log_path, "INFO", "auto-committed board state",
                           task_paths=task_paths[:20])
             if other_paths:
@@ -424,8 +424,45 @@ class AutoCommitStep:
                 # accidentally-untracked secrets.
                 for op in other_paths:
                     git.run(wd, ["git", "add", "--", op])
-                git.run(wd, ["git", "commit", "-m", git.sync_commit_message()])
+                self._commit_or_amend(wd, git, ctx, git.sync_commit_message())
                 log_event(ctx.log_path, "INFO", "auto-committed workspace state",
                           paths=other_paths[:20])
         except Exception as exc:
             log_event(ctx.log_path, "WARN", "auto-commit failed", error=str(exc))
+
+    @staticmethod
+    def _commit_or_amend(wd: str, git: GitIntegrationPort, ctx: TeamleadContext, message: str) -> None:
+        """Amend consecutive unpushed auto-commits into one rolling commit.
+
+        Every card-state tick (tokens_spent bump, state_version bump,
+        stage/action move) used to produce its own "chore(board):..."
+        commit on the 2-minute AutoCommit cadence. Across a 2-hour
+        session that piled up 40+ chore commits per 5 feats, burying
+        the real feature commits in noise on master.
+
+        If HEAD already carries one of the two auto-commit messages we
+        emit AND the commit has not yet been pushed to the upstream
+        branch, fold the new changes into HEAD via `commit --amend`
+        instead of creating a fresh commit. Once a real commit lands
+        between auto-commit runs (a feat integrator commit, a manual
+        commit, anything not matching our own auto-commit patterns),
+        the next auto-commit starts a fresh rolling chore.
+
+        The "not yet pushed" guard is essential: amending a pushed
+        commit would require force-push, which we never do. We detect
+        this by checking `git rev-list @{upstream}..HEAD` — if it is
+        empty, HEAD has already been shared and must be preserved
+        as-is. If there is no upstream configured at all, default to
+        fresh commits (safer).
+        """
+        auto_commit_messages = (git.board_commit_message(), git.sync_commit_message())
+        amend_ok = False
+        ok_msg, head_msg, _, _ = git.run(wd, ["git", "log", "-1", "--format=%s"])
+        if ok_msg and (head_msg or "").strip() in auto_commit_messages:
+            ok_ahead, ahead_list, _, _ = git.run(wd, ["git", "rev-list", "@{upstream}..HEAD"])
+            if ok_ahead and (ahead_list or "").strip():
+                amend_ok = True
+        if amend_ok:
+            git.run(wd, ["git", "commit", "--amend", "--no-edit"])
+        else:
+            git.run(wd, ["git", "commit", "-m", message])
