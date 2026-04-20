@@ -156,11 +156,21 @@ class KanbanCard:
         # (from the attempt that triggered the original block) would
         # immediately re-exhaust the budget check on the next pick_best
         # filter and the card would ping-pong Blocked → unblocked → re-
-        # Blocked without ever reaching a worker. update_card_token_budget
-        # repopulates token_budget from the current effort_score on the
-        # next assignment.
-        self.tokens_spent = 0
-        self.tokens_discarded = 0
+        # Blocked without ever reaching a worker.
+        #
+        # We cannot zero tokens_spent outright: accumulate_card_tokens
+        # reads the cumulative per-card total from the workspace stats
+        # file and overrides card.tokens_spent back to that total on
+        # the next attempt, which re-exhausts the budget the moment
+        # the card is assigned. Instead, record the historical spend
+        # as "discarded from budget perspective" by bumping
+        # tokens_discarded to the current tokens_spent. is_budget_exhausted
+        # looks at tokens_spent_net == tokens_spent - tokens_discarded,
+        # so the recovered card starts with net=0 while the full history
+        # is preserved for auditing. token_budget is reset so
+        # update_card_token_budget repopulates it from the current
+        # effort_score on the next assignment.
+        self.tokens_discarded = max(int(self.tokens_discarded or 0), int(self.tokens_spent or 0))
         self.token_budget = 0
         self.touch()
 

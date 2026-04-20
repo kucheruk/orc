@@ -84,19 +84,39 @@ class TestUnblockStripsBlockReason(unittest.TestCase):
         token_budget) on the next pick_best and bounce right back to
         Blocked — teamlead arbitration would unblock, ORC would re-block,
         indefinitely. Observed on AUDIT-001-C: budget auto-grew to 190K
-        chasing a 258K actual spend, never recovered."""
+        chasing a 258K actual spend, never recovered.
+
+        We can't zero tokens_spent outright because accumulate_card_tokens
+        reads the workspace stats file and reloads the historical total
+        on the next attempt. Instead, bump tokens_discarded to match
+        tokens_spent so tokens_spent_net == 0 but the history is
+        preserved.
+        """
         card = self._card_with_body("# section\n\n## Block Reason\nstale\n")
         card.tokens_spent = 258652
         card.tokens_discarded = 0
         card.token_budget = 190000  # auto-grown by teamlead
         card.unblock()
-        self.assertEqual(card.tokens_spent, 0)
-        self.assertEqual(card.tokens_discarded, 0)
+        # Historical tokens are preserved for audit — not zeroed.
+        self.assertEqual(card.tokens_spent, 258652)
+        self.assertEqual(card.tokens_discarded, 258652)
+        self.assertEqual(card.tokens_spent_net, 0)
         self.assertEqual(card.token_budget, 0,
                          "token_budget must be reset to 0 so "
                          "update_card_token_budget reconstructs it from "
                          "current effort_score on the next assignment")
         self.assertFalse(card.is_budget_exhausted)
+
+    def test_unblock_never_shrinks_tokens_discarded(self):
+        """If tokens_discarded was already higher than tokens_spent (weird
+        but possible if a past unblock captured the spend and tokens_spent
+        was then zeroed by a manual reset), the bump must be idempotent —
+        keep the larger value."""
+        card = self._card_with_body("# section\n\n## Block Reason\nstale\n")
+        card.tokens_spent = 100
+        card.tokens_discarded = 500
+        card.unblock()
+        self.assertEqual(card.tokens_discarded, 500)
 
 
 if __name__ == "__main__":
