@@ -131,14 +131,20 @@ class ArbitrationStep:
         # arbitrated_at_loop guards "same-loop bounceback" — a coder-loop
         # card that already got arbitrated at its current loop_count and
         # hasn't bounced further shouldn't be re-arbitrated until it loops
-        # again. But a Blocked card is a *different* class of signal:
-        # budget exhaustion, integration failure, escalation threshold.
-        # Its loop_count is often 0 because the block happened off the
-        # loop path. Without this exemption, a card that landed in Blocked
-        # after a previous arbitration (prev_arb >= loop_count) is
-        # released every teamlead tick without ever getting a decision,
-        # and stays Blocked forever.
-        if card.action != Action.BLOCKED and card.loop_count <= prev_arb:
+        # again. But cards in BLOCKED or ARBITRATION are a *different*
+        # class of signal: budget exhaustion, integration failure,
+        # escalation threshold, or an in-flight arbitration that never
+        # landed a decision. Their loop_count is often 0 because the
+        # block/arbitration happened off the loop path. Without this
+        # exemption such a card (prev_arb >= loop_count) gets released
+        # every teamlead tick without ever reaching a decision and
+        # stays stuck — observed today on AUDIT-001-C and EMP-001 after
+        # a mid-arbitration ORC restart left them in Action.ARBITRATION
+        # with no agent, and the guard kept releasing them forever.
+        if (
+            card.action not in (Action.BLOCKED, Action.ARBITRATION)
+            and card.loop_count <= prev_arb
+        ):
             ctx.distributor.release_card(card.id)
             return
         needs_esc = ctx.distributor.needs_escalation(card)
