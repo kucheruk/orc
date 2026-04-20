@@ -50,6 +50,7 @@ class BoardEventBridgePublishTest(unittest.TestCase):
         outcomes.state_snapshot.return_value = {
             "card_fail_counts": {"TASK-1": 1},
             "arbitrated_at_loop": {"TASK-1": 2},
+            "applied_result_runs": ["TASK-1:4_Coding:attempt-1"],
         }
         bridge._last_board_publish_at = 199.9
 
@@ -59,6 +60,7 @@ class BoardEventBridgePublishTest(unittest.TestCase):
             "/tmp/project",
             {"TASK-1": 1},
             {"TASK-1": 2},
+            ["TASK-1:4_Coding:attempt-1"],
         )
         outcomes.clear_dirty.assert_called_once()
 

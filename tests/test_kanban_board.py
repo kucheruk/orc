@@ -299,5 +299,63 @@ class TestInitBoard(unittest.TestCase):
             init_kanban_board(Path(tmp))  # should not raise
 
 
+class TestRefreshPreservesCardIdentity(unittest.TestCase):
+    """Refresh must reconcile in place: swapping the list orphans any
+    live reference, and those orphans silently drag stale fields
+    (stage, action, file_path) through subsequent save_card calls.
+    Witnessed on jeeves 2026-04-20: apply_card_update_result's trailing
+    refresh orphaned worker_assignment's card handle, the orphan's
+    stale file_path fed a write_text_atomic that re-materialised the
+    card at its pre-move stage directory, and _dedup_cards then
+    deleted the post-move copy because the orphan's save had the
+    newer updated_at. Net effect: apply's stage change silently wiped
+    on every re-entry into Testing."""
+
+    def test_refresh_updates_existing_card_in_place(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="I-1", stage="4_Coding", action="Coding"))
+            board.refresh(force=True)
+            before = board.card_by_id("I-1")
+            self.assertIsNotNone(before)
+
+            # External mutation (operator edit, parallel process): card
+            # moves to a different stage on disk.
+            coding_path = tasks_dir / "4_Coding" / "I-1.md"
+            review_dir = tasks_dir / "5_Review"
+            review_dir.mkdir(exist_ok=True)
+            coding_path.rename(review_dir / "I-1.md")
+
+            board.refresh(force=True)
+            after = board.card_by_id("I-1")
+            # Same object identity, updated fields.
+            self.assertIs(before, after,
+                          "refresh must reuse the existing card instance "
+                          "so external references stay consistent with "
+                          "the post-refresh board state")
+            self.assertEqual(before.stage, "5_Review")
+            self.assertEqual(before.file_path, review_dir / "I-1.md")
+
+    def test_refresh_drops_cards_removed_from_disk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="D-1", stage="4_Coding", action="Coding"))
+            board.refresh(force=True)
+            self.assertIsNotNone(board.card_by_id("D-1"))
+
+            (tasks_dir / "4_Coding" / "D-1.md").unlink()
+            board.refresh(force=True)
+            self.assertIsNone(board.card_by_id("D-1"))
+            self.assertEqual(len(board.cards), 0)
+
+    def test_refresh_adds_new_cards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            self.assertEqual(len(board.cards), 0)
+            _add_card(tasks_dir, KanbanCard(id="N-1", stage="1_Inbox", action="Product"))
+            board.refresh(force=True)
+            self.assertIsNotNone(board.card_by_id("N-1"))
+
+
 if __name__ == "__main__":
     unittest.main()

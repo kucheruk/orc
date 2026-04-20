@@ -69,9 +69,69 @@ class KanbanBoard:
             return
         with self._lock:
             result = self._hydration.rebuild(self._wip)
-            self._cards[:] = result.cards
+            self._reconcile_cards_in_place(result.cards)
             self._parse_errors = list(result.parse_errors)
             self._last_stage_mtimes = result.stage_mtimes
+
+    def _reconcile_cards_in_place(self, fresh_cards: list[KanbanCard]) -> None:
+        """Sync in-memory cards with fresh hydration WITHOUT discarding identity.
+
+        The obvious `self._cards[:] = fresh_cards` also works — until you
+        remember that other parts of the runtime hold live references to
+        existing card instances (the most common being `card` in
+        WorkerAssignmentRunner.execute, captured from the assignment and
+        carried across every subsequent call including the post-apply
+        _sync_tokens_and_budget). Swapping the list orphans every such
+        reference: the orphan keeps its pre-mutation (stage, action,
+        file_path, state_version) values while the board moves on.
+
+        The downstream accident played out like this on jeeves 2026-04-20:
+          1. apply_card_update_result mutates `current` (identical to the
+             single `board._cards[id]` instance at that moment), saves
+             action=Coding, and move_cards the file 6_Testing → 4_Coding.
+          2. The trailing board.refresh() inside apply swaps _cards with
+             freshly-parsed instances — the original `card` reference in
+             worker_assignment now points at an orphan holding the stale
+             6_Testing/Testing state.
+          3. process_completed_task emits `attempt.finish` with the
+             orphan's `stage` (6_Testing) instead of the post-apply
+             stage (4_Coding), which is how the jeeves logs consistently
+             showed "applied" signals with the wrong stage.
+          4. _sync_tokens_and_budget(card) calls save_card on the
+             orphan. persistence.save reads the orphan's file_path
+             (tasks/6_Testing/…), which no longer exists because move
+             relocated the file; _peek_state_version returns None, the
+             external-edit guard does not fire, and write_text_atomic
+             RECREATES tasks/6_Testing/ASSIST-003-C.md from the orphan's
+             stale fields (action=Testing, stage=6_Testing) with just
+             tokens_spent bumped.
+          5. The next hydration sees the same card in two stage
+             directories and _dedup_cards keeps the newer updated_at
+             (i.e. the orphan's save) and deletes the post-apply copy
+             in 4_Coding. Apply's stage change is silently wiped.
+
+        Reconciling in place keeps every live reference pointing at the
+        single shared instance for that id, so post-apply code sees the
+        post-apply state and the whole chain of stale-path writes
+        cannot happen.
+        """
+        from dataclasses import fields as dataclass_fields
+        field_names = [f.name for f in dataclass_fields(KanbanCard)]
+        existing: dict[str, KanbanCard] = {c.id: c for c in self._cards}
+        reconciled: list[KanbanCard] = []
+        for fresh in fresh_cards:
+            alive = existing.pop(fresh.id, None)
+            if alive is None:
+                reconciled.append(fresh)
+                continue
+            for name in field_names:
+                setattr(alive, name, getattr(fresh, name))
+            reconciled.append(alive)
+        # Cards that vanished from disk (e.g. merged into a parent, deleted
+        # by the operator) drop out of _cards entirely; any outside
+        # reference becomes semantically orphan but that is unavoidable —
+        # the card no longer exists.
+        self._cards[:] = reconciled
 
     @property
     def parse_errors(self) -> list[tuple[str, str]]:
