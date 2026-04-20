@@ -167,7 +167,9 @@ def find_teamlead_work(board: "KanbanBoard", loop_threshold: int = 2) -> Optiona
         return blocked[0]
     arbitration = board.arbitration_cards()
     if arbitration:
-        return sorted(arbitration, key=priority_key)[0]
+        from .card_prioritizer import build_downstream_roi_map
+        downstream = build_downstream_roi_map(board.cards)
+        return sorted(arbitration, key=lambda c: priority_key(c, downstream))[0]
     looping = board.looping_cards(loop_threshold)
     if looping:
         return sorted(looping, key=lambda c: -c.loop_count)[0]

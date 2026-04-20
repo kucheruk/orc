@@ -173,6 +173,7 @@ class KanbanBoard:
         return _pick_best(
             candidates,
             check_deps=self.has_unmet_dependencies if check_deps else None,
+            all_cards=self.cards,
         )
 
     def register_card(self, card: KanbanCard) -> None:
