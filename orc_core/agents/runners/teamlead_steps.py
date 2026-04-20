@@ -164,6 +164,17 @@ class ArbitrationStep:
                      "escalation_candidate": bool(needs_esc),
                      "stage": card.stage},
         )
+        # Leaving Blocked → Arbitration must run the unblock cleanup so the
+        # recovered card doesn't re-exhaust its budget on the very next
+        # pick_best. unblock() strips accumulated `## Block Reason`
+        # sections, resets loop_count/finalize_retries, offsets
+        # tokens_discarded to cancel the historical budget debt, and
+        # zeroes token_budget. It forces action=CODING as a side-effect,
+        # which is why we re-assign to Action.ARBITRATION immediately
+        # after — the downstream flow still needs the card in Arbitration
+        # while the AI deliberates.
+        if card.action == Action.BLOCKED:
+            card.unblock()
         card.action = Action.ARBITRATION
         ctx.distributor.board.save_card(card)
         dec_path = ctx.decision_path()
