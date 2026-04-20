@@ -206,7 +206,18 @@ class WorkerCardResultProcessingTest(unittest.TestCase):
             self.assertEqual(updated.stage, "5_Review")
             self.assertIn("attempt-1 wrote this", updated.body)
 
-    def test_missing_or_invalid_result_fails_fast(self):
+    def test_missing_result_file_synthesizes_and_advances(self):
+        """When the agent committed work but skipped writing the result
+        metadata JSON (cursor-agent's gpt-5.3-codex sometimes does this
+        after a successful commit), ORC must synthesize a default
+        card_update from its own view of the card and advance the stage
+        instead of discarding ~40k tokens of real delivery.
+
+        The caller already verified non-empty delivery via
+        verify_and_commit_uncommitted + _reject_empty_delivery before
+        reaching this point, so a missing file here is purely a metadata
+        gap, not a work-outcome gap.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             tasks_dir, board = _make_board(tmp)
             _add_card(tasks_dir, KanbanCard(id="X-1", stage="4_Coding", action="Coding"))
@@ -214,20 +225,40 @@ class WorkerCardResultProcessingTest(unittest.TestCase):
             card = board.card_by_id("X-1")
             tracker = TaskOutcomeTracker()
 
-            missing = process_worker_card_result(
+            errors = process_worker_card_result(
                 board, card, "coder",
                 agent_result_file=str(Path(tmp) / "missing.json"),
                 agent_run_id="X-1:4_Coding:attempt-1",
                 outcomes=tracker,
             )
-            self.assertTrue(missing)
+            self.assertEqual(errors, [],
+                             f"synthesis fallback must not error; got {errors!r}")
+            board.refresh(force=True)
+            advanced = board.card_by_id("X-1")
+            self.assertEqual(advanced.stage, "5_Review",
+                             "coder finishing 4_Coding with synthesized "
+                             "result should land in 5_Review")
+            self.assertTrue(tracker.has_applied_result("X-1:4_Coding:attempt-1"),
+                            "synthesized result must be recorded so repeat "
+                            "attempts are idempotent")
+
+    def test_invalid_result_content_still_fails_fast(self):
+        """Synthesis only covers 'agent forgot to write'. A file that
+        exists but is malformed is an explicit corruption signal — keep
+        the hard rejection."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="X-2", stage="4_Coding", action="Coding"))
+            board.refresh(force=True)
+            card = board.card_by_id("X-2")
+            tracker = TaskOutcomeTracker()
 
             bad_file = Path(tmp) / "bad.json"
             bad_file.write_text("{not-json", encoding="utf-8")
             invalid = process_worker_card_result(
                 board, card, "coder",
                 agent_result_file=str(bad_file),
-                agent_run_id="X-1:4_Coding:attempt-1",
+                agent_run_id="X-2:4_Coding:attempt-1",
                 outcomes=tracker,
             )
             self.assertTrue(invalid)

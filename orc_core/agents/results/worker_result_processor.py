@@ -4,12 +4,22 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
 from ...tasks.completion.outcomes import TaskOutcomeTracker
 from .card_update_apply import apply_card_update_result
-from .schema import PAYLOAD_CARD_UPDATE, load_structured_agent_result, validate_structured_agent_result
+from .schema import (
+    PAYLOAD_CARD_UPDATE,
+    CardUpdatePayload,
+    LaunchFingerprint,
+    StructuredAgentResultV1,
+    load_structured_agent_result,
+    validate_structured_agent_result,
+)
+
+_logger = logging.getLogger(__name__)
 
 
 def process_worker_card_result(
@@ -28,33 +38,49 @@ def process_worker_card_result(
 
     result_path = _resolve_existing_result_path(Path(agent_result_file))
     if result_path is None:
-        return [f"structured result file not found: {agent_result_file}"]
-
-    try:
-        result = load_structured_agent_result(result_path)
-        # Role and payload kind must match exactly; the attempt number in run_id
-        # is intentionally NOT enforced — cursor-agent in --resume mode keeps
-        # writing to its original attempt path even after ORC increments the
-        # attempt counter, so we accept any attempt for the same task/stage.
-        validate_structured_agent_result(
-            result,
-            expected_role=role,
-            expected_payload_kind=PAYLOAD_CARD_UPDATE,
+        # Agent completed and the caller has already verified non-empty
+        # delivery (verify_and_commit_uncommitted + _reject_empty_delivery
+        # run before this function), so there IS work on the branch. The
+        # only thing missing is the metadata JSON the agent was supposed
+        # to write at $ORC_AGENT_RESULT_FILE. Cursor-agent's gpt-5.3-codex
+        # intermittently skips that final write when it decides the
+        # primary task (commit code) is done — each such skip would
+        # otherwise discard the whole attempt and burn ~30–40k tokens of
+        # real work. Synthesize a minimal card_update payload from
+        # ORC's own knowledge and proceed.
+        result = _synthesize_card_update_fallback(card, role, agent_run_id)
+        _logger.warning(
+            "Synthesized fallback card_update result for %s (agent did not "
+            "write %s); advancing on committed delivery.",
+            card.id, agent_result_file,
         )
-        expected_prefix = _run_id_task_stage_prefix(agent_run_id)
-        actual_prefix = _run_id_task_stage_prefix(result.run_id)
-        if expected_prefix and actual_prefix != expected_prefix:
-            return [
-                f"result run_id {result.run_id!r} does not match task/stage "
-                f"{expected_prefix!r}"
-            ]
-        payload_task_id = getattr(result.payload, "task_id", "")
-        if payload_task_id and payload_task_id != card.id:
-            return [
-                f"result task_id {payload_task_id!r} does not match card {card.id!r}"
-            ]
-    except Exception as exc:
-        return [f"invalid structured result: {exc}"]
+    else:
+        try:
+            result = load_structured_agent_result(result_path)
+            # Role and payload kind must match exactly; the attempt number in
+            # run_id is intentionally NOT enforced — cursor-agent in --resume
+            # mode keeps writing to its original attempt path even after ORC
+            # increments the attempt counter, so we accept any attempt for
+            # the same task/stage.
+            validate_structured_agent_result(
+                result,
+                expected_role=role,
+                expected_payload_kind=PAYLOAD_CARD_UPDATE,
+            )
+            expected_prefix = _run_id_task_stage_prefix(agent_run_id)
+            actual_prefix = _run_id_task_stage_prefix(result.run_id)
+            if expected_prefix and actual_prefix != expected_prefix:
+                return [
+                    f"result run_id {result.run_id!r} does not match task/stage "
+                    f"{expected_prefix!r}"
+                ]
+            payload_task_id = getattr(result.payload, "task_id", "")
+            if payload_task_id and payload_task_id != card.id:
+                return [
+                    f"result task_id {payload_task_id!r} does not match card {card.id!r}"
+                ]
+        except Exception as exc:
+            return [f"invalid structured result: {exc}"]
 
     if outcomes.has_applied_result(result.run_id):
         return []
@@ -64,6 +90,45 @@ def process_worker_card_result(
         return errors
     outcomes.record_applied_result(result.run_id)
     return []
+
+
+def _synthesize_card_update_fallback(
+    card,
+    role: str,
+    agent_run_id: str,
+) -> StructuredAgentResultV1:
+    """Build a minimum-viable card_update payload for the current card state.
+
+    Used when the agent terminated cleanly with non-empty delivery but did
+    not write the result metadata file. All fields come from ORC's own
+    view of the card — there is no new semantic information from the
+    agent, and that is OK: the caller has already confirmed that the
+    delivery is non-empty, so advancing the card through its default
+    next-action path is the correct recovery.
+    """
+    fingerprint = LaunchFingerprint(
+        stage=str(getattr(card, "stage", "") or ""),
+        action=str(getattr(card, "action", "") or ""),
+        file_path=str(getattr(card, "file_path", "") or ""),
+        state_version=int(getattr(card, "state_version", 0) or 0),
+    )
+    payload = CardUpdatePayload(
+        task_id=str(getattr(card, "id", "") or ""),
+        launch_fingerprint=fingerprint,
+        next_action="",  # empty triggers stage-based default in apply layer
+        field_updates={},
+        section_updates={},
+        feedback_append="",
+    )
+    return StructuredAgentResultV1(
+        payload_kind=PAYLOAD_CARD_UPDATE,
+        role=role,
+        run_id=agent_run_id,
+        summary="Synthesized by ORC: agent delivered commits but did not "
+                "write the structured result file; advancing via default "
+                "stage transition.",
+        payload=payload,
+    )
 
 
 def _run_id_task_stage_prefix(run_id: str) -> str:
