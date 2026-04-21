@@ -12,6 +12,59 @@ from .branch_resolver import DEFAULT_MAIN_BRANCH, _safe_name, task_branch_name
 from .git_dto import WorktreeSession
 from .git_helpers import is_runtime_artifact, run_git
 
+# Per-worktree git attribute lines written into .git/worktrees/<name>/info/attributes.
+# `tasks/**` is the kanban board that master keeps moving between stage folders
+# via auto-commit. Agent-driven `git merge master --no-edit` in an isolated
+# worktree branch (forked when the card was in an earlier stage) then produces
+# a rename-modify conflict on the card's own file and leaves `<<<<<<<`
+# markers that the agent commits verbatim — blocking review/test and
+# burning a full bounceback cycle. `merge=ours` tells git to always keep the
+# worktree-branch side for tasks/ files, so downstream merges resolve cleanly
+# without agent intervention. ORC re-syncs the canonical card copy into the
+# worktree before each agent run regardless, so "ours wins" does not mask
+# real board state from the agent.
+_WORKTREE_MERGE_ATTRIBUTES = (
+    "# Managed by ORC create_task_worktree — keep kanban card files on the\n"
+    "# worktree-branch side during any `git merge`. See orc_core/git/worktree_lifecycle.py.\n"
+    "tasks/**    merge=ours\n"
+)
+
+
+def _apply_worktree_merge_attributes(worktree_path: Path, log_path: Path, *, task_id: str) -> None:
+    """Write the worktree-scoped merge attributes so tasks/ files auto-resolve
+    to ours on any subsequent `git merge master` the agent runs.
+
+    `$GIT_DIR` for a linked worktree is `.git/worktrees/<name>/` and its
+    `info/attributes` is consulted alongside (but separately from) the
+    committed `.gitattributes`, so we do not pollute the branch history.
+    Also register the `ours` merge driver (git does not ship one by default
+    under that exact name unless configured) via `git config merge.ours.driver`
+    scoped to the worktree. Idempotent across worktree re-use.
+    """
+    ok_dir, git_dir_raw, _, _ = run_git(str(worktree_path), ["git", "rev-parse", "--git-dir"])
+    if not ok_dir:
+        log_event(log_path, "WARN", "worktree merge attrs: rev-parse --git-dir failed",
+                  task_id=task_id, worktree_path=str(worktree_path))
+        return
+    git_dir = Path(git_dir_raw.strip())
+    if not git_dir.is_absolute():
+        git_dir = (worktree_path / git_dir).resolve()
+    info_dir = git_dir / "info"
+    info_dir.mkdir(parents=True, exist_ok=True)
+    attrs_path = info_dir / "attributes"
+    current = attrs_path.read_text(encoding="utf-8") if attrs_path.exists() else ""
+    if "tasks/**    merge=ours" not in current:
+        attrs_path.write_text(
+            (current.rstrip() + "\n" if current.strip() else "") + _WORKTREE_MERGE_ATTRIBUTES,
+            encoding="utf-8",
+        )
+    # `merge=ours` is a named driver, not the `-s ours` strategy. Point it at
+    # `true` so git keeps the ours version for tasks/ files without complaint.
+    run_git(str(worktree_path), ["git", "config", "--worktree", "merge.ours.name", "Keep ours"])
+    run_git(str(worktree_path), ["git", "config", "--worktree", "merge.ours.driver", "true"])
+    log_event(log_path, "INFO", "worktree merge attrs applied",
+              task_id=task_id, attrs_path=str(attrs_path))
+
 
 def _list_worktree_branches(workdir: str) -> dict[str, str]:
     """Return {resolved_worktree_path: short_branch_name} per `git worktree list --porcelain`.
@@ -60,6 +113,7 @@ def create_task_worktree(
         if registered == branch_name:
             log_event(log_path, "INFO", "task worktree reused",
                       task_id=task_id, worktree_path=str(worktree_path))
+            _apply_worktree_merge_attributes(worktree_path, log_path, task_id=task_id)
             return WorktreeSession(
                 base_workdir=base_workdir,
                 worktree_path=str(worktree_path),
@@ -101,6 +155,7 @@ def create_task_worktree(
         worktree_path=str(worktree_path),
         branch_name=branch_name,
     )
+    _apply_worktree_merge_attributes(worktree_path, log_path, task_id=task_id)
     return WorktreeSession(
         base_workdir=base_workdir,
         worktree_path=str(worktree_path),

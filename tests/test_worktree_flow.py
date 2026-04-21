@@ -68,7 +68,13 @@ class WorktreeLifecycleTest(unittest.TestCase):
         self, git_mock, _exists_mock, _write_text_mock,
     ) -> None:
         git_mock.side_effect = [
+            # First worktree add attempt — fails because branch already exists.
             (False, "", "branch already exists", 128),
+            # Reattach as existing branch succeeds.
+            (True, "", "", 0),
+            # _apply_worktree_merge_attributes: rev-parse, config ours name, config ours driver.
+            (True, ".git/worktrees/TASK-001", "", 0),
+            (True, "", "", 0),
             (True, "", "", 0),
         ]
 
@@ -80,7 +86,8 @@ class WorktreeLifecycleTest(unittest.TestCase):
         )
 
         self.assertEqual(session.branch_name, "orc/TASK-001")
-        self.assertEqual(len(git_mock.call_args_list), 2)
+        # Two worktree-add calls + three attribute-setup calls.
+        self.assertEqual(len(git_mock.call_args_list), 5)
         self.assertEqual(
             git_mock.call_args_list[0],
             unittest.mock.call(
@@ -95,6 +102,47 @@ class WorktreeLifecycleTest(unittest.TestCase):
                 ["git", "worktree", "add", session.worktree_path, "orc/TASK-001"],
             ),
         )
+        # Attribute-setup must target the new worktree path, not the base repo.
+        self.assertEqual(git_mock.call_args_list[2].args[0], session.worktree_path)
+        self.assertEqual(git_mock.call_args_list[2].args[1], ["git", "rev-parse", "--git-dir"])
+        self.assertIn("merge.ours.driver", git_mock.call_args_list[4].args[1])
+
+    def test_worktree_merge_attributes_file_is_written(self) -> None:
+        """Integration test: the per-worktree info/attributes file must
+        contain the `tasks/** merge=ours` line after create_task_worktree
+        so agent-driven `git merge master` resolves cleanly instead of
+        leaving `<<<<<<<` markers in card files (jeeves NOTIF-003-C
+        2026-04-21: 5 bouncebacks on the same conflict-marker issue)."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_repo:
+            def run(*argv: str) -> None:
+                subprocess.run(argv, cwd=tmp_repo, check=True, capture_output=True)
+
+            run("git", "init", "-q", "-b", "master")
+            run("git", "-c", "user.email=t@t", "-c", "user.name=t", "commit",
+                "--allow-empty", "-m", "initial", "-q")
+
+            with patch(
+                "orc_core.git.worktree_lifecycle.worktrees_root",
+                return_value=Path(tmp_repo) / "_orc_worktrees",
+            ):
+                session = worktree_lifecycle.create_task_worktree(
+                    base_workdir=tmp_repo,
+                    task_id="TASK-MERGE",
+                    log_path=Path("/tmp/orc-test.log"),
+                    main_branch="master",
+                )
+
+            gitdir = Path(session.worktree_path) / ".git"
+            # For linked worktrees `.git` is a file pointing to the real gitdir.
+            real_gitdir_line = gitdir.read_text(encoding="utf-8").strip()
+            self.assertTrue(real_gitdir_line.startswith("gitdir:"))
+            real_gitdir = Path(real_gitdir_line.removeprefix("gitdir:").strip())
+            attrs = (real_gitdir / "info" / "attributes").read_text(encoding="utf-8")
+            self.assertIn("tasks/**", attrs)
+            self.assertIn("merge=ours", attrs)
 
     @patch("orc_core.git.worktree_lifecycle.run_git")
     def test_cleanup_worktree_force_removes_when_only_orc_runtime_dirty(self, git_mock) -> None:
