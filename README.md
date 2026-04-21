@@ -18,8 +18,9 @@ orcs                       # запустить с 4 воркерами (= orc -
 
 Требования: Python 3.12+, [uv](https://docs.astral.sh/uv/), один из AI-агентов (Cursor CLI, Claude Code, Codex).
 
-> **Claude Code skill**: `/orc-repo-init` подготовит проект за один шаг.
-> `claude skills add --path <orc-repo>/skills/orc-repo-init`, затем скажите "подготовь проект под orc".
+> **Claude Code skill**: `/orc-repo-init` подготовит проект за один шаг (git-проверка → чтение PRD → нарезка на карточки → создание доски → инструкции по запуску).
+> Установить: `claude skills add --path <orc-repo>/skills/orc-repo-init`. Затем скажите "подготовь проект под orc".
+> Есть также общий `/orc` для формата карточек, WIP-лимитов, pull-системы и slicing specs: `claude skills add --path <orc-repo>/skills/orc`.
 
 ## Как это работает
 
@@ -40,7 +41,7 @@ Inbox → Estimate → Todo → Coding → Review → Testing → Handoff → Do
 | **Coder** | Coding | Пишет тесты и код в изолированном worktree |
 | **Reviewer** | Review | Ревьюит код, возвращает кодеру или пропускает дальше |
 | **Tester** | Testing | Запускает тесты, возвращает кодеру или пропускает |
-| **Integrator** | Handoff | Cherry-pick/merge в main, запускает тесты на main |
+| **Integrator** | Handoff | Squash-merge ветки в main; детерминированный gate не даёт `Done` без кода в main |
 | **Teamlead** | Любая | Арбитраж при зацикливании, инцидент-менеджмент |
 
 ### Pull-система
@@ -57,13 +58,14 @@ Inbox → Estimate → Todo → Coding → Review → Testing → Handoff → Do
 
 ### Инцидент-менеджмент
 
-При крэше воркера тимлид: scale-down → triage → FIX-карточка → scale-up.
+При краше воркера открывается инцидент (`incident_detected`): воркеры остаются scaled down, ORC пробует triage через teamlead, при невозможности автоматической починки — уведомляет оператора через Telegram и ждёт человека. Инциденты фиксируются в `docs/orc-autonomy-ledger.md` с root cause + fix.
 
 ### Human-in-the-loop
 
 ORC работает автономно. Человек вмешивается при:
-- **Блокировке** (`loop_count ≥ 4`) — `/unblock TASK-001 директива` в TUI
+- **Блокировке** (`loop_count ≥ 4`) — `/unblock TASK-001 директива` в TUI или подправить card и дать `kill -USR1` + restart
 - **Expedite** — Telegram-уведомление при срочной карточке
+- **ORC-инциденте** — `notify_human` в incident FSM шлёт traceback в Telegram
 
 ## Формат карточки
 
@@ -113,11 +115,15 @@ assigned_agent: s2
 
 ## Надёжность
 
-**Интеграция в main** — при конфликте cherry-pick автоматически запускается merge expert agent. При любой ошибке — `cherry-pick --abort`, base repo чистый. Каждая интеграция пишет JSON-отчёт.
+**Интеграция в main** — squash-merge рабочей ветки `orc/<ID>` в main, чтобы все коммиты карточки попали одним изменением. Перед переходом в `Done` срабатывает integration gate: `_is_branch_integrated()` проверяет, что код реально есть в main (через merge-base + two-dot diff), иначе карточка не сдвигается. При конфликте в `tasks/*` (частый случай, когда master двигает card по стадиям) работает auto-resolve в пользу HEAD. Каждая интеграция пишет JSON-отчёт в `integration-reports/`.
+
+**Worktree-изоляция** — каждая задача в своём git worktree `~/Library/Application Support/orc/worktrees/<hash>/<ID>`, переиспользуется между стадиями (Coding → Review → Testing → Handoff loop-back) и сохраняется до `Done`. Worktree получает per-worktree атрибут `tasks/** merge=ours`, поэтому агентский `git merge master --no-edit` не оставляет rename-modify конфликт-маркеры в card-файлах. Canonical card копируется из master в worktree перед каждой сессией агента, стейл-дубликаты удаляются.
+
+**Token budget per card** — `tokens_spent` и `token_budget` в frontmatter; при exhaustion card авто-блокируется (`is_budget_exhausted`). Budget может быть авто-увеличен на основании исторических burn-метрик, чтобы не терять активную работу.
+
+**Graceful shutdown** — `kill -USR1 <pid>` (не SIGTERM) переводит ORC в quit-after-task: воркеры доделывают текущие сессии, затем ORC выходит с кодом 0. SIGTERM не триггерит graceful-путь и ведёт к потере in-flight работы.
 
 **Rate limits** — staggered start (5с между сессиями), детекция по `network_problem`, backoff 30→60→120→240с.
-
-**Worktree-изоляция** — каждая задача в своём git worktree, переиспользуется между стадиями (Coding → Review → loop-back). Очистка при достижении Done.
 
 ## Telegram-уведомления
 
@@ -136,9 +142,17 @@ export ORC_TELEGRAM_DISABLE=1
 
 | Что | Где |
 |-----|-----|
-| ORC лог | `~/Library/Application Support/orc/repos/<hash>/logs/orc.log` |
-| Hook лог | `~/Library/Application Support/orc/repos/<hash>/logs/orc-hook.log` |
+| ORC лог (подробный) | `~/Library/Application Support/orc/repos/<hash>/logs/orc.log` |
+| Operator signals (курируемые события) | `~/Library/Application Support/orc/repos/<hash>/analytics/signals.jsonl` |
+| Stats per-task / total | `~/Library/Application Support/orc/repos/<hash>/analytics/stats.json` |
+| Raw-stream агентских сессий | `~/Library/Application Support/orc/repos/<hash>/runs/kanban-sN/raw-stream/*.log` |
+| Structured agent results | `~/Library/Application Support/orc/repos/<hash>/runs/kanban-sN/results/*.json` |
+| Worktrees | `~/Library/Application Support/orc/worktrees/<hash>/<TASK_ID>/` |
+| Parallel slot state | `~/Library/Application Support/orc/repos/<hash>/parallel/sN/active-task.json` |
 | Integration reports | `~/Library/Application Support/orc/repos/<hash>/integration-reports/` |
+| Lockfile (pid+pgid) | `~/Library/Application Support/orc/runtime/locks/<hash>.lock` |
+| Autonomy ledger (инциденты, фиксы) | `docs/orc-autonomy-ledger.md` |
+| Signals digest (rolling) | `orc --workspace PATH --signals-digest 20m` |
 | Debug лог | `--debug` → системный temp |
 
 ---
@@ -146,66 +160,78 @@ export ORC_TELEGRAM_DISABLE=1
 ## Архитектура (для контрибьюторов)
 
 ```
-KanbanSessionManager         — 1 teamlead-поток + N worker-потоков
-├── KanbanDistributor        — потокобезопасная раздача карточек
-│   └── find_next_work()     — pull справа налево с учётом WIP и зависимостей
-├── KanbanBoard              — in-memory доска, чтение/запись с диска
-├── KanbanCard               — модель карточки (YAML + markdown)
-├── process_agent_result()   — валидация изменений агента, loop-count, перемещение
-├── build_prompt()           — инъекция контекста доски в промпты ролей
-├── TeamleadIncident         — инцидент-менеджмент (triage → fix → scale-up)
-├── TeamleadActions          — исполнение решений тимлида
-├── WorktreeFlow             — создание/reuse/cleanup worktree
-└── KanbanPublisher          — снапшоты доски и журнал для TUI
+orc_core/
+├── cli/                                — CLI entrypoint (orc, orcs), lock, templates
+├── agents/
+│   ├── session/manager.py              — KanbanSessionManager: teamlead + N воркер-потоков
+│   ├── session/pool.py                 — worker slot pool, WIP-арбитр
+│   ├── runners/                        — worker/teamlead loops, assignment, support
+│   ├── results/                        — структурированный card_update JSON, валидация, apply
+│   ├── monitoring/                     — stream-json монитор, token tracker
+│   └── infra/                          — build_orchestrator composition, notifications
+├── board/
+│   ├── kanban_board.py                 — in-memory доска, refresh, reconcile
+│   ├── kanban_card.py                  — модель карточки (YAML + markdown)
+│   ├── kanban_distributor.py           — потокобезопасная раздача карточек
+│   ├── kanban_pull.py                  — pull справа налево, dep-gate, budget-reset
+│   ├── kanban_role_registry.py         — profiling ролей (worktree/delivery/prompt)
+│   ├── state_machine.py                — единый источник переходов (TRANSITIONS, FORWARD_MOVES)
+│   └── movement_rules.py               — DEFERRED_MOVE_RULES, allow_backward правила
+├── git/
+│   ├── worktree_lifecycle.py           — create/reuse/cleanup worktree + tasks/** merge=ours
+│   ├── worktree_card_sync.py           — canonical card sync, stale-duplicate cleanup
+│   └── use_cases/finalize_task_worktree.py — integrator-side squash-merge в main
+├── incident/
+│   ├── manager.py                      — инцидент-FSM
+│   └── phases.py                       — triage → notify_human → resolve
+├── signals/                            — курируемые события, digest, jsonl-журнал
+├── tasks/                              — lifecycle, integration, stages, outcomes
+├── errors/                             — crash_handler (SIGUSR1 quit-after-task)
+├── infra/io/state_paths.py             — все платформенные пути (~/Library/Application Support/orc/...)
+├── tui/                                — Textual UI
+└── notifications/                      — Telegram/severity
+prompts/kanban_*.txt                    — промпты 7 ролей + commit
 ```
 
 ### Границы ответственности
 
 | Граница | ORC (Python) | AI-агент |
 |---------|-------------|----------|
-| **Выбор работы** | `find_next_work()` — WIP, deps, CoS | — |
-| **Контекст** | `build_prompt()` — board state, card | Читает TECHSPEC/AGENTS.md |
-| **Исполнение** | subprocess + stream monitor | Пишет код, тесты, модифицирует card .md |
-| **Валидация** | `process_agent_result()` — protected fields, transitions | Промпт описывает правила, enforce в коде |
-| **Перемещение** | `FORWARD_MOVES` + `has_wip_room()` | Выставляет `action`, код двигает карточку |
-| **Эскалация** | `loop_count ≥ 2` → teamlead, `≥ 4` → block | Teamlead решает через YAML decision |
-| **Интеграция** | `IntegrationManager` — cherry-pick, merge expert | Integrator ставит `action: Done` |
+| **Выбор работы** | `board/kanban_pull.py::find_next_work` — WIP, deps, CoS | — |
+| **Контекст** | роль собирает промпт: board summary + card body + worktree | Читает TECHSPEC/AGENTS.md |
+| **Исполнение** | subprocess + stream monitor + agent result file | Пишет код, тесты, commit, записывает JSON результат |
+| **Валидация** | `agents/results/worker_result_processor.py` — fingerprint, run_id, payload | Промпт описывает контракт, enforce в коде |
+| **Перемещение** | `board/state_machine.py::FORWARD_MOVES` + `has_wip_room()` | Выставляет `action` в JSON payload, код двигает карточку |
+| **Эскалация** | `loop_count ≥ 2` → teamlead arbitration, `≥ 4` → соft-escalation | Teamlead решает через YAML decision файл |
+| **Интеграция** | `git/use_cases/finalize_task_worktree.py` — squash-merge, integration gate | Integrator ставит `next_action: ""` (auto-default = Done) |
 
 ### Цикл обработки карточки
 
 ```
  PULL              find_next_work() → WorkAssignment {card, role}
    ↓
- PROMPT            build_prompt(role, card, board) → rendered prompt
+ PROMPT            build_prompt(role, card, board) + worktree context
    ↓
- LAUNCH            create_worktree() → backend.build_agent_cmd() → subprocess
+ LAUNCH            create_task_worktree() (или reuse) → backend.build_agent_cmd → subprocess
+   │                • пишет tasks/** merge=ours в worktree/info/attributes
+   │                • sync canonical card из master
    ↓
- ═══════════════   AI-АГЕНТ: читает код, пишет, перезаписывает card .md
+ ═══════════════   AI-АГЕНТ: читает код, пишет код + commit
+   │                • в конце cat > $ORC_AGENT_RESULT_FILE <<JSON ... JSON
    ↓
- STREAM            StreamJsonMonitor → MonitorSnapshot → TUI
+ STREAM            StreamJsonMonitor → MonitorSnapshot → TUI + токен-учёт
    ↓
- VALIDATE          process_agent_result(): protected fields, transitions, loop_count
+ VALIDATE          process_worker_card_result(): fingerprint (stage/action/file_path),
+                   run_id, payload_kind, role; нормализует literal $ORC_AGENT_RUN_ID
+                   из поломанного heredoc
    ↓
- MOVE              board.refresh() → move card → goto PULL
+ APPLY             apply_card_update_result(): field_updates, section_updates,
+                   feedback_append, next_action → stage transition через state_machine
+   ↓
+ INTEGRATE         (Handoff) squash_merge_task_branch() + is_branch_integrated gate →
+                   card двигается в Done, emit signal card.done
+   ↓
+ MOVE              board.refresh() → goto PULL
 ```
 
-Контракт между кодом и агентом — card .md файл: агент пишет, код читает и валидирует.
-
-### Ключевые файлы
-
-| Файл | Назначение |
-|------|-----------|
-| `orc_core/kanban_session_manager.py` | Оркестратор потоков |
-| `orc_core/kanban_board.py` | Доска и WIP-лимиты |
-| `orc_core/kanban_card.py` | Модель карточки |
-| `orc_core/kanban_pull.py` | Pull-система |
-| `orc_core/kanban_agent_output.py` | Валидация и переходы |
-| `orc_core/kanban_distributor.py` | Раздача работы воркерам |
-| `orc_core/kanban_constants.py` | Стадии, действия, классы сервиса |
-| `orc_core/kanban_roles.py` | Построение промптов по ролям |
-| `orc_core/teamlead_incident.py` | Инцидент-менеджмент |
-| `orc_core/teamlead_actions.py` | Исполнение решений тимлида |
-| `orc_core/worktree_flow.py` | Управление worktree |
-| `orc_core/role_config.py` | Конфигурация моделей по ролям |
-| `orc_core/tui/screens/kanban_screen.py` | TUI |
-| `prompts/kanban_*.txt` | Промпты ролей (8 файлов) |
+Контракт между кодом и агентом — **JSON result-файл по пути `$ORC_AGENT_RESULT_FILE`** с `launch_fingerprint`. Card `.md` — единственный источник правды для board state, но агенты не редактируют его напрямую; только через `section_updates`/`feedback_append` в JSON.

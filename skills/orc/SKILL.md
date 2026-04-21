@@ -249,15 +249,17 @@ Cards move automatically when an agent changes the `action` field:
 
 Each role has a prompt template in `prompts/kanban_<role>.txt` that gets injected with the current board state and card content.
 
-| Role | Prompt file | Gets worktree? |
-|------|-------------|----------------|
-| Product | `kanban_product.txt` | No |
-| Architect | `kanban_architect.txt` | No |
-| Coder | `kanban_coder.txt` | Yes |
-| Reviewer | `kanban_reviewer.txt` | No |
-| Tester | `kanban_tester.txt` | Yes |
-| Integrator | `kanban_integrator.txt` | No |
-| Teamlead | `kanban_teamlead.txt` | No |
+| Role | Prompt file | Gets worktree? | Notes |
+|------|-------------|----------------|-------|
+| Product | `kanban_product.txt` | No | Scores value, sets class of service, writes acceptance criteria |
+| Architect | `kanban_architect.txt` | No | Designs technical solution, estimates effort, decomposes oversized cards |
+| Coder | `kanban_coder.txt` | **Yes** | Implements code + tests in isolated `orc/<ID>` branch |
+| Reviewer | `kanban_reviewer.txt` | **Yes** | Runs `git diff master --stat` in worktree to see the full branch delta |
+| Tester | `kanban_tester.txt` | **Yes** | Runs scoped tests in worktree; does not need to refactor |
+| Integrator | `kanban_integrator.txt` | **Yes** | Squash-merges `orc/<ID>` into main; integration gate refuses `Done` without code on main |
+| Teamlead | `kanban_teamlead.txt` | No | Arbitrates stuck cards (`loop_count ≥ 2`), handles incidents |
+
+All four delivery roles (Coder, Reviewer, Tester, Integrator) share the same `orc/<ID>` worktree across loopbacks — no recreate cost on Review → Coding → Review cycles. ORC writes a per-worktree `tasks/** merge=ours` attribute so agent-side `git merge master --no-edit` auto-resolves the card's own file and never leaves `<<<<<<<<` markers behind.
 
 ---
 
@@ -323,24 +325,54 @@ Source: PRD.md, requirement REQ-042
 ## 7. Running ORC
 
 ```bash
-# Install (from orc repo)
+# Install (from orc repo) — --editable keeps live source picked up on restart
 cd <orc-repo> && uv tool install --editable .
 
 # Initialize kanban board in target project
 orc --init-kanban --workspace /path/to/project
 
-# Start orchestrator
-orc --workspace /path/to/project
+# Start orchestrator — `orcs` is `orc --max-sessions 4` (1 teamlead + 3 workers)
+orc  --workspace /path/to/project            # 1 worker + teamlead
+orcs --workspace /path/to/project            # 4 sessions total (default)
 
-# With specific model
-orc --workspace /path/to/project --model claude-sonnet-4-6
-
-# With more/fewer parallel workers
+# Lower parallelism
 orc --workspace /path/to/project --max-sessions 2
 
-# Test Telegram notifications
+# Alternate backend/model
+orc --workspace /path/to/project --backend claude --model claude-sonnet-4-6
+orc --workspace /path/to/project --backend codex
+
+# Test Telegram
 orc --telegram-test
 ```
+
+### Headless launch (no tty)
+
+ORC uses Textual TUI and needs a controlling terminal. For a supervisor or
+CI-like loop, wrap with `script` to allocate a PTY and redirect output to a
+log file:
+
+```bash
+LOG=/tmp/orc-supervise.log
+script -q "$LOG" orcs --workspace /path/to/project --agent-output-log &
+```
+
+The live lockfile reveals the orchestrator PID:
+
+```bash
+cat ~/Library/Application\ Support/orc/runtime/locks/<hash>.lock
+# { "pid": 18500, "pgid": 18500, "started_at": "..." }
+```
+
+### Graceful stop
+
+Always `kill -USR1 <orc_pid>` — this is the headless equivalent of the TUI
+`q` key. Workers finish their current card attempts, then ORC exits with
+exit code 0. A second SIGUSR1 clears the flag.
+
+**Do not use SIGTERM** for a clean restart — it does not trigger the
+graceful-exit path, drops half-applied card moves onto disk, and leaks
+orphan cursor-agent node grandchildren.
 
 ### TUI Controls (Kanban Mode)
 
@@ -349,3 +381,17 @@ orc --telegram-test
 - **Decision Journal**: Event feed (moves, completions, escalations)
 - **Chat input**: Type card title to add to Inbox, or `/unblock TASK-ID directive`
 - **Keys**: Escape=quit, T=toggle theme
+
+### Quick status from the command line
+
+```bash
+# Rolling operator digest (last 20 min)
+orc --workspace /path/to/project --signals-digest 20m
+
+# Per-task token spend
+jq '.tokens_by_task' \
+  ~/Library/Application\ Support/orc/repos/<hash>/analytics/stats.json
+
+# Active parallel slots
+ls ~/Library/Application\ Support/orc/repos/<hash>/parallel/s*/active-task.json
+```

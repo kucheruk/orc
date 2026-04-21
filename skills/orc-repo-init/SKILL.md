@@ -202,11 +202,29 @@ Dependency graph: BE-001 → BE-002 → BE-003, BE-004
 
 ## Optional: choose backend and model
 
+   orc --workspace . --backend cursor                   # default, uses cursor-agent
    orc --workspace . --backend claude --model claude-sonnet-4-6
-   orc --workspace . --backend cursor
    orc --workspace . --backend codex
 
-Backends: cursor (default), claude, codex
+Backends: cursor (default), claude, codex.
+
+## Optional: use orcs for more parallel workers
+
+   orcs --workspace .          # equivalent to orc --max-sessions 4
+
+`orc --max-sessions N` runs with N total parallel sessions: one is reserved
+for the teamlead (arbitration, health check, incident triage) and the rest
+are worker slots. With `--max-sessions 4` you get 1 teamlead + 3 workers.
+
+## Optional: headless launch
+
+If you're running ORC from a supervisor script (no interactive terminal),
+wrap with `script` to allocate a PTY and redirect output:
+
+   script -q /tmp/orc.log orcs --workspace . --agent-output-log
+
+Graceful stop — `kill -USR1 $(jq -r .pid ~/Library/Application\ Support/orc/runtime/locks/<hash>.lock)`.
+Do not use SIGTERM, it skips the graceful-exit path.
 ```
 
 Adjust the installation path, project path, and card table to match actuals.
