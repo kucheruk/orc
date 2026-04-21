@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 import threading
-from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from ..config import DEFAULT_MODEL
@@ -104,9 +103,6 @@ def start_model_list_loading(backend: Optional["Backend"] = None) -> ModelListLo
 
 def load_last_selected_model(workdir: str) -> Optional[str]:
     path = model_selection_path(workdir)
-    legacy_path = Path(workdir) / ".orc" / "model-selection.json"
-    if not path.exists() and legacy_path.exists():
-        path = legacy_path
     if not path.exists():
         return None
     try:
@@ -122,9 +118,6 @@ def save_last_selected_model(workdir: str, model: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"last_selected_model": model}
     write_json_atomic(path, payload, ensure_ascii=False, indent=2)
-    legacy_path = Path(workdir) / ".orc" / "model-selection.json"
-    legacy_path.parent.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(legacy_path, payload, ensure_ascii=False, indent=2)
 
 
 def choose_model_interactive(models: list[str], default_model: str) -> str:

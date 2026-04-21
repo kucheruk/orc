@@ -8,7 +8,7 @@ from typing import Dict, Optional
 
 import psutil
 
-from ..io.logging import log_event
+from ...log import log_event
 
 PROCESS_GROUP_TERM_TIMEOUT_SECONDS = 1.5
 

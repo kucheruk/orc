@@ -103,9 +103,6 @@ class RoleProfileRegistry:
 
     def load_overrides(self, workdir: str) -> dict[str, dict[str, object]]:
         path = role_settings_path(workdir)
-        legacy_path = Path(workdir) / ".orc" / "role-settings.json"
-        if not path.exists() and legacy_path.exists():
-            path = legacy_path
         if not path.exists():
             return {}
         try:
@@ -126,8 +123,6 @@ class RoleProfileRegistry:
         path = role_settings_path(workdir)
         payload = {"version": 1, "roles": overrides}
         write_json_atomic(path, payload, ensure_ascii=False, indent=2)
-        legacy_path = Path(workdir) / ".orc" / "role-settings.json"
-        write_json_atomic(legacy_path, payload, ensure_ascii=False, indent=2)
 
     def update_override(
         self,

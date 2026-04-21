@@ -15,7 +15,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from ...infra.io.logging import log_event, now_ms
+from ...log import log_event, now_ms
 from ...infra.io.timeline import timeline_instant
 from ...contracts.session import MetricsStore
 from .monitor_metrics_collector import MonitorMetricsCollector

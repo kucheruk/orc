@@ -11,7 +11,7 @@ from typing import Callable, List, Optional
 from ...tasks.dto import Task
 
 from ...infra.io.atomic_io import write_json_atomic
-from ...infra.io.logging import log_event, now_ms
+from ...log import log_event, now_ms
 from ...contracts.session import MetricsStore, MonitorSnapshot
 from ...infra.io.timeline import timeline_instant
 

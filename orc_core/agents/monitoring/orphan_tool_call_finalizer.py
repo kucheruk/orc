@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...infra.io.logging import log_event
+from ...log import log_event
 from ...infra.io.timeline import timeline_instant
 from .snapshot_builder import SnapshotBuilder
 from .stream_monitor_state import StreamMonitorState

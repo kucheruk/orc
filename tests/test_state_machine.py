@@ -26,15 +26,9 @@ from orc_core.board.state_machine import (
     TRANSITIONS,
     VALID_TRANSITIONS,
 )
-from orc_core.board.movement_rules import DEFERRED_MOVE_RULES
 
 
 class StateMachineConsistencyTest(unittest.TestCase):
-
-    def test_forward_moves_and_deferred_rules_are_same_source(self) -> None:
-        """DEFERRED_MOVE_RULES and FORWARD_MOVES must be identical since
-        they come from the same TRANSITIONS table."""
-        self.assertIs(DEFERRED_MOVE_RULES, FORWARD_MOVES)
 
     def test_every_auto_default_has_a_valid_transition(self) -> None:
         """Every auto-default must be in the valid transitions for that role."""

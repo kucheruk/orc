@@ -12,7 +12,8 @@ import traceback
 from pathlib import Path
 from typing import Dict
 
-from ..infra.io.logging import _CRASH_HANDLER_LOCK, _cfg, log_event, now_iso
+from ..infra.io.logging import _CRASH_HANDLER_LOCK, _cfg
+from ..log import log_event, now_iso
 
 
 def build_crash_stdout_payload(

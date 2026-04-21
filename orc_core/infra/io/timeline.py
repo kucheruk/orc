@@ -7,8 +7,9 @@ import time
 from contextlib import contextmanager
 from typing import Dict, Optional
 
+from ...log import now_ms
 from .debug_log import init_debug_logging
-from .logging import _cfg, _write_debug_payload, now_ms
+from .logging import _cfg, _write_debug_payload
 
 
 def _timeline_enabled() -> bool:

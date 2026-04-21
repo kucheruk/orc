@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-from ...infra.io.logging import log_event, now_ms
+from ...log import log_event, now_ms
 from ...infra.io.timeline import timeline_instant
 from .agent_output_sink import AgentOutputSink
 from .conversation_persister import ConversationIdPersister

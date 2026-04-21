@@ -18,7 +18,7 @@ from orc_core.errors.crash_handler import (
     report_fatal_exception,
 )
 from orc_core.infra.io.debug_log import init_debug_logging
-from orc_core.infra.io.logging import log_event, set_log_context
+from orc_core.log import log_event, set_log_context
 from orc_core.infra.io.timeline import (
     timeline_instant,
     timeline_step,

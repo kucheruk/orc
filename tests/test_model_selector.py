@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
 import tempfile
 import subprocess
 import unittest
@@ -15,21 +16,40 @@ from orc_core.cli.model_selector import (
     load_last_selected_model,
     save_last_selected_model,
 )
+from orc_core.infra.io.state_paths import model_selection_path
+
+
+class _IsolatedStateRoot:
+    """Context manager: redirect ORC_STATE_ROOT to a fresh tmpdir so tests
+    don't leak files into the user's real state directory."""
+
+    def __enter__(self) -> str:
+        self._tmp = tempfile.TemporaryDirectory()
+        self._prev = os.environ.get("ORC_STATE_ROOT")
+        os.environ["ORC_STATE_ROOT"] = self._tmp.name
+        return self._tmp.name
+
+    def __exit__(self, *_exc) -> None:
+        if self._prev is None:
+            os.environ.pop("ORC_STATE_ROOT", None)
+        else:
+            os.environ["ORC_STATE_ROOT"] = self._prev
+        self._tmp.cleanup()
 
 
 class ModelSelectorStateTest(unittest.TestCase):
     def test_load_last_selected_model_returns_none_when_file_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with _IsolatedStateRoot(), tempfile.TemporaryDirectory() as tmpdir:
             self.assertIsNone(load_last_selected_model(tmpdir))
 
     def test_save_then_load_last_selected_model_roundtrip(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with _IsolatedStateRoot(), tempfile.TemporaryDirectory() as tmpdir:
             save_last_selected_model(tmpdir, "gpt-5.3-codex")
             self.assertEqual(load_last_selected_model(tmpdir), "gpt-5.3-codex")
 
     def test_load_last_selected_model_raises_for_invalid_json(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / ".orc" / "model-selection.json"
+        with _IsolatedStateRoot(), tempfile.TemporaryDirectory() as tmpdir:
+            path = model_selection_path(tmpdir)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("{broken", encoding="utf-8")
             with self.assertRaises(ModelSelectionError):
@@ -39,7 +59,7 @@ class ModelSelectorStateTest(unittest.TestCase):
         self.assertEqual(DEFAULT_MODEL, "gpt-5.3-codex")
 
     def test_save_last_selected_model_does_not_use_path_write_text(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with _IsolatedStateRoot(), tempfile.TemporaryDirectory() as tmpdir:
             with patch.object(Path, "write_text", side_effect=RuntimeError("Path.write_text should not be used")):
                 save_last_selected_model(tmpdir, "gpt-5.3-codex")
             self.assertEqual(load_last_selected_model(tmpdir), "gpt-5.3-codex")

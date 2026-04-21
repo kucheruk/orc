@@ -130,17 +130,10 @@ class ConflictResolver:
         for fpath in conflict_files:
             run_git(self.workdir, ["git", "add", "--", fpath])
 
-        # For squash merge, commit directly (no cherry-pick --continue)
         ok_commit, _, stderr, _ = run_git(
             self.workdir,
             ["git", "commit", "--no-edit"],
         )
-        if not ok_commit:
-            # Fallback: try cherry-pick --continue for backward compat
-            ok_commit, _, stderr, _ = run_git(
-                self.workdir,
-                ["git", "-c", "core.editor=true", "cherry-pick", "--continue"],
-            )
         if ok_commit:
             ctx.step("auto_resolve_ok", files=conflict_files)
             ctx.save_report("completed", "merge_ok_after_auto_resolve")

@@ -2,10 +2,9 @@
 # -*- coding: utf-8 -*-
 """Infrastructure logging: debug logging, crash handlers, log directories.
 
-Core event logging (log_event, now_iso, now_ms) lives in orc_core.log
-so that all layers can use it without depending on infra/.
-This module re-exports them for backward compatibility during migration,
-and adds infrastructure-specific debug/crash logging.
+Core event logging (log_event, now_iso, now_ms, set_log_context) lives in
+orc_core.log and is imported directly from there. This module only owns
+infrastructure-specific state: debug-log rotation and crash-handler wiring.
 """
 
 import json
@@ -18,16 +17,6 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from .state_paths import resolve_state_root
-
-# Re-export from shared log module so existing infra-internal imports still work
-from ...log import (  # noqa: F401
-    LOG_LEVELS,
-    DEFAULT_LOG_LEVEL,
-    log_event,
-    now_iso,
-    now_ms,
-    set_log_context,
-)
 
 ORC_ROOT = Path(__file__).resolve().parents[2]
 ORC_LOG_DIR = resolve_state_root() / "logs"

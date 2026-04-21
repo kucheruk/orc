@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Optional
 
-from ...infra.io.logging import log_event
+from ...log import log_event
 from ...infra.process.agent_process import AgentProcess
 from ...contracts.session import MonitorSnapshot
 from .agent_output_sink import AgentOutputSink

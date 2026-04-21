@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Callable, Mapping, Optional
 
-from ..io.logging import log_event
+from ...log import log_event
 from .process import kill_process_tree
 from .process_groups import resolve_process_group_id, subprocess_group_spawn_kwargs, terminate_process_group
 

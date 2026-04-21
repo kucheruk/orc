@@ -5,7 +5,7 @@ files, and capability flags (`requires_worktree`, `is_delivery`)."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
@@ -65,18 +65,6 @@ _PROFILES: dict[str, KanbanRoleProfile] = {p.name: p for p in _DEFAULT_PROFILES}
 def register_role_profile(profile: KanbanRoleProfile) -> None:
     """Register or replace a full role profile."""
     _PROFILES[profile.name] = profile
-
-
-def register_role(name: str, prompt_file: str) -> None:
-    """Legacy registration. Creates a default (non-worktree, non-delivery) profile.
-
-    New code should use `register_role_profile` to set capabilities.
-    """
-    existing = _PROFILES.get(name)
-    if existing is None:
-        _PROFILES[name] = KanbanRoleProfile(name=name, prompt_file=prompt_file)
-    else:
-        _PROFILES[name] = replace(existing, prompt_file=prompt_file)
 
 
 def known_roles() -> list[str]:

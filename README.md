@@ -176,7 +176,7 @@ orc_core/
 │   ├── kanban_pull.py                  — pull справа налево, dep-gate, budget-reset
 │   ├── kanban_role_registry.py         — profiling ролей (worktree/delivery/prompt)
 │   ├── state_machine.py                — единый источник переходов (TRANSITIONS, FORWARD_MOVES)
-│   └── movement_rules.py               — DEFERRED_MOVE_RULES, allow_backward правила
+│   └── movement_rules.py               — resolve_deferred_target (обёртка над FORWARD_MOVES)
 ├── git/
 │   ├── worktree_lifecycle.py           — create/reuse/cleanup worktree + tasks/** merge=ours
 │   ├── worktree_card_sync.py           — canonical card sync, stale-duplicate cleanup

@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from ...infra.io.atomic_io import write_json_atomic
-from ...infra.io.logging import log_event
+from ...log import log_event
 
 
 class ConversationIdPersister:

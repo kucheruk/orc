@@ -2,11 +2,9 @@
 # -*- coding: utf-8 -*-
 """Unified card state machine — single source of truth for all transitions.
 
-Replaces the scattered definitions in:
-- agent_output.py: _FORWARD_MOVES, _IDENTITY_DEFAULTS, _VALID_TRANSITIONS
-- movement_rules.py: DEFERRED_MOVE_RULES
-
-Every stage/action/role transition is declared once here.
+Every stage/action/role transition is declared once here (TRANSITIONS);
+FORWARD_MOVES, IDENTITY_DEFAULTS, VALID_TRANSITIONS, and LOOP_BACK_ACTIONS
+are all derived from it.
 """
 
 from __future__ import annotations
