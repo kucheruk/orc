@@ -84,6 +84,14 @@ def _demote_dep_broken_todo(board: "KanbanBoard") -> None:
     new upstream subcard finishes.
     """
     for card in list(board.cards_with_action(STAGE_TODO, Action.CODING)):
+        # Re-verify stage against the live card — `cards_with_action` can
+        # return a stale snapshot if a concurrent tick moved the card out
+        # of Todo between the scan and this demote. Calling `move_card`
+        # on a card that is already in Estimate raises the
+        # "must move right" guard in `board_movement.move_card` and
+        # crashes the worker (jeeves 2026-04-21 INC-001: QA-003-B).
+        if card.stage != STAGE_TODO:
+            continue
         if board.has_unmet_dependencies(card):
             board.move_card(
                 card,

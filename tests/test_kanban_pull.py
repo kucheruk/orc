@@ -410,6 +410,44 @@ class TestAutoArchiveDecomposedParents(unittest.TestCase):
             self.assertEqual(demoted.action, "Coding",
                              "action preserved so _auto_promote_estimate can repromote once deps clear")
 
+    def test_demote_skips_cards_already_moved_out_of_todo(self):
+        """`cards_with_action(STAGE_TODO, Action.CODING)` can return a
+        stale snapshot — a concurrent tick may have moved the card out of
+        Todo between the scan and the demote call. Calling `move_card` on
+        a card that is already in Estimate trips the "must move right"
+        guard and crashes the worker (jeeves INC-001 2026-04-21:
+        QA-003-B crash-killed s2 with
+        `Cannot move card QA-003-B from 2_Estimate to 2_Estimate`)."""
+        from orc_core.board.kanban_pull import _demote_dep_broken_todo
+
+        with tempfile.TemporaryDirectory() as tmp:
+            td, _ = _setup(tmp)
+            _add(td, KanbanCard(id="UPSTREAM", stage="2_Estimate", action="Product"))
+            _add(td, KanbanCard(
+                id="STALE", stage="3_Todo", action="Coding",
+                dependencies=["UPSTREAM"],
+            ))
+            board = KanbanBoard(td, repo=FsCardRepository())
+
+            # Prime the index so the snapshot knows about STALE-in-Todo.
+            list(board.cards_with_action("3_Todo", "Coding"))
+
+            # Simulate the concurrent-tick race: another code path has
+            # already moved STALE back to Estimate. An in-memory mutation
+            # reproduces the state that triggered the jeeves crash —
+            # `board.move_card` would first go through the legitimate
+            # Todo→Estimate transition here.
+            stale_card = board.card_by_id("STALE")
+            stale_card.stage = "2_Estimate"
+
+            # Now the demote sweep runs. Without the skip it tries to
+            # move STALE from Estimate to Estimate and raises.
+            try:
+                _demote_dep_broken_todo(board)
+            except ValueError as exc:
+                self.fail(f"_demote_dep_broken_todo must skip already-moved "
+                          f"cards instead of raising: {exc!r}")
+
     def test_todo_card_with_met_deps_is_not_demoted(self):
         """Must not demote cards whose deps are genuinely ready.
         A card with met deps either stays in Todo or gets picked up

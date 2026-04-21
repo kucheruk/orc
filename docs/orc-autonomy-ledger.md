@@ -139,6 +139,12 @@ ORC operates as an autonomous delivery system with:
 - Fix: route known block/escalation paths through a single use case that always moves blocked cards to `7_Handoff`
 - **RESOLVED**
 
+### I-27: `_demote_dep_broken_todo` crashes on stale Todo snapshot (2026-04-21 12:18)
+- Root cause: `orc_core/board/kanban_pull.py:_demote_dep_broken_todo` iterated `list(board.cards_with_action(STAGE_TODO, Action.CODING))` and then called `board.move_card(card, STAGE_ESTIMATE, ...)` without re-checking the card's live stage. A concurrent tick (teamlead health check, another pull, incident handler) can move the card out of Todo between the scan and the move, so the sweep tries Estimate→Estimate and trips the "must move right" guard in `board_movement.move_card`.
+- Evidence: `worker crashed` on jeeves 2026-04-21 12:18:14 in slot s2 — `ValueError: Cannot move card QA-003-B from 2_Estimate to 2_Estimate (must move right)` with the traceback rooted in `_demote_dep_broken_todo`. The worker crash opened INC-001 much later (13:58) and ORC received SIGTERM at 14:00:02, taking the whole orchestrator down.
+- Fix (commit pending): re-verify `card.stage == STAGE_TODO` inside the loop and `continue` otherwise. Regression test `test_demote_skips_cards_already_moved_out_of_todo` reproduces the race by mutating the card's stage between scan and sweep.
+- **RESOLVED**
+
 ### I-26: Integrator false-rejects cards with historical `[ ]` feedback items (2026-04-21 11:39)
 - Root cause: `prompts/kanban_integrator.txt` step 1 required *all* items in section 4 "Feedback & Checklist" to be `[x]`. But agents can only `feedback_append` — they cannot edit prior review/test rounds. The result is that every `[ ]` a reviewer or tester ever wrote in an earlier round stays `[ ]` forever, and any card with >2 review rounds triggers a false reject at the integrator gate. It also required the DoD section to be "addressed", which agents similarly cannot edit.
 - Evidence: NOTIF-003-C ran Testing → Handoff (08:38:38) → integrator rejected to Reviewing (08:39:49) citing "DoD checklist in section 2 remains unchecked ([ ]), and feedback history still contains unresolved blocker/failure entries ([ ])" — while acknowledging "healthy source diff/build/test signals". The card was bounced into an integrator/reviewer/tester cycle despite a clean delivery.
@@ -175,6 +181,7 @@ ORC operates as an autonomous delivery system with:
 | unsubstituted `$ORC_AGENT_RUN_ID` discards delivery | 2026-04-20 | Fixed | detect `$VAR`/`${VAR}` run_id, normalize to agent_run_id |
 | rename-modify markers committed by agent merge | 2026-04-21 | Fixed | per-worktree `tasks/** merge=ours` + `ours` driver |
 | integrator false-reject on historical `[ ]` | 2026-04-21 | Fixed | reject only on observable failures; ignore cross-round checklist cosmetics |
+| demote sweep crashes on stale Todo snapshot | 2026-04-21 | Fixed | re-verify `card.stage == Todo` before moving |
 
 ## Architectural Hardening (2026-04-16)
 
