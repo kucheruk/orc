@@ -139,6 +139,12 @@ ORC operates as an autonomous delivery system with:
 - Fix: route known block/escalation paths through a single use case that always moves blocked cards to `7_Handoff`
 - **RESOLVED**
 
+### I-26: Integrator false-rejects cards with historical `[ ]` feedback items (2026-04-21 11:39)
+- Root cause: `prompts/kanban_integrator.txt` step 1 required *all* items in section 4 "Feedback & Checklist" to be `[x]`. But agents can only `feedback_append` — they cannot edit prior review/test rounds. The result is that every `[ ]` a reviewer or tester ever wrote in an earlier round stays `[ ]` forever, and any card with >2 review rounds triggers a false reject at the integrator gate. It also required the DoD section to be "addressed", which agents similarly cannot edit.
+- Evidence: NOTIF-003-C ran Testing → Handoff (08:38:38) → integrator rejected to Reviewing (08:39:49) citing "DoD checklist in section 2 remains unchecked ([ ]), and feedback history still contains unresolved blocker/failure entries ([ ])" — while acknowledging "healthy source diff/build/test signals". The card was bounced into an integrator/reviewer/tester cycle despite a clean delivery.
+- Fix (commit pending): rewrite step 1 of the integrator prompt to reject only on observable failures (empty code diff, build failure, latest-round FAIL/BLOCKER), and explicitly list "historical `[ ]` in section 4" and "DoD checklist `[ ]`" as expected artifacts that are not blockers. Also document that the canonical-card sync can lag one tick behind the stage transition, so a worktree file path that still shows a pre-handoff stage is not by itself a reject reason.
+- **RESOLVED** (prompt-level)
+
 ### I-25: Rename-modify conflict markers committed into worker branch (2026-04-21 10:55)
 - Root cause: the worker prompt instructs every coder/reviewer/tester to run `git merge master --no-edit` in their isolated worktree to sync upstream. Master is where ORC auto-commits each card's physical move between stage folders (`tasks/4_Coding/X.md` → `tasks/5_Review/X.md` → …). The worker branch was forked from master while the card was in an earlier stage, so git sees the card's own markdown as a rename-modify conflict (`<<<<<<<< HEAD:tasks/<old>/X.md` … `>>>>>>>> master:tasks/<new>/X.md`) and leaves 8-char rename-form markers. The agent commits the file verbatim, the reviewer/tester reports "unresolved conflict markers" and bounces to Coding, and loop_count climbs without any underlying code issue.
 - Evidence: NOTIF-003-C on jeeves bounced 5 times in a row (loop_count=5, tokens_spent=742969), with every round's feedback citing `<<<<<<<<`/`>>>>>>>>` in `tasks/6_Testing/NOTIF-003-C.md`; `git show HEAD:tasks/6_Testing/NOTIF-003-C.md` on `orc/NOTIF-003-C` confirmed real markers in the committed worktree tree. Reviewer and tester had both verified the feature code, so the bounces were pure markdown churn.
@@ -168,6 +174,7 @@ ORC operates as an autonomous delivery system with:
 | blocked card parked in Done/active WIP stage | 2026-04-16 | Fixed | normalized all known block paths to Handoff |
 | unsubstituted `$ORC_AGENT_RUN_ID` discards delivery | 2026-04-20 | Fixed | detect `$VAR`/`${VAR}` run_id, normalize to agent_run_id |
 | rename-modify markers committed by agent merge | 2026-04-21 | Fixed | per-worktree `tasks/** merge=ours` + `ours` driver |
+| integrator false-reject on historical `[ ]` | 2026-04-21 | Fixed | reject only on observable failures; ignore cross-round checklist cosmetics |
 
 ## Architectural Hardening (2026-04-16)
 

@@ -19,9 +19,20 @@ your branch into `{main_branch}` automatically after you finish — your job
 is to verify the work is ready and write the delivery review.
 
 ### Step 1: Verify readiness
-1. Read the DoD in section "# 2. Technical Design & DoD" — check all items addressed.
-2. Read section "# 4. Feedback & Checklist" — all items must be `[x]`.
-3. **If critical problems found** — reject (see Reject below).
+
+Your rejection criteria are **observable** signals, not checklist cosmetics. ORC's earlier gates (reviewer, tester) already verified the DoD against the code. You only reject when something concrete fails at the integration gate.
+
+**Reject** when any of the following is true:
+- `git diff {main_branch} --stat` shows no project-code changes (only `tasks/*.md`). Empty delivery.
+- Build command from `AGENTS.md` fails on the branch.
+- The latest-round reviewer or tester feedback says `FAIL`/`BLOCKER` and it is not refuted by a later round.
+
+**Do not reject** for these — they are expected artifacts, not blockers:
+- `[ ]` items in the DoD checklist in section 2: that section is the architect's intent, written once; agents cannot edit it. `[ ]` there is formatting, not state.
+- `[ ]` items inside historical feedback rounds (Round 1..N-1) in section 4: agents can only `feedback_append`, never edit prior rounds, so old review/test checklists keep their original `[ ]` forever. Only the **latest** round's verdict applies.
+- Card `file_path` that points to a pre-handoff stage folder: ORC's canonical-card sync can run a tick behind the stage transition. Trust the frontmatter `stage`/`action`, not the filesystem path you observe in the worktree.
+
+If nothing observable fails, **accept** and proceed to Step 2.
 
 ### Step 2: Ensure all code is committed
 1. Run `git status --porcelain`. If the output is empty — skip staging, no-op git commands (`git add`, `git commit`) just waste tokens.
