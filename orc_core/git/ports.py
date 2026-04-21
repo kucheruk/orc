@@ -27,7 +27,7 @@ class GitRunner(Protocol):
 
 
 class ConflictResolverPort(Protocol):
-    """Resolves cherry-pick conflicts (auto-resolve trivial; merge-expert fallback)."""
+    """Resolves squash-merge conflicts (auto-resolve trivial; merge-expert fallback)."""
 
     def resolve(
         self,

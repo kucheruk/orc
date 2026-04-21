@@ -12,7 +12,7 @@ class GitOperationError(OrcError):
 
 
 class IntegrationError(OrcError):
-    """Errors during git integration (cherry-pick, preflight)."""
+    """Errors during git integration (squash-merge, preflight)."""
 
 
 class WorktreeError(OrcError):

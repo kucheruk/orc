@@ -3,7 +3,7 @@
 """Finalization and stage completion orchestrator.
 
 Delegates to focused modules:
-- main_integrator: cherry-pick integration into main branch
+- main_integrator: squash-merge integration into main branch
 - backlog_validator: backlog invariant checks
 - stage_verdict_handlers: Strategy pattern for review/testing verdicts
 """

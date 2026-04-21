@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Protects a curated set of tracked files across git operations that would otherwise
-overwrite them (cherry-pick, hard reset). Saves contents before, restores after."""
+overwrite them (squash-merge, hard reset). Saves contents before, restores after."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _logger = logging.getLogger(__name__)
 class SafeFilesGuard:
     """Saves and restores a set of tracked file paths across risky git operations.
 
-    Used by IntegrationManager to shield specific paths from cherry-pick
+    Used by IntegrationManager to shield specific paths from squash-merge
     overwrites and from ``git reset --hard`` during stale-state recovery.
     """
 

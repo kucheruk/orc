@@ -193,7 +193,7 @@ class IntegrationManager:
                 self._pop_stash(ctx)
 
     def _stash_dirty_state(self, ctx: IntegrationContext) -> bool:
-        """Stash any dirty working-tree state so cherry-pick has a clean base.
+        """Stash any dirty working-tree state so the squash merge has a clean base.
 
         Returns True if a stash was created. The caller MUST call _pop_stash()
         in a finally block to restore the user's changes.
@@ -213,12 +213,12 @@ class IntegrationManager:
         return False
 
     def _pop_stash(self, ctx: IntegrationContext) -> None:
-        """Restore stashed state after cherry-pick. Conflicts are left for user."""
+        """Restore stashed state after the squash merge. Conflicts are left for user."""
         ok, _, stderr, _ = self._git.run(self.workdir, ["git", "stash", "pop"])
         if ok:
             ctx.step("autostash_restored")
         else:
-            # Pop failed (conflict with cherry-picked changes). The stash is
+            # Pop failed (conflict with squash-merged changes). The stash is
             # still on the stack. Try to apply instead — git stash apply leaves
             # the stash so nothing is lost even if working-tree conflicts remain.
             ok_apply, _, stderr_apply, _ = self._git.run(self.workdir, ["git", "stash", "apply"])

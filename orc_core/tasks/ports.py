@@ -157,7 +157,7 @@ class PreflightResult:
 
 class MainIntegrationPreflight(Protocol):
     """Port for main-branch integration preflight — what execution needs to know
-    before launching a task that will later cherry-pick into main."""
+    before launching a task that will later squash-merge into main."""
 
     def run(
         self,
