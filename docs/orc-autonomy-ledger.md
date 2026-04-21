@@ -139,6 +139,13 @@ ORC operates as an autonomous delivery system with:
 - Fix: route known block/escalation paths through a single use case that always moves blocked cards to `7_Handoff`
 - **RESOLVED**
 
+### I-25: Rename-modify conflict markers committed into worker branch (2026-04-21 10:55)
+- Root cause: the worker prompt instructs every coder/reviewer/tester to run `git merge master --no-edit` in their isolated worktree to sync upstream. Master is where ORC auto-commits each card's physical move between stage folders (`tasks/4_Coding/X.md` → `tasks/5_Review/X.md` → …). The worker branch was forked from master while the card was in an earlier stage, so git sees the card's own markdown as a rename-modify conflict (`<<<<<<<< HEAD:tasks/<old>/X.md` … `>>>>>>>> master:tasks/<new>/X.md`) and leaves 8-char rename-form markers. The agent commits the file verbatim, the reviewer/tester reports "unresolved conflict markers" and bounces to Coding, and loop_count climbs without any underlying code issue.
+- Evidence: NOTIF-003-C on jeeves bounced 5 times in a row (loop_count=5, tokens_spent=742969), with every round's feedback citing `<<<<<<<<`/`>>>>>>>>` in `tasks/6_Testing/NOTIF-003-C.md`; `git show HEAD:tasks/6_Testing/NOTIF-003-C.md` on `orc/NOTIF-003-C` confirmed real markers in the committed worktree tree. Reviewer and tester had both verified the feature code, so the bounces were pure markdown churn.
+- Fix (commit `a459a6d`): `create_task_worktree()` now writes `tasks/**    merge=ours` into the per-worktree `$GIT_DIR/info/attributes` and registers `merge.ours.driver=true` via `git config --worktree`. Git keeps the worker-branch side for tasks/ files during any merge the agent runs, so rename-modify never materializes as a conflict. ORC already re-syncs the canonical card copy from master into the worktree before each agent session (see I-21), so "ours wins" does not shadow real board state. The fix applies on both first creation and worktree reuse, so already-live cards pick up the attribute on their next pickup without needing to discard the branch. Integration test `test_worktree_merge_attributes_file_is_written` verifies the attributes file.
+- Manual recovery on NOTIF-003-C's branch: reset `tasks/` subtree to `master` and dropped the stale stage duplicates committed with markers (`git rm tasks/6_Testing/NOTIF-003-C.md tasks/7_Handoff/NOTIF-003-C.md`). Card is now clean at `tasks/4_Coding/NOTIF-003-C.md`.
+- **RESOLVED**
+
 ### I-24: Unsubstituted `$ORC_AGENT_RUN_ID` discards real delivery (2026-04-21 10:30)
 - Root cause: when the agent writes the result JSON via a quoted heredoc or a file-write tool that bypasses the shell, `run_id` lands as the literal string `"$ORC_AGENT_RUN_ID"` (or `"${ORC_AGENT_RUN_ID}"`). The committed code is real, but `_run_id_task_stage_prefix` can't match literal against `TASK:STAGE:attempt-N`, so the prefix check hard-rejected the delivery and ORC restarted the attempt.
 - Evidence: `attempt.validation_failed result run_id '$ORC_AGENT_RUN_ID' does not match task/stage` for NOTIF-002-C-C (2026-04-20 19:25) and NOTIF-003-C (2026-04-21 10:30); each occurrence burned 30–40k tokens on the discarded attempt plus the restart it triggered.
@@ -160,6 +167,7 @@ ORC operates as an autonomous delivery system with:
 | stale agent completion applied after card moved | 2026-04-16 | Fixed | launch-state fingerprint + discard stale results |
 | blocked card parked in Done/active WIP stage | 2026-04-16 | Fixed | normalized all known block paths to Handoff |
 | unsubstituted `$ORC_AGENT_RUN_ID` discards delivery | 2026-04-20 | Fixed | detect `$VAR`/`${VAR}` run_id, normalize to agent_run_id |
+| rename-modify markers committed by agent merge | 2026-04-21 | Fixed | per-worktree `tasks/** merge=ours` + `ours` driver |
 
 ## Architectural Hardening (2026-04-16)
 
