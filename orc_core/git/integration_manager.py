@@ -171,11 +171,6 @@ class IntegrationManager:
         explicit_branch: str = "",
     ) -> bool:
         branch_name = (explicit_branch or "").strip()
-        if not branch_name:
-            # Legacy path: a live worktree is available, so derive the branch
-            # from its HEAD.
-            ok, stdout, _, _ = self._git.run(execution_workdir, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
-            branch_name = stdout.strip() if ok else ""
         if not branch_name or branch_name == "HEAD":
             ctx.step_error("branch_resolve_failed", worktree=execution_workdir)
             ctx.save_report("failed", "branch_resolve_failed")
