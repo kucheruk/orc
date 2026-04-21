@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
@@ -68,6 +70,19 @@ def process_worker_card_result(
                 expected_role=role,
                 expected_payload_kind=PAYLOAD_CARD_UPDATE,
             )
+            # Agents occasionally ship the literal "$ORC_AGENT_RUN_ID" (and
+            # similar shell variable forms) when their heredoc terminator is
+            # quoted or they use a file-write tool that doesn't expand env
+            # vars. The committed code is real — only the metadata label is
+            # wrong. Trust ORC's authoritative agent_run_id in that case
+            # rather than discarding 30–40k tokens of delivered work.
+            if _is_unsubstituted_env_ref(result.run_id):
+                _logger.warning(
+                    "Agent wrote unsubstituted run_id literal %r for %s; "
+                    "normalizing to agent_run_id=%s and proceeding.",
+                    result.run_id, card.id, agent_run_id,
+                )
+                result = replace(result, run_id=agent_run_id)
             expected_prefix = _run_id_task_stage_prefix(agent_run_id)
             actual_prefix = _run_id_task_stage_prefix(result.run_id)
             if expected_prefix and actual_prefix != expected_prefix:
@@ -167,6 +182,19 @@ def _synthesize_card_update_fallback(
                 "stage transition.",
         payload=payload,
     )
+
+
+# Matches a run_id that is a literal, unsubstituted shell variable reference
+# — typically "$ORC_AGENT_RUN_ID" or "${ORC_AGENT_RUN_ID}", which the agent
+# emits when its heredoc terminator was quoted or it bypassed the shell
+# entirely. The file on disk is otherwise well-formed, so we accept and
+# replace the run_id with ORC's own source of truth rather than discarding
+# a real delivery.
+_UNSUBSTITUTED_RUN_ID_RE = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
+
+
+def _is_unsubstituted_env_ref(run_id: str) -> bool:
+    return bool(_UNSUBSTITUTED_RUN_ID_RE.match(str(run_id or "").strip()))
 
 
 def _run_id_task_stage_prefix(run_id: str) -> str:

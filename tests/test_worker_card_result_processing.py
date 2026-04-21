@@ -374,6 +374,146 @@ class WorkerCardResultProcessingTest(unittest.TestCase):
                              "recreating it would trigger _dedup_cards on "
                              "the next refresh and wipe the post-apply copy")
 
+    def test_unsubstituted_env_run_id_is_normalized(self):
+        """Agents sometimes ship the literal "$ORC_AGENT_RUN_ID" when the
+        heredoc terminator was quoted or they wrote the file through a
+        tool that bypasses the shell. Before the fix this dropped the
+        entire delivery (seen on NOTIF-002-C-C 2026-04-20, NOTIF-003-C
+        2026-04-21), burning 30–40k tokens per occurrence. ORC knows the
+        real run_id, so the delivery is accepted and normalized."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="U-1", stage="5_Review", action="Reviewing"))
+            board.refresh(force=True)
+            card = board.card_by_id("U-1")
+            real_run_id = build_result_run_id(
+                task_id="U-1", stage_id="5_Review", attempt=1,
+            )
+            result_file, _ = _write_result(Path(tmp), {
+                "schema_version": 1,
+                "payload_kind": "card_update",
+                "role": "reviewer",
+                "run_id": "$ORC_AGENT_RUN_ID",  # unsubstituted literal
+                "summary": "approved",
+                "payload": {
+                    "task_id": "U-1",
+                    "launch_fingerprint": {
+                        "stage": card.stage,
+                        "action": card.action,
+                        "file_path": str(card.file_path),
+                        "state_version": card.state_version,
+                    },
+                    "next_action": "",
+                    "field_updates": {},
+                    "section_updates": {},
+                    "feedback_append": "",
+                },
+            })
+            tracker = TaskOutcomeTracker()
+
+            errors = process_worker_card_result(
+                board, card, "reviewer",
+                agent_result_file=result_file,
+                agent_run_id=real_run_id,
+                outcomes=tracker,
+            )
+
+            self.assertEqual(errors, [],
+                             f"unsubstituted run_id must not discard the "
+                             f"delivery; got {errors!r}")
+            board.refresh(force=True)
+            advanced = board.card_by_id("U-1")
+            self.assertEqual(advanced.stage, "6_Testing",
+                             "reviewer approving in 5_Review should advance to "
+                             "6_Testing even when the run_id field was not "
+                             "substituted by the agent's shell")
+            recorded = tracker.state_snapshot()["applied_result_runs"]
+            self.assertTrue(any(r.startswith(real_run_id) for r in recorded),
+                            "dedup must be recorded under the normalized "
+                            f"run_id, not the literal; got {recorded!r}")
+
+    def test_braced_env_run_id_also_normalized(self):
+        """"${ORC_AGENT_RUN_ID}" is the other broken-heredoc form. Same
+        fix path: accept and normalize to ORC's real run_id."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="U-2", stage="5_Review", action="Reviewing"))
+            board.refresh(force=True)
+            card = board.card_by_id("U-2")
+            real_run_id = build_result_run_id(
+                task_id="U-2", stage_id="5_Review", attempt=2,
+            )
+            result_file, _ = _write_result(Path(tmp), {
+                "schema_version": 1,
+                "payload_kind": "card_update",
+                "role": "reviewer",
+                "run_id": "${ORC_AGENT_RUN_ID}",
+                "summary": "approved",
+                "payload": {
+                    "task_id": "U-2",
+                    "launch_fingerprint": {
+                        "stage": card.stage,
+                        "action": card.action,
+                        "file_path": str(card.file_path),
+                        "state_version": card.state_version,
+                    },
+                    "next_action": "",
+                    "field_updates": {},
+                    "section_updates": {},
+                    "feedback_append": "",
+                },
+            })
+
+            errors = process_worker_card_result(
+                board, card, "reviewer",
+                agent_result_file=result_file,
+                agent_run_id=real_run_id,
+                outcomes=TaskOutcomeTracker(),
+            )
+            self.assertEqual(errors, [])
+            board.refresh(force=True)
+            self.assertEqual(board.card_by_id("U-2").stage, "6_Testing")
+
+    def test_genuine_run_id_mismatch_still_rejected(self):
+        """The unsubstituted-literal accommodation must NOT leak into
+        genuine mismatches where the agent wrote a result for a different
+        task or stage — that's a real wiring bug, not a heredoc mistake."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir, board = _make_board(tmp)
+            _add_card(tasks_dir, KanbanCard(id="M-1", stage="5_Review", action="Reviewing"))
+            board.refresh(force=True)
+            card = board.card_by_id("M-1")
+            result_file, _ = _write_result(Path(tmp), {
+                "schema_version": 1,
+                "payload_kind": "card_update",
+                "role": "reviewer",
+                "run_id": "OTHER-TASK:5_Review:attempt-1",
+                "summary": "wrong card",
+                "payload": {
+                    "task_id": "M-1",
+                    "launch_fingerprint": {
+                        "stage": card.stage,
+                        "action": card.action,
+                        "file_path": str(card.file_path),
+                        "state_version": card.state_version,
+                    },
+                    "next_action": "",
+                    "field_updates": {},
+                    "section_updates": {},
+                    "feedback_append": "",
+                },
+            })
+            errors = process_worker_card_result(
+                board, card, "reviewer",
+                agent_result_file=result_file,
+                agent_run_id=build_result_run_id(
+                    task_id="M-1", stage_id="5_Review", attempt=1,
+                ),
+                outcomes=TaskOutcomeTracker(),
+            )
+            self.assertTrue(any("does not match task/stage" in e for e in errors),
+                            f"genuine mismatch must still be rejected; got {errors!r}")
+
     def test_malformed_result_content_also_synthesizes(self):
         """Agents writing the result via a heredoc sometimes embed a
         control character (backtick, newline, tab) inside
