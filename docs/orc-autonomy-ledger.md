@@ -139,6 +139,12 @@ ORC operates as an autonomous delivery system with:
 - Fix: route known block/escalation paths through a single use case that always moves blocked cards to `7_Handoff`
 - **RESOLVED**
 
+### I-24: Unsubstituted `$ORC_AGENT_RUN_ID` discards real delivery (2026-04-21 10:30)
+- Root cause: when the agent writes the result JSON via a quoted heredoc or a file-write tool that bypasses the shell, `run_id` lands as the literal string `"$ORC_AGENT_RUN_ID"` (or `"${ORC_AGENT_RUN_ID}"`). The committed code is real, but `_run_id_task_stage_prefix` can't match literal against `TASK:STAGE:attempt-N`, so the prefix check hard-rejected the delivery and ORC restarted the attempt.
+- Evidence: `attempt.validation_failed result run_id '$ORC_AGENT_RUN_ID' does not match task/stage` for NOTIF-002-C-C (2026-04-20 19:25) and NOTIF-003-C (2026-04-21 10:30); each occurrence burned 30–40k tokens on the discarded attempt plus the restart it triggered.
+- Fix (commit `2b39040`): in `worker_result_processor`, detect `^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$` in `result.run_id`, log a warning, and `dataclasses.replace` the run_id with ORC's authoritative `agent_run_id` before the prefix check. Treats the case the same as the existing missing-file / malformed-JSON recovery. Genuine `TASK:STAGE` mismatches still reject (regression test `test_genuine_run_id_mismatch_still_rejected`).
+- **RESOLVED**
+
 ## Known Failure Signatures
 
 | Signature | First Seen | Status | Fix |
@@ -153,6 +159,7 @@ ORC operates as an autonomous delivery system with:
 | stale worktree card path chosen over canonical | 2026-04-16 | Fixed | sync canonical card copy + prefer canonical worktree path |
 | stale agent completion applied after card moved | 2026-04-16 | Fixed | launch-state fingerprint + discard stale results |
 | blocked card parked in Done/active WIP stage | 2026-04-16 | Fixed | normalized all known block paths to Handoff |
+| unsubstituted `$ORC_AGENT_RUN_ID` discards delivery | 2026-04-20 | Fixed | detect `$VAR`/`${VAR}` run_id, normalize to agent_run_id |
 
 ## Architectural Hardening (2026-04-16)
 
